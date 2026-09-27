@@ -16814,7 +16814,7 @@
 			repositoryURL = "https://github.com/SFSafeSymbols/SFSafeSymbols.git";
 			requirement = {
 				kind = exactVersion;
-				version = 7.0.0;
+				version = 6.2.0;
 			};
 		};
 		57C759042FD42BD80093A2B3 /* XCRemoteSwiftPackageReference "Haptica" */ = {
