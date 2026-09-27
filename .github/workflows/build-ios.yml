@@ -1,23 +1,51 @@
 name: Build XMB Manic iOS
+
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 60
+
     steps:
       - name: Checkout source (no LFS)
         uses: actions/checkout@v4
         with:
           lfs: false
           submodules: recursive
+
+      - name: Patch ProHUD for Xcode 16
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("Dependencies/ProHUD/Sources/ProHUD/Core/Utils/AppContext.swift")
+          s = p.read_text()
+
+          target = "setNeedsUpdateOfPrefersInterfaceOrientationLocked()"
+
+          s = s.replace(
+              target,
+              """#if compiler(>=6.2)
+          setNeedsUpdateOfPrefersInterfaceOrientationLocked()
+          #endif"""
+          )
+
+          p.write_text(s)
+          PY
+
       - name: Hydrate emulator assets from official Manic v2.0.1 release
         env:
           MANIC_RELEASE_TAG: v2.0.1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash Scripts/hydrate_release_assets.sh
+
       - name: Upload hydration diagnostic
         if: always()
         uses: actions/upload-artifact@v4
@@ -25,6 +53,7 @@ jobs:
           name: Remaining-LFS-pointers
           path: remaining-lfs-pointers.txt
           if-no-files-found: ignore
+
       - name: Refuse to compile with unresolved LFS pointers
         run: |
           if [ -s remaining-lfs-pointers.txt ]; then
@@ -32,19 +61,39 @@ jobs:
             echo 'Download the Remaining-LFS-pointers artifact and send it back for the next patch.'
             exit 2
           fi
+
       - name: Show Xcode version and schemes
         working-directory: ManicEmu
         run: |
           xcodebuild -version
           xcodebuild -project ManicEmu.xcodeproj -list
+
       - name: Resolve Swift packages
         working-directory: ManicEmu
-        run: xcodebuild -resolvePackageDependencies -project ManicEmu.xcodeproj -scheme ManicEmuSideload -skipPackagePluginValidation
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project ManicEmu.xcodeproj \
+            -scheme ManicEmuSideload \
+            -skipPackagePluginValidation
+
       - name: Build unsigned iPhone app
         working-directory: ManicEmu
         run: |
           set -o pipefail
-          xcodebuild -project ManicEmu.xcodeproj -scheme ManicEmuSideload -configuration SideloadRelease -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/DerivedData" -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= build | tee "$RUNNER_TEMP/xcodebuild.log"
+          xcodebuild \
+            -project ManicEmu.xcodeproj \
+            -scheme ManicEmuSideload \
+            -configuration SideloadRelease \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM= \
+            build | tee "$RUNNER_TEMP/xcodebuild.log"
+
       - name: Package unsigned IPA
         if: success()
         run: |
@@ -52,13 +101,16 @@ jobs:
           test -n "$APP"
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP" "$RUNNER_TEMP/Payload/"
-          cd "$RUNNER_TEMP" && zip -qry ManicEMU-XMB-unsigned.ipa Payload
+          cd "$RUNNER_TEMP"
+          zip -qry ManicEMU-XMB-unsigned.ipa Payload
+
       - name: Upload unsigned IPA
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ManicEMU-XMB-unsigned-IPA
           path: ${{ runner.temp }}/ManicEMU-XMB-unsigned.ipa
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
