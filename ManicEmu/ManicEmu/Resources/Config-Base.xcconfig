@@ -1,0 +1,19 @@
+//
+//  ConfigBase.xcconfig/Users/lax/ProjectManicEMU/ManicSupport/Resources/System.core
+//  ManicEmu
+//
+//  Created by Aoshuang Lee on 2023/5/9.
+//  Copyright © 2023 Aoshuang Lee. All rights reserved.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Configuration settings file format documentation can be found at:
+// https://help.apple.com/xcode/#/dev745c5c974
+
+APP_BUNDLE_IDENTIFIER = com.aoshuang.manicemu
+APP_BUILD_VERSION = 12
+APP_VERSION = 2.0.1
+
+// Prebuilt cores under ProjectManicEMU/Cores (Citra.framework, *.libretro.framework, …)
+FRAMEWORK_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/../Cores
+OTHER_LDFLAGS = $(inherited) -framework SQLCipher

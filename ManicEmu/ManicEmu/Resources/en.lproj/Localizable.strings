@@ -1,0 +1,1200 @@
+/*
+  Localizable.strings
+  ManicEmu
+
+  Created by Aoshuang Lee on 2024/12/25.
+  Copyright © 2024 Manic EMU. All rights reserved.
+*/
+
+// Import Section
+"ImportAddCloudServiceTitle" = "Cloud Services";
+"ImportAddLanServiceTitle" = "Local Network Services";
+"GoogleDrive" = "Google Drive";
+"Dropbox" = "Dropbox";
+"OneDrive" = "OneDrive";
+"BaiduYun" = "Baidu Cloud";
+"AliYun" = "AliCloud";
+"AddImportServiceHeaderTitle" = "Add Service";
+"ImportServiceDelete" = "Remove Service";
+"ImportAliyunNotGetDriveId" = "Failed to add AliCloud service: Could not retrieve directory";
+"ImportDownloadError" = "Download Error\n%@";
+"ImportDownloadContinue" = "Resuming Download...\n%@";
+"LandServiceEditServerName" = "Server Title";
+"LandServiceEditHost" = "Server Address";
+"LandServiceEditUserName" = "Username";
+"LandServiceEditPassword" = "Password";
+"LandServiceEditRequiredPlaceholder" = "Required";
+"LandServiceEditOptionalPlaceholder" = "Optional";
+"LandServiceEditConnect" = "Connect";
+"AddLandServiceSuccess" = "Successfully added %@";
+"AddLandServiceFailed" = "Failed to add %@\nPlease check network connection, service status, or input information";
+"FilesImporterErrorFileExist" = "\"%@\" already exists";
+"FilesImporterErrorBadCopy" = "Failed to import \"%@\": File copy error";
+"FilesImporterErrorBadExtension" = "Unsupported file extension: %@";
+"FilesImporterErrorNoPermission" = "No permission to access %@";
+"FilesImporterErrorUnableToHash" = "Failed to import \"%@\": Hash calculation error";
+"FilesImporterErrorWriteDatabase" = "Failed to import \"%@\": Database write error";
+"GameSaveMatchTitle" = "Match Game Save to Game";
+"FilesImporterErrorSaveNoMatchGames" = "\"%@\" requires manual matching";
+"GameSaveAlreadyExistTitle" = "Game Save Exists";
+"FilesImporterErrorSaveAlreadyExist" = "Overwrite existing game save for \"%@\"?";
+"GameSaveMathToMuchTitle" = "Multiple Matches";
+"FilesImporterErrorSaveMathToMuch" = "Multiple game matches for \"%@\": Please select manually";
+"FilesImporterErrorSkinBadFile" = "Corrupted skin file: %@";
+"PasteImporterErrorNoMatchContent" = "No importable content in clipboard";
+"FilesDownloadErrorFileExist" = "%@ already downloaded";
+"FilesImporterErrorEmptyContent" = "No importable content found";
+"LanServiceInitFailed" = "Failed to initialize %@ service";
+"SMBLoginFailed" = "SMB Authentication Failed%@";
+"SMBListFilesFailed" = "Failed to retrieve files%@";
+"SMBListFilesTypeError" = "Not a directory";
+"DropErrorLoadFailed" = "Failed to load file";
+"DropErrorNotSupportFile" = "Unsupported file type";
+"ImportErrorTitle" = "Import Error";
+"ImportGameSuccessTitle" = "Game Imported";
+"ImportGameSuccessDetail" = "%@\nhas been added to your library. View now?";
+"ImportGameSuccessDetailForOne" = "\"%@\"\nhas been added. Start playing?";
+"ImportSkinSuccessTitle" = "Skin Imported";
+"ImportSkinSuccessDetail" = "\"%@\"\nimported successfully. View now?";
+"ImportGameSaveSuccessTitle" = "Game Save Imported";
+"ImportGameSaveSuccessDetail" = "\"%@\"\nhas been added to corresponding game";
+"ImportGameSaveSuccessForOne" = "\"%@\"\nimported. Start playing?";
+"ImportGameSaveFailedNoGameError" = "Failed to import \"%@\": No games available";
+"DownloadCompletion" = "Download Complete";
+"QQChannelName" = "QQ Channel";
+"NotSupportPasswordZip" = "Encrypted ZIP not supported: %@";
+"UnzipFailed" = "Failed to extract \"%@\"";
+"NoSupportInZip" = "No supported formats in \"%@\"";
+"IPCopy" = "Address Copied";
+"ImportServiceListFilesTitle" = "Files";
+"ImportServiceListFilesDetail" = "Import games, skins, game saves from files or iCloud";
+"ImportServiceListWiFiTitle" = "WiFi";
+"ImportServiceListWiFiOffDetail" = "Transfer files via browser on same network";
+"ImportServiceListWiFiOnDetail" = "%@\nUse browser to transfer files";
+"ImportServiceListPasteTitle" = "Read Clipboard";
+"ImportServiceListPasteDetail" = "Supports files copied from macOS or Files app";
+"ImportTopHintTitle" = "Your adventure begins here!";
+"ImportDragAndDropTips" = "Drag files to any Manic EMU interface for transfer";
+"ImportChannelTips" = "Join %@ for assistance";
+"ToastConnectCloudDriveSuccess" = "Successfully connected to %@";
+"AlertImportFilesSuccess" = "Import Successful";
+"ErrorConnectCloudDrive" = "Cloud Service Connection Failed";
+"ErrorUnknown" = "Unknown Error";
+"ReasonConncetCloudDriveFail" = "Check network connection and service authorization, or remove and re-add service";
+
+// Common Section
+"TabbarTitleGames" = "Games";
+"TabbarTitleImport" = "Import";
+"TabbarTitleSettings" = "Settings";
+"SelectAll" = "Select All";
+"DeSelectAll" = "Deselect All";
+"CloudDriveBrowserDownload" = "Download";
+"CancelTitle" = "Cancel";
+"CheckTitle" = "View";
+"StartGameTitle" = "Play Now";
+"ConfirmTitle" = "Confirm";
+"SaveTitle" = "Save";
+"NameTitle" = "Name";
+"TimeAgoMinuteFormat" = "%d minute(s) ago";
+"TimeAgoHourFormat" = "%d hour(s) ago";
+"TimeAgoDayFormat" = "%d day(s) ago";
+"TimeAgoWeekFormat" = "%d week(s) ago";
+"TimeAgoMonthFormat" = "%d month(s) ago";
+"TimeAgoYearFormat" = "%d year(s) ago";
+"TimeDurationHourAndMinuteFormat" = "%d hr %d min";
+"TimeDurationHourFormat" = "%d hours";
+"TimeDurationMinuteFormat" = "%d minutes";
+"FatalErrorTitle" = "Fatal Error";
+"FatalErrorDesc" = "Critical system resource failure: Manic EMU may malfunction";
+"AirPlayDesc" = "Let the adventure begin!";
+"ToastSuccess" = "Saved Successfully";
+"ToastFailed" = "Save Failed";
+
+// Games Section
+"GamesSearchPlaceHolder" = "Search Games";
+"GamesRename" = "Rename";
+"GamesModifyCover" = "Edit Cover";
+"GamesSpecifySkin" = "Assign Skin";
+"GamesCheatCode" = "Cheat Codes";
+"GamesShareRom" = "Share ROM";
+"GamesCheckSave" = "View Save States";
+"GamesImportSave" = "Import Game Save";
+"GamesShareSave" = "Export Game Save";
+"GamesDelete" = "Remove Game";
+"LoadGameErrorRomNotExist" = "ROM file missing";
+"GamesListEmptyGuideLeft" = "Tap the";
+"GamesListEmptyGuideRight" = "button to import";
+"GamesListEmptyWelcomeLeft" = "Welcome to";
+"GamesListEmptyWelcomeRight" = "'s World";
+"GamesListEmptyWarnning" = "Ensure game ROMs are legally obtained";
+"LandscapeEmptyAddGame" = "Add Game";
+"DeleteGameAlertDetail" = "All game data including ROMs, saves, and cheat codes will be permanently deleted!";
+"DeleteSkinAlertDetail" = "Skin removal is irreversible!";
+"DeleteGameGameStateAlertDetail" = "Save states cannot be recovered!";
+"confirmDelte" = "Confirm Removal";
+
+// Controllers Section
+"ControllersTouchName" = "Touch Control";
+"ControllersPlayerIndex" = "Player %d";
+"ControllersPlayerUnset" = "Unassigned";
+
+// GameInfo Section
+"ReadyGameInfoSubTitle" = "%@ played · Total %@";
+"ReadyGameInfoNeverPlayed" = "Start your adventure now";
+"ReadyEditCoverTakePhoto" = "Camera";
+"ReadyEditCoverAlbum" = "Photos";
+"ReadyEditCoverFile" = "Files";
+"ReadyEditCoverSearch" = "Search";
+"ReadySegmentManualSave" = "Manual Save States";
+"ReadySegmentAutoSave" = "Auto Save States";
+"ReadyEditTitleFailed" = "Rename failed: Name cannot be empty";
+"ReadyGameSaveStatesEmpty" = "No save states";
+"GameSaveGuideBecomTitle" = "Unlock";
+"GameSaveGuideMemberTitle" = "membership";
+"GameSaveGuideDesc" = "Unlock unlimited manual save states and up to 50 auto save states";
+"GameSaveUnCompatibleTitle" = "Save State Compatibility";
+"GameSaveUnCompatibleDetail" = "This save state was created on %@ (current: %@). Loading incompatible save states may cause unexpected behavior!";
+"GameSaveStateForceLoad" = "Load Anyway";
+"GameSaveContinue" = "Continue";
+"GameSaveTitle" = "Save %d";
+
+// Skin Section
+"SkinNavigationSubTitleSpecifiedGame" = "Custom skin for %@";
+"SkinSegmentPortraitTitle" = "Portrait";
+"SkinSegmentLandscapeTitle" = "Landscape";
+"SkinAddTitle" = "New Skin";
+"SkinDelete" = "Remove Skin";
+"DefaultSkinCannotEdit" = "Default skin cannot be modified";
+
+// History Section
+"HistoryHeaderTitle" = "Play History";
+"HistoryFavouriteTitle" = "Favourite";
+"HistoryEmptyTitle" = "No Play History";
+"HistoryEmptyImportGame" = "Import Games";
+"HistoryEmptyStartGame" = "Start Playing";
+
+// Settings Section
+"QuickGameTitle" = "Quick Start";
+"QuickGameDetail" = "Skip preparation page";
+"AirPlayTitle" = "AirPlay Fullscreen";
+"AirPlayDetail" = "Enable fullscreen mirroring";
+"iCloudTitle" = "iCloud Sync";
+"QATitle" = "FAQ";
+"FeedbackTitle" = "Feedback";
+"ShareAppTitle" = "Share Manic EMU";
+"JoinQQTitle" = "Join QQ Channel";
+"JoinTelegramTitle" = "Join Telegram";
+"ClearCacheTitle" = "Clear Cache";
+"LanguageTitle" = "Language";
+"UserAgreementTitle" = "Terms of Service";
+"PrivacyPolicyTitle" = "Privacy Policy";
+"GeneralSettingTitle" = "General";
+"AdvanceSettingTitle" = "Advanced";
+"SupportSettingTitle" = "Support";
+"OthersSettingTitle" = "Others";
+"iCloudDisableTitle" = "iCloud Unavailable";
+"iCloudDisableDetail" = "Enable iCloud in Settings > [Your Name] > iCloud > Enable iCloud Drive for Manic EMU";
+"iCloudSyncConfilictTitle" = "iCloud Conflict";
+"iCloudSyncConfilictSaveiCloud" = "Keep Cloud";
+"iCloudSyncConfilictSaveLocal" = "Keep Local";
+"SettingsNonMemberDesc" = "You are the protagonist of this story";
+"ThanksSupportDesc" = "Thank you for your support";
+"ThanksCommingDesc" = "Thank you for playing";
+"PlayGameDesc" = "";
+"NoEmailSetting" = "Email not configured";
+"SendEmailSuccess" = "Email sent successfully";
+"SendEmailFailed" = "Failed to send email: %@";
+"iCloudTipsTitle" = "Enable iCloud Sync";
+"iCloudTipsDetail" = "Activate iCloud Sync to seamlessly transfer all Manic EMU data across devices logged in with the same Apple ID. All your data will be uploaded to iCloud, which may consume your iCloud storage space. Insufficient storage may cause sync failures! Synced data will be stored in the cloud - games may not function properly if data hasn't finished downloading.";
+"iCloudConfirm" = "Continue Activation";
+
+// Play
+"LoadingTitle" = "Downloading";
+"LoadRomSuccess" = "%@ downloaded - ready to play!";
+"GameSettingSaveState" = "Save State";
+"GameSettingQuickLoadState" = "Quick Load";
+"GameSettingVolume" = "Volume";
+"GameSettingFastForwardResume" = "Normal Speed";
+"GameSettingFastForward" = "Fast Forward %@";
+"GameSettingScreenShot" = "Screenshot";
+"GameSettingHapticOff" = "Haptics Off";
+"GameSettingHapticSoft" = "Soft Haptics";
+"GameSettingHapticLight" = "Light Haptics";
+"GameSettingHapticMedium" = "Medium Haptics";
+"GameSettingHapticHeavy" = "Heavy Haptics";
+"GameSettingHapticRigid" = "Rigid Haptics";
+"GameSettingControllerTypeDPad" = "DPad";
+"GameSettingControllerTypeStick" = "Joystick";
+"GameSettingAirplay" = "AirPlay";
+"GameSettingControllerSetting" = "Controllers";
+"GameSettingOrientationAuto" = "Auto-Rotate";
+"GameSettingOrientationPortrait" = "Portrait Lock";
+"GameSettingOrientationLandscape" = "Landscape Lock";
+"GameSettingFunctionSort" = "Function Layout";
+"GameSettingReload" = "Restart";
+"GameSettingQuit" = "Quit";
+"GameSaveStateSuccess" = "Save state successful";
+"GameSaveStateLoadSuccess" = "Save state loaded";
+"GameSaveStateQuickLoadFailed" = "No manual save state found. Use 'Save States' to load auto save states";
+"GameSaveListTitle" = "Save States";
+"GameCheatActivateSuccess" = "%@\nActivated successfully";
+"AirPlayingTitle" = "Game screen mirrored via AirPlay";
+"VolumeOff" = "Muted";
+"VolumeOn" = "Unmuted";
+"ManualGameSaveCountLimit" = "Save state limit exceeded! Upgrade to Premium for unlimited saves or manage existing save states";
+"FastForwardSpeedLimit" = "Maximum speed limited to 2x! Upgrade to Premium for 5x fast forward";
+"ResetSpeed" = "Reset Speed";
+"GoToUpgrade" = "Upgrade Now";
+"SaveStateTooFrequent" = "Save state too frequent";
+"LoadStateTooFrequent" = "Load state too frequent";
+
+// CheatCode
+"CheatCodeNamePlaceHolder" = "Enter name";
+"AutoDetectCheatTypeName" = "Auto-Detect";
+"AutoDetectFormat" = "Input code to auto-detect format";
+"CheatCodeFormatError" = "Invalid cheat code format";
+"CheatCodeEmptyTitle" = "No cheat codes";
+"EnableCheatCodeAlertTitle" = "Enable Cheat Codes";
+"EnableCheatCodeAlertDetail" = "Cheat codes are version-specific and may cause instability or errors. Use at your own discretion.";
+
+// Filters
+"FilterOriginTitle" = "Original";
+
+// In-App Purchases
+"PurchaseAdcancedFeaturesTitle" = "Unlock Premium Features";
+"AdcancedFeaturesDetail" = " 
+「🎮 Ultimate Gaming Experience」
+🔥 Unlimited Save States
+🚀 5x Fast Forward
+💎 Unlimited Cheat Codes
+✨ Premium Filters Collection
+";
+"PurchaseImportFeaturesTitle" = "Enable Cloud Import";
+"ImportFeaturesDetail" = " 
+☁️ Cross-Platform Cloud Sync
+✅ Google Drive/Dropbox/OneDrive
+✅ Baidu Cloud/AliCloud
+⚡ WebDAV/SMB Protocol Support
+";
+"PurchaseControllerFeaturesTitle" = "Unlock Full Controller Support";
+"ControllerFeaturesDetail" = " 
+🕹️ Universal Controller Compatibility
+🎮 Native Joy-Con/DUALSHOCK/Xbox Support
+⌨️ Bluetooth Controllers & Keyboards
+✨ Multi-Controller Pairing
+🎲 Flexible Player Assignment
+";
+"PurchaseAirPlayFeaturesTitle" = "Unlock AirPlay Streaming";
+"AirPlayFeaturesDetail" = " 
+📺 Big Screen Gaming
+🔓 Lossless AirPlay Mirroring
+🛋️ TV-to-Mobile Seamless Switching
+🎮 Controller-Compatible TV Play
+";
+"PurchaseiCloudFeaturesTitle" = "Enable iCloud Sync";
+"iCloudFeaturesDetail" = " 
+☁️ Cross-Device Continuity
+🎮 Game Save/Save States/Settings Sync
+🔒 Encrypted Cloud Backups
+🔄 Pick Up Where You Left Off
+";
+"AdvanceFeatureDescLabel1" = "Up to 5x Speed";
+"AdvanceFeatureDescLabel2" = "Unlimited Save States";
+"AdvanceFeatureDescLabel3" = "Unlimited Cheat Codes";
+"AdvanceFeatureDescLabel4" = "Premium Filters";
+"AdvanceFeatureDescLabel5" = "Auto Save State";
+"RestorePurchaseButton" = "Restore Purchases";
+"AnnualDescription" = "Annual Membership";
+"MonthlyDescription" = "Monthly Membership";
+"ForeverDescription" = "Lifetime Pass · One-time Payment";
+"SubscriptionPromotional" = "First %d Days Free";
+"PurchasePricePerYear" = "/year";
+"PurchasePricePerMonth" = "/month";
+"PromptLabelForYear" = "50%% Off";
+"PromptLabelForMonth" = "Introductory Offer";
+"PromptLabelForForever" = "Best Value";
+"GetProductsFailedTitle" = "Failed to Retrieve Products";
+"TermOfServiceTitle" = "Terms of Service";
+"AnnualMemberTitle" = "Super Annual Member";
+"MonthlyMemberTitle" = "Monthly Adventurer";
+"ForeverMemberTitle" = "Lifetime Member";
+"PurchaseVerifiedFailed" = "Payment verification failed. Ensure internet connectivity and restart Manic EMU to retry";
+"PurchaseCancel" = "Payment canceled. You've missed the chance to unlock premium features";
+"PurchasePending" = "Payment pending. Membership will activate upon completion";
+"PurchaseUnknown" = "Unknown Payment Status";
+"PurchaseErrorDesc" = "Payment temporarily unavailable. Check internet connection";
+"RestoreSuccessDesc" = "Purchases Restored Successfully!";
+"RestoreEndDesc" = "Restoration Complete - No Valid Purchases Found";
+"TrialDesc" = "No charges during trial period. Cancel anytime";
+"SubscriptionPurchaseButtonTitle" = "Start %d-Day Free Trial";
+"YearSubscriptionDisableDesc" = "Annual membership active";
+"MonthSubscriptionDisableDesc" = "Monthly membership active";
+"ForeverSubscriptionDisableDesc" = "Lifetime membership activated";
+"ChangeSubscription" = "Change Plan";
+"UpgradePurchase" = "Upgrade Now";
+"ForeverPlanDesc" = "Permanent access to all future premium features";
+"BuyNowTitle" = "Subscribe Now";
+"SettingsFreeTrialDesc" = "%d-Day Free Trial";
+"Hi" = "Hi,";
+
+// Permission
+"PrePermissionPhotoTitle" = "Access Your Retro Memories";
+"PrePermissionPhotoMessage" = "Grant access to save game screenshots to Photos and select album images as game covers";
+"PrePermissionPhotoCancel" = "Not Now";
+"PrePermissionPhotoConfirm" = "Allow";
+"DeniedPermissionPhotoTitle" = "Manic EMU Can't Access Your Photos!";
+"DeniedPermissionPhotoMessage" = "Photo library access is required for saving game screenshots to Manic EMU";
+"DeniedPermissionPhotoCancel" = "No";
+"DeniedPermissionPhotoConfirm" = "Grant Access";
+"PrePermissionCameraTitle" = "Allow Manic EMU to Access Your Camera?";
+"PrePermissionCameraMessage" = "Camera access enables taking photos for custom game covers";
+"PrePermissionCameraCancel" = "Not Now";
+"PrePermissionCameraConfirm" = "Allow";
+"DeniedPermissionCameraTitle" = "Manic EMU Can't Access Your Camera!";
+"DeniedPermissionCameraMessage" = "Camera permissions required for capturing game cover images in Manic EMU";
+"DeniedPermissionCameraCancel" = "No";
+"DeniedPermissionCameraConfirm" = "Grant Access";
+"DeniedPermissionMicTitle" = "Manic EMU Can't Access Your Microphone";
+"DeniedPermissionMicMessage" = "Microphone permissions required - some DS game features may be limited without access!";
+"DeniedPermissionMicCancel" = "No";
+"DeniedPermissionMicConfirm" = "Grant Access";
+
+// Share
+"ShareAppSubtitle" = "Gather your crew and embark on an adventure together!";
+"ShareRomFilesFailed" = "Failed to share ROM - could not retrieve files";
+"ShareSaveFilesFailed" = "Failed to share game save - no save data available";
+
+"TurnOnAirPlayAsk" = "AirPlay is connected. Switch to full screen now?";
+
+
+
+
+"ThreeDSModePerformance" = "Performance Mode";
+"ThreeDSModeCompatibility" = "Compatibility Mode";
+"ThreeDSModeQuality" = "Quality Priority";
+
+
+"ThreeDSNoSupportDeviceTitle" = "Insufficient Device Performance";
+"ThreeDSNoSupportDeviceDetail" = "The current device's performance may not support 3DS emulation. Continuing may cause unpredictable errors";
+
+"GameImportBadFile" = "Import failed, \"%@\": File is corrupted or unknown error. Please try another ROM file";
+"Game3DSDecryptFailed" = "Import failed, \"%@\": Decryption failed. Please try another ROM file";
+
+"Game3DSGameNotExist" = "Failed to import update, \"%@\": Game not installed!";
+
+"Game3DSInputTitle" = "Enter content";
+
+
+"ControllerMappingGuideTitle" = "Tap the button on the screen to start key mapping";
+"ControllerMappingGuideBegin" = "Start mapping 「%@」
+Press the controller button to complete mapping...";
+"ControllerMappingReset" = "Reset";
+"ControllerMappingNoFouond" = "Unrecognized key mapping";
+"FlexSkinSettingError" = "Interface not ready, please try again later";
+"SkinPreviewTitle" = "Preview";
+"FullScreenWhenConnectControllerTitle" = "Auto Full Screen";
+"FullScreenWhenConnectControllerDetail" = "Automatically enter full screen when a controller is connected for gaming";
+"JoinDiscordTitle" = "Join Discord";
+"DownloadFailed" = "Download failed";
+"RemoveDownloadTask" = "Stop downloading and remove \"%@\"?";
+"GameSettingResolution" = "Resolution %@";
+"GameSettingSwapScreen" = "Swap Screen";
+"NotSupportGameSetting" = "This option is not supported on %@ platform";
+
+"ThemeSettingTitle" = "Theme";
+"ThemeSettingDetail" = "App Icons, Theme Colors, Boxart Settings, Console Ordering";
+"ThemeDesktopIconTitle" = "App Icons";
+"ThemeDesktopIconDetail" = "More icons coming soon...";
+"ThemeThemeColorTitle" = "Theme Colors";
+"ThemeCoverStyleTitle" = "Boxart Style & Corners";
+"ThemeCoverStyleName" = "Style %d";
+"ThemePlatformOrderTitle" = "Console Order";
+"ThemePlatformOrderDetail" = "Long press and drag to adjust the display order of Consoles on the Game list";
+"ThemeColorLimitToast" = "Maximum number of theme colors reached";
+"ThemeColorSystemNotAllowEdit" = "Default theme colors cannot be edited";
+"EditTitle" = "Edit";
+"RemoveTitle" = "Remove";
+"On" = "On";
+"Off" = "Off";
+"AmiiboNotSearching" = "Amiibo loading is unavailable while NFC search is inactive";
+"ConsoleHomeTitle" = "Home Menu";
+"AmiiboTitle" = "Load Amiibo";
+"ThreeDSHomeMenuNotRunning" = "Home Menu is not running";
+"ThreeDSImportSaveFailed" = "Failed to import %@: Unrecognized save file";
+"ThreeDSUpdateInstallSuccess" = "Update installed successfully";
+"OnlineCoverFetchFailed" = "Failed to fetch image";
+"JITMenuDesc" = "Enabling JIT in unsupported environments may cause app crashes";
+"ShaderModeTitle" = "Advanced Shaders";
+"ShaderModeDesc" = "Enhances texture accuracy in some games but may impact performance";
+"NoDownloadTask" = "No active downloads";
+"NoGameCoverResult" = "No Boxart found";
+"NoContentResult" = "No content available";
+"OpenFilePermissionsLimit" = "No permissions to open %@";
+"SevenZipDecompressError" = "7z file is corrupted or encrypted";
+"ForceSquareRatioTitle" = "Force Square Aspect Ratio";
+"ForceSquareRatioDetail" = "Boxart will use a square ratio when enabled, or its original ratio when disabled";
+
+"AutoSaveStateTitle" = "Auto Save States";
+"GamesThemeTitle" = "Game Library";
+"GamesPerRowTitle" = "Games per Row (iPhone)";
+"GamesHideScrollIndicator" = "Hide Scroll Indicators";
+"ConsoleLanguageDesc" = "Region & Language settings may require manual configuration for certain games";
+"JitNoSupportDesc" = "JIT compilation is unavailable in the current environment";
+
+"RenderRightEyeTitle" = "RightEye Rendering";
+"RenderRightEyeDesc" = "Disabling right-eye rendering can improve the performance of some games, but it may also cause issues such as screen flickering.";
+"DisableTitle" = "Disable ";
+"EnableTitle" = "Enable ";
+"AICoverSearchDesc" = "It has been detected that you attempted to search in a non-English language. After upgrading to a premium membership, Manic EMU will utilize the latest AI technology to assist you with multilingual search tasks.";
+"MaxTextSizeAllowDesc" = "This option supports a maximum of %@ characters.";
+
+
+
+"PlatformSelectionTitle" = "Platform Selection";
+"PlatformSelectionDetail" = "Select default platform for %@";
+"PlatformChange" = "Assign Platform";
+"BIOSDesc" = "BIOS required for some platforms";
+"BIOSImported" = "Imported";
+"BIOSAlert" = "Some platforms require BIOS files to function properly. BIOS copyrights belong to hardware manufacturers. Ensure compliance with local laws when importing BIOS files.\n\nJoin our community for import assistance.";
+"UnknownPlatform" = "Unknown Platform";
+"UnknownPlatformGameSelectWarn" = "Unassigned platform games cannot be selected";
+"BIOSImportSuccess" = "%@ imported successfully!";
+"BIOSImportFailed" = "Incorrect file imported!";
+
+"HideGameTitleDesc" = "Hide game title";
+"HideGroupTitleDesc" = "Hide Group Title";
+"GroupTitleStyelDesc" = "Group Title Style";
+"GroupTitleStyelAbbr" = "Abbr";
+"GroupTitleStyelFull" = "Full";
+"GroupTitleStyelBrand" = "Brand";
+"CopyLaunchLinkTitle" = "Copy Launch Link";
+"AskIfNeedToSaveCover" = "The Launch Link has been copied to the clipboard. Would you also like to save the Boxart to your photo album?";
+"SaturnBiosAlertTitle" = "BIOS Missing";
+"SaturnBiosAlertDetail" = "The Sega Saturn can be emulated using HLE without requiring a BIOS file, but using a BIOS file can reduce graphical errors.";
+"BiosAddTitle" = "Add BIOS";
+"StartGameWithoutBiosTitle" = "Start Without BIOS";
+
+"ThreeDSAdvanceSettingTitle" = "Advanced Settings";
+"ShareConfigButtonTitle" = "Share Config";
+"ImportConfigButtonTitle" = "Import Config";
+"ShareFileFailedMissing" = "Sharing failed, the file does not exist.";
+"ReadConfigFileFailed" = "Unable to read configuration file";
+"SwitchEmulationCore" = "Switch Core";
+"SwitchEmulationCoreDetail" = "Switch Emulation Core for %@\nCore switching will cause saves generated on the previous core to become unreadable. To access the saves, please switch back to the previous core.";
+"NewSkinDesc" = "Manic EMU supports skins in .manicskin and .deltaskin .gammaskin formats. Please note that the imported skin's traits must match the current platform, otherwise, it will not appear in the skin list.\nAdditionally, access to third-party skin communities is provided. These communities are not officially affiliated with Manic EMU. When downloading skins, please strictly adhere to the service terms of the respective community websites.";
+"VisitSite" = "Visit %@";
+"OpenFile" = "Open File";
+"WebViewDownloadBegin" = "Download has started.";
+"RespectSilentMode" = "Respect Silent Mode";
+"RespectSilentModeDesc" = "When enabled, Manic EMU will only play audio when not in silent mode.";
+"SimulateBlowingTitle" = "Simulate Blowing";
+"PaletteTitle" = "Palette";
+"SkinResetForAll" = "Reset all platform skins";
+"SkinResetForPlatform" = "Reset %@ skin";
+"SkinDebug" = "Skin Playground";
+
+"ImportMissingFile" = "Failed to import %@: Missing file %@";
+"MultiDiscBuilder" = "MultiDisc Helper";
+"M3uFileShare" = "Share .m3u File";
+"M3uFileImport" = "Add to Library";
+"MultiDiscAddFile" = "Add %@ File";
+"GenerateM3uFailed" = "Failed to generate .m3u file";
+"MultiDiscCloseAlert" = ".m3u file generated. Close this page after importing it to your library.";
+"MultiDiscContinueClose" = "Continue Closing";
+"SwapDisk" = "Swap Disc";
+"TransferPakDesc" = "Transfer Pak syncs GB/GBC data to N64. To activate, import both ROM (.gb/.gbc) and save file (.sav).";
+"TransferPakFromLibrary" = "Import from Library";
+"TransferPakFromLibraryDesc" = "Only games with save files are shown.\nSelected GB/GBC games must match the N64 ROM, or Transfer Pak may fail.";
+"TransferPakNoGames" = "No compatible games";
+"TransferPakFromFiles" = "Import from Files";
+"TransferPakOn" = "Enabled";
+"TransferPakOff" = "Disabled";
+"TransferPakImportError" = "Error: Import both ROM and save files (2 files required).";
+"HideControlsTitle" = "Hide Controls";
+
+"DesignedFor" = "Designed for %@";
+
+"OptionTitleOptional" = "Optional";
+"OptionTitleRequired" = "Required";
+"GBASlotImportError" = "Error: Import GBA ROM and save files(optional).";
+"DonateTitle" = "Support Us";
+"DonateDesc" = "Your support keeps this app going.";
+"HomeMenuSelectWarn" = "Home Menu cannot be operated";
+"NDSSystemTypeTitle" = "System Type";
+"NDSSystemTypeDesc" = "DSi mode emulates the enhanced DSi hardware, however GBA Slot functionality will be unavailable";
+"GBASlotInsert" = "Inserted";
+"GBASlotUnInsert" = "Not Inserted";
+"GBASlotDesc" = "Inserting a GBA game in the NDS Slot-2 unlocks easter eggs or enables data sync between GBA and NDS games";
+"OnlinePlaySetting" = "Online Play Settings";
+"OnlinePlaySettingDesc" = "Online play relies on third-party services to connect players. BIOS files may be required, and features like cheat codes or fast forward may be disabled. Strictly adhere to third-party service terms.";
+"DSWfcReset" = "Reset WFC Configuration";
+"DSWfcResetAlert" = "Resetting WFC configuration will erase your registered Friend Codes";
+"WfcConnectDesc" = "Connecting to Nintendo WFC...\nOnline features like speed-up and cheats are disabled";
+"WfcDisconnectDesc" = "Disconnect from Nintendo WFC";
+"NotAllowOnlineGame" = "This feature is disabled for online play";
+
+"SkinIdentifierExist" = "Identifier: %@ already exists. Please modify and re-import.";
+
+"AnalogModeChange" = "Switch to %@ Mode";
+"AnalogModeDesc" = "PS1 supports controller mode switching: PlayStation Controller lacks analog sticks, DualShock supports them. Some early games require the original PlayStation Controller.";
+"DiscInsert" = "Insert Disc %d";
+"SBIImport" = "Import SBI File";
+"SBIImportDesc" = "PAL region games (mainly Europe/Australia/NZ) have copy protection. Import matching SBI files to unlock gameplay. Without SBI, games will remain on a black screen.";
+"SBIUnImport" = "Not Imported";
+"PSXRunAlert" = "PAL Region Notice";
+"N64RDPDesc" = "GLideN64 delivers optimal performance but may exhibit graphical glitches. ParaLLEl-RDP provides more precise graphics emulation but requires higher hardware capabilities; devices with insufficient performance may lag or crash.";
+"DeadZoneSetting" = "Dead Zone";
+"DeadZoneDesc" = "Ignore minor stick movements by setting a dead zone. Fixes controller drift caused by hardware issues. Range: 0.0-1.0. \n• Most drift issues resolve below 0.1\n• Setting to 1.0 disables the stick";
+"RendererTitle" = "Renderer";
+"RendererDesc" = "Hardware: Faster with color depth & PGXP enhancements\nSoftware: More accurate but slower. Required for games like 《Silent Hill》 with complex graphics";
+
+"AchievementsLoginTitle" = "Sign In";
+"AchievementsRegisterTitle" = "Create Account";
+"AchievementsNotMember" = "New here?";
+"AchievementsLogoutTitle" = "Sign Out";
+"AchievementsUnlock" = " · Last 5 Games · Achievements Unlocked · ";
+"HardcoreTitle" = "Hardcore Score: ";
+"HardcoreMode" = "Hardcore Mode";
+"EnableAchievements" = "Enable RetroAchievements";
+"HardcoreDesc" = "No cheats or save states allowed";
+"SoftcoreTitle" = "Softcore Score: ";
+"SoftcoreDesc" = "Play with cheats and save states";
+"RankTitle" = "Rank: ";
+"RankRequire" = "Requires 250 points or more";
+"AchievementsMoreDetail" = "Learn more at";
+"LastActivity" = "Last Activity: %@";
+"MemberSince" = "Member Since: %@";
+"RetroAchievements" = "RetroAchievements";
+"CompletionProgress" = "Completion Progress";
+"AchievementsList" = "Achievements";
+"TotalAchievements" = "%d Achievements Total";
+"TotalPoints" = "%d Points Total";
+"AchievementUnlocked" = "Achievement Unlocked";
+"AchievementsLoginFail" = "Login failed. Please check your username or password";
+"AchievementsLoginDenied" = "Login failed. Your account has been denied";
+"AchievementsDataLoadFail" = "Failed to load achievements";
+"AchievementsLogoutAlert" = "Logging out will stop tracking achievements. Continue?";
+"AchievementsNotSupport" = "%@ doesn’t support RetroAchievements";
+"AchievementsServerError" = "RetroAchievements Server Error";
+"AchievementsGo" = "RetroAchievements Go";
+"AchievementsSummary" = "You've unlocked %d of %d achievements";
+"AchievementsCompleted" = "Congrats! All achievements unlocked.";
+"Hardcore" = "Hardcore";
+"Softcore" = "Softcore";
+"ToggleAchievementsAlert" = "Switching will close your current game. Unsaved progress may be lost. Continue?";
+"ToggleHardcoreAlert" = "Switching to Hardcore Mode will close your current game. Unsaved progress will be lost. Continue?";
+"NotAllowHardcore" = "Unavailable in Hardcore Mode";
+"DisableAchievementsAlert" = "Disable RetroAchievements?";
+"SaveStateCoreUnCompatible" = "Save state was created in %@ (current: %@). Loading may cause issues!";
+"LatestSaveStateUnCompatible" = "Latest save state can’t load due to core incompatibility";
+"GotIt" = "Got it";
+"Rumble" = "Rumble";
+"RumbleDetail" = "The device vibrates during certain events";
+"GameSortDesc" = "Game Sorting";
+"GameSortType" = "Sort By";
+"GameSortOrder" = "Sort Order";
+"GameSortTitleType" = "Title";
+"GameSortLatestPlayed" = "Last Played";
+"GameSortAddTime" = "Date Added";
+"GameSortPlayTime" = "Play Time";
+"Ascending" = "Ascending";
+"Descending" = "Descending";
+"JumpTips" = "Opening a third-party page";
+"ThirdPartGameInfoTips" = "Game info is provided by third parties. Use your judgment and follow platform rules. If Manic EMU fails to match a game, use search to find it manually.";
+"NotSupportHardcore" = "Hardcore Mode is disabled for this game. Maybe Manic EMU isn't authorized by RetroAchievements, or the game just doesn't support hardcore mode.";
+"FilesImporterErrorBadCue" = "Failed to import \"%@\". The file may be invalid or not UTF-8 encoded. Please check the format.";
+"Leaderboard" = "Leaderboard";
+"LeaderboardStart" = "Leaderboard Start: ";
+"TurnOffHardcoreAlert" = "Switching to Softcore is permanent. To return to Hardcore, you must reset the game. Continue?";
+
+"AchievementsMissableAlert" = "The achievement cannot be earned after some point in the playthrough and would require another playthrough if missed";
+"AchievementsProgressionAlert" = "The achievement is required to beat the game";
+"AchievementsWinAlert" = "The achievement indicates the game has been beaten";
+
+"AchievementsChallenge" = "Start Challenge";
+"AchievementsMastered" = "Mastered %@";
+"AlwaysShowProgress" = "Always Show Progress";
+"AlwaysShowProgressDesc" = "Keep achievement progress visible on screen.";
+"Progress" = "Progress";
+
+
+"Challenge" = "Challenge";
+
+"TVStandard" = "If the game’s TV standard does not match the region, it may affect game speed. PAL regions include most of Europe, Australia, and New Zealand.";
+
+"SNESVRAMEnable" = "Some hacked ROMs require this option to render graphics correctly, but enabling it will disable RetroAchievements support.";
+
+"AirPlayScaling" = "AirPlay Scaling";
+"ScalingCoreProvided" = "Core Provided";
+"ScalingSquare" = "Square (1:1)";
+"ScalingStandard" = "Standard (4:3)";
+"ScalingWidescreen" = "Widescreen (16:9)";
+"ScalingFull" = "Full Screen";
+"AirPlayLayout" = "AirPlay Layout";
+"LayoutSideBySide" = "Side by Side (Horizontal)";
+"LayoutStacked" = "Stacked (Vertical)";
+"LayoutLargeSmallTopLeft" = "Large + Small (Top-Left)";
+"LayoutLargeTopRight" = "Large + Small (Top-Right)";
+"LayoutLargeBottomLeft" = "Large + Small (Bottom-Left)";
+"LayoutLargeBottomRight" = "Large + Small (Bottom-Right)";
+"LayoutEmbeddedTopLeft" = "Embedded (Top-Left)";
+"LayoutEmbeddedTopRight" = "Embedded (Top-Right)";
+"LayoutEmbeddedBottomLeft" = "Embedded (Bottom-Left)";
+"LayoutEmbeddedBottomRight" = "Embedded (Bottom-Right)";
+"LayoutSingleScreen" = "Single Screen";
+"AirPlayLayoutTips" = "Combine AirPlay Layout with Swap Screen for more layout options. Note: Using Swap Screen with Embedded Layout may cause overlapping, so it is not recommended";
+"EnableGlobalAchievements" = "Enable Global RetroAchievements";
+"GlobalHardcoreMode" = "Global Hardcore Mode";
+"GlobalHardcoreAlert" = "Please enable Global RetroAchievements first.";
+"ThreeDSNandImportToast" = "Please Dump the NAND from your 3DS device and compress it into an unencrypted nand.zip. This provides the missing system files required for 3DS emulation.";
+"ThreeDSNandImportFailed" = "Incorrect nand.zip imported!";
+"HoldFastForward" = "Hold %@ FF";
+"HoldMaxFastForward" = "Hold Max FF";
+"Microphone" = "Microphone";
+"MicrophoneTips" = "Enabling the microphone will request access and keep it active during gameplay, which may stop music playback from other apps in the background.";
+"Texture" = "Texture";
+"TextureReplacement" = "Texture replacement";
+
+"Appearance" = "Appearance";
+"AppearanceLight" = "Light Mode";
+"AppearanceDark" = "Dark Mode";
+"AppearanceAuto" = "Follow System";
+"GameListBackgroundUpload" = "Upload";
+"GameplayManuals" = "Game Manuals";
+"GameplayManualsNoExists" = "No manual available for this game.";
+"GameplayManualsDesc" = "To add a manual, place your PDF file in the Manic EMU app. To remove it, go to Files > Manic EMU > Manuals and delete the file.";
+"CleanUnsupportSkins" = "Clean Unsupported Skins";
+"NotFoundUnsupportSkins" = "No unsupported skins found.";
+"UnsupportSkinsDesc" = "The following skins are not supported on this device:\n%@Note: Removing them will also delete these skins from other devices synced via iCloud.";
+"UnsupportSkinsRemoveSuccess" = "Unsupported skins removed successfully";
+"ForbitPKSM" = "To ensure a fair RetroAchievements experience, PKSM cannot be used while Global RetroAchievements is enabled.";
+"DiskSideChange" = "Flip Disk";
+"EjectDisk" = "Eject Disk";
+
+"TriggerProDesc" = "Create and manage advanced custom buttons.";
+"AddButton" = "Add Button";
+"ButtonStyle" = "Button Style";
+"Mapping" = "Mapping";
+"Action" = "Action";
+"Classic" = "Classic";
+"Flat" = "Flat";
+"Custom" = "Custom";
+"Size" = "Size";
+"Opacity" = "Opacity";
+"CornerRadius" = "Corner Radius";
+"Simple" = "Simple";
+"Hold" = "Hold";
+"Combo" = "Combo";
+"RepeatTrigger" = "Repeat Trigger";
+"RepeatInterval" = "Repeat Interval";
+"AutoStop" = "Auto Stop";
+"HoldDuration" = "Hold Duration";
+"PressDurationPerKey" = "Press Duration per Key";
+"IntervalPerKey" = "Interval per Key";
+"AddTriggerPro" = "Add TriggerPro";
+"SwitchPreviewSkin" = "Switch Preview Skin";
+"SimpleActionDesc" = "Tap the TriggerPro button to instantly trigger all mapped keys at once.";
+"HoldActionDesc" = "Tap the TriggerPro button to hold down the mapped keys. Tap again to release.";
+"ComboActionDesc" = "Tap the TriggerPro button to trigger the mapped keys in sequence—perfect for arcade-style combos.";
+"NoMappingAlert" = "This button currently has no mapping and will not perform any action. Are you sure you want to close it?";
+"TriggerProName" = "TriggerPro Name";
+"Position" = "Position";
+"ButtonInfo" = "Button Info";
+"ManageTriggerPro" = "Manage TriggerPro";
+"EnableTriggerPro" = "Enable TriggerPro";
+"DisableTriggerPro" = "Disable TriggerPro";
+"ActivateHold" = "Activate Hold: %@";
+"DeactivateHold" = "Cancel Hold: %@";
+
+"NoGamesForManufacturer" = "No games available for this manufacturer";
+"iCloudNotEnable" = "iCloud Not Enabled";
+"iCloudSyncing" = "iCloud Syncing";
+"iCloudSynced" = "iCloud Synced";
+"JITNotAllow" = "JIT Unavailable";
+"JITAllow" = "JIT Available";
+"iCloudUsage" = "iCloud Usage";
+"Usage" = "Usage";
+"iCloudDesc" = "Enabling iCloud synchronization and backup keeps your games, skins, and saves synced across devices. Even if you delete and reinstall the app, your data will be instantly restored.";
+"Device" = "Device";
+"InstallSource" = "Install Source";
+"System" = "System";
+"Memory" = "Memory";
+"InstallSideloadVersion" = "Install Sideload Version";
+"JITDesc" = "JIT (Just-In-Time Compilation) is a dynamic compilation technique that improves runtime performance by compiling code during execution rather than ahead of time (AOT). It converts intermediate code, such as bytecode, into native machine code using real-time information for optimization.";
+"MAMEBiosDesc" = "MAME BIOS includes various required files. Tap to view details";
+"MAMECheatCodeDesc" = "The MAME core includes built-in cheat codes. During gameplay, open the MAME menu by pressing COIN + Y, then select Cheat Options to configure them.";
+"FBNeoNoCheats" = "No cheat codes available for this game.";
+"FBNeoCheatCodeDesc" = "When using the FinalBurn Neo core, cheat codes can only be activated during gameplay.";
+"FilterTitle" = "Filter";
+"EnableManufacturerFilter" = "Enable Manufacturer Filter";
+"MAMEFileMissingTitle" = "Missing Game Files";
+"MAMEFileMissingDesc" = "This game may belong to a split ROM set, which requires its parent or BIOS files to run. Please import the missing files or use a non-merged ROM instead.";
+
+"InputForget" = "Forgot";
+"ExactlyTextSizeAllowDesc" = "Enter exactly %@ characters";
+"EmptyInputNotAllowed" = "Input cannot be empty";
+"BlankInputNotAllowed" = "Input cannot contain only spaces";
+"ExactlyTextSize" = "Text must be exactly %@ characters long";
+"AtSymbolNotAllowed" = "The @ symbol is not allowed";
+"PercentSymbolNotAllowed" = "The %% symbol is not allowed";
+"BackslashSymbolNotAllowed" = "The \\ symbol is not allowed";
+"DigitsMaximumAllowed" = "Up to %@ digits allowed";
+"Default" = "Default";
+"Imported" = "Imported";
+"DownloadRetroArchSahders" = "Download Shaders from RetroArch";
+"Shaders" = "Shaders";
+"DownloadRetroArchShaders" = "Would you like to download shaders from RetroArch? Once completed, the RetroArch shader category will refresh automatically. You can cancel this process at any time in the download manager.";
+"RetroArchShaderUnzipFailed" = "%@ could not be extracted. The file may have been corrupted during download. Please try downloading it again.";
+"ImportShader" = "Place the shader files in the Manic EMU-Shaders folder, then reopen this page to refresh and load the shaders.";
+"CustomShaderDesc" = "Create custom shaders by editing existing ones.";
+"AppendShadersTitle" = "Append Shaders";
+"AppendShadersDetail" = "Prepend or append shaders to the current stack";
+"ShaderName" = "Shader Name";
+"Parameters" = "Parameters";
+"ShaderEditAlert" = "When you edit a shader, a new copy is created automatically. You can find it in the Custom category of the shader list.";
+"ShadersOrder" = "Shader Order";
+"Base" = "Base";
+"NoShaders" = "No Shaders Available";
+"ShaderLoadFailed" = "Failed to load shader";
+"ShaderOrderDesc" = "Press and hold, then drag to reorder shader overlays";
+"CustomShaderExists" = "A custom shader with the same name already exists. Do you want to replace it?";
+"CustomShaderSaveFailed" = "Failed to generate the shader. Please review your edits and try again.";
+"CustomShaderSaveSuccess" = "%@ was saved successfully";
+"CustomShaderTitleWrong" = "This shader name is unavailable";
+"PlayCasePromo" = "This skin is designed by PlayCase. When paired with a PlayCase, it delivers a smoother and more natural control experience.\n\nPlayCase focuses on high-quality iPhone cases built with accessory and skin compatibility in mind.\nIf you want to elevate your setup, PlayCase is a perfect match for this skin.";
+"LearnPlayCase" = "Learn More About PlayCase";
+"DontshowAgain" = "Don’t Show Again";
+"NotInstallMeloNX" = "MeloNX is not installed";
+"FetchGamesFromMeloNX" = "Import Games from MeloNX";
+
+"ChangeAlert" = "The content has been changed. Closing now will lose all changes. Continue closing?";
+
+"JGenesisAlert" = "Sorry, the JGenesis core only supports .chd ROM files.";
+"RedeemOfferCode" = "Redeem Offer";
+"CheatImportFailed" = "Import failed. The file could not be parsed or no matching cheat codes were found.";
+"RemoveAllCheatsAlert" = "Are you sure you want to remove all cheat codes? This action cannot be undone.";
+"CheatCodeStatus" = "Enabled";
+"Background" = "Background";
+"AddBackgroundForLandscape" = "Add Landscape Background";
+"AddBackgroundForPortrait" = "Add Portrait Background";
+"UpdateBackground" = "Set Background";
+"UpdateBackgroundForGame" = "Set for This Game";
+"UpdateBackgroundForConsole" = "Set for %@ Platform";
+"UpdateBackgroundForGlobal" = "Set Globally";
+"RemoveBackgroundForGame" = "Remove Game Background";
+"RemoveBackgroundForConsole" = "Remove %@ Platform Background";
+"RemoveBackgroundForGlobal" = "Remove Global Background";
+"FeaturedItems" = "Featured Items";
+
+"NintendoWFC" = "Nintendo WFC";
+"PSPNetworking" = "PSP Networking";
+"Networking" = "Networking";
+"NetworkingConfiguration" = "Network Configuration";
+"EnableNetworking" = "Enable Networking";
+"LANNetworking" = "Local Network";
+"WANNetworking" = "Online Network";
+"SetAsHost" = "Set This Device as Host";
+"IPAddress" = "IP Address";
+"ServerAddress" = "Server Address";
+"PortOffset" = "Port";
+"HostAddress" = "Host Address";
+"ServiceFound" = "Available Hosts";
+"Connect" = "Connect";
+"Connected" = "Connected";
+"LocalNetworkingDesc" = "Local multiplayer requires at least one device to act as a host. The host broadcasts its service on the local network, and other devices will automatically search for available hosts. If no host is found, you can manually enter the host’s IP address. Once connected, multiplayer gameplay can begin.";
+"OnlineNetworkingDesc" = "Online multiplayer requires entering a valid online server address.";
+
+"SafeMode" = "Safe Mode";
+"SafeModeDesc" = "Launching a game in Safe Mode disables all additional settings (such as custom resolution, fast forward, and shaders) and runs with a minimal configuration. This can help resolve issues caused by incorrect settings that prevent the game from starting. Applies to this launch only.";
+
+"NotInstall" = "%@ is not installed.";
+"FetchGamesFromXeniOS" = "Import Games from XeniOS";
+"ScreenScaling" = "Screen Scaling";
+"ScreenScalingStretch" = "Stretch";
+"ScreenScalingFit" = "Fit";
+"HeadsUp" = "Heads Up";
+"Freej2meAlert" = "The freej2me core relies on the CheerpJ virtual machine. Due to CheerpJ licensing restrictions, it cannot be bundled with the app and must be loaded online each time the game starts. If no internet connection is available, it may fail to load. Downloading the CheerpJ runtime may take some time, so please be patient.";
+"CheerpJLoadFailed" = "CheerpJ did not load successfully. You can continue waiting, or check your network connection and restart the game to try again.";
+"RotateScreen" = "Rotate Screen";
+"Width" = "Width";
+"Height" = "Height";
+"ScreenSize" = "Screen Size";
+"J2MESettingsTips" = "Due to differences in JAR standards, Manic EMU may not always detect the correct screen resolution or orientation. For the best display results, you can configure them manually.";
+"J2MEScreenChange" = "J2ME screen settings have been saved. To apply the changes immediately, the game must be reset. Any unsaved progress may be lost. Reset now?";
+"Later" = "Later";
+"ResetImmediately" = "Reset Now";
+"LoadingCheerpJ" = "Loading CheerpJ";
+"ZipHandlerTitle" = "ZIP File Handling";
+"ZipHandlerDetail" = "Some platforms (such as DOS and Arcade) can load ROMs directly from .zip files. For other platforms, ROMs inside a .zip must be extracted before importing.\n\nSelected files will be extracted and imported individually, while unselected files will be imported as a single ZIP ROM.";
+"InsertDisc" = "Insert Disc";
+"InsertDiscAlert" = "You can insert a disc by selecting another game from the same platform in your library, or by choosing a disc file from Files. Due to iOS file system limitations, disc files selected from Files will be copied to Manic EMU's cache.";
+"InsertDiscFailed" = "Failed to Insert Disc";
+"GenerateHomeMenu" = "Create Home Menu";
+"SkinSoundEffects" = "Skin Sound Effects";
+
+"Pretendo" = "Pretendo Network";
+"BadIpAddress" = "Invalid IP address. Please try again.";
+"ArticBaseSettings" = "Artic Base Settings";
+"ArticBaseDesc" = "Artic Base, developed by the Azahar team, allows data unique to a real 3DS device to be transferred into Manic EMU. These data are required to enable network features.\n\nFollow the steps below to complete the transfer:\n1. Install %@ on your 3DS and start the service.\n2. Make sure Manic EMU and your 3DS are connected to the same network.\n3. Enter the IP address shown on your 3DS screen below.\n4. Tap \"Start Transfer\" and complete the system update.\n\nAfter completing these steps, a Home Menu entry will appear in your library.";
+"ArticBaseHeadsUp" = "Importing data from a real device will overwrite the existing 3DS data in Manic EMU and may cause unexpected issues. If you have important save data, it is recommended to back up the Manic EMU - 3DS directory before proceeding.";
+"StartTransfer" = "Start Transfer";
+"PretendoNimbusDesc" = "Pretendo is a free and open-source replacement for Nintendo 3DS online services, allowing continued online play even after official servers are shut down.\n\nWith the Nimbus tool, you can easily switch your network to Pretendo. When available, tap \"Install Nimbus\" and Manic EMU will automatically install it into Home Menu.";
+"InstallNimbus" = "Install Nimbus";
+"InstallNimbusSuccess" = "Nimbus installed successfully!";
+"HomeMenuDesc" = "Use the button below to open the Home Menu. Then go to Nimbus Settings, switch to the Pretendo network, and open Settings to select “Nintendo Network ID” and sign in with your Pretendo account.\n\nAfter that, any games launched from the Home Menu or running with the Azahar core will use the Pretendo network.\n\nIf the Home Menu entry is missing, this feature will attempt to recreate it automatically.";
+"OpenHomeMenu" = "Open Home Menu";
+"ChooseRegion" = "Select Region";
+"HomeMenuNotFound" = "Home Menu not found. Please complete the Artic Base data transfer first.";
+"SystemUpdateAsk" = "Did the system update complete successfully?";
+"SystemUpdateDesc" = "If the system update failed due to network issues, please try transferring the data again. Otherwise, the 3DS Home Menu may not function properly.";
+"SystemUpdateSuccess" = "Yes";
+"SystemUpdateFailed" = "No";
+"ChangeCategory" = "Change Category";
+"GlobalCoreSwitch" = "Emulator Core";
+"GlobalCoreSwitchDesc" = "Set the default emulator core for each platform. Newly imported games will use this core by default. You can also switch cores by long-pressing a game in the library.";
+"AllCoreSwitch" = "Apply to Existing Games";
+"AllCoreSwitchDesc" = "Set all imported %@ games to use the %@ core.";
+"EnableJIT" = "Enable JIT";
+"EnableJITSuccess" = "JIT enabled successfully";
+"ReEnableJIT" = "Re-enable JIT";
+"HidePlatform" = "Hide %@";
+"ShowPlatform" = "Show %@";
+"ThemeManufacturerOrderTitle" = "Manufacturer Order";
+"ArticBaseHomeMenuFailed" = "It appears the system update did not complete successfully. The Home Menu entry could not be created. Please try the data transfer again.";
+"ArticBaseHomeMenuSuccess" = "The Home Menu entry has been successfully created. You may proceed with the next steps.";
+"NandImportHeadsUp" = "If you are transferring data from a real 3DS device to Manic EMU, it is recommended to use the Artic Base feature.";
+"ContineFilesImport" = "Continue Import";
+"OpenPage" = "Open %@";
+"MappingKeyboardInput" = "Mapping Keyboard Input";
+"EmulationAccuracy" = "Emulation Accuracy";
+"EmulationAccuracyDesc" = "HLE: Offers better performance and lower power consumption, but may have compatibility issues.\n\nLLE: Provides higher accuracy and better compatibility, but with reduced performance. Certain hardware features, such as network access, are only available in LLE mode.";
+
+"BlankStateTitle" = "No content yet";
+"MoreSettingTitle" = "More Settings";
+"RateUs" = "•  Rate Us  •";
+"RatingUsDesc" = "Your 5-star rating means the world to us! :)";
+"RandomGaming" = "Random Game";
+"GameSettings" = "Game Settings";
+"ThreeDSPresetMode" = "Preset Mode";
+"PSXControllerMode" = "Controller Mode";
+"N64RdpPlugin" = "RDP Plugin";
+"GBASlot" = "GBA Slot";
+"MDTVStandard" = "TV Standard";
+"CoreSettings" = "Core Settings";
+"ShareSaveState" = "Export Save State";
+"ImportSaveState" = "Import Save State";
+"SaveStateDesc" = "A save state is an emulator-level snapshot of a system's exact memory. Whether it loads successfully depends on the device and core version used when it was created. Loading it on a different device or emulator may fail or cause issues. Use it as a backup, and import it in the same version of Manic EMU.";
+"SaveStateRemove" = "Remove Save State";
+"FastForward" = "Fast Forward";
+"Haptics" = "Haptics";
+"Orientation" = "Orientation";
+"Resolution" = "Resolution";
+"LoadSaveStateFailed" = "No save state found.";
+"Play" = "Play";
+"SearchCover" = "Search Cover";
+"ChangeGameType" = "Change Game Type";
+"Screen" = "Screen";
+"Button" = "Button";
+"MoreGamesSetting" = "Apply to More Games";
+"MoreGamesSettingDesc" = "Selected games will use “%@” by default.";
+"MorePlatformSetting" = "Apply to More Platforms";
+"MorePlatformSettingDesc" = "Selected platforms will use “%@” by default.";
+"PlatformDefaultSkin" = "Default %@ Skin";
+"AddCheatCodes" = "Add Cheat Codes";
+"AddCheatCodesDesc" = "Tap the button below to add cheat codes.";
+"EditCheatCodes" = "Edit Cheat Code";
+"EnableSelectedCheatCodes" = "Enable Selected";
+"DisableSelectedCheatCodes" = "Disable Selected";
+"CheatCodeFormat" = "Cheat Code Format";
+"AddSelectedCheatCodes" = "Add Selected";
+"NoCheatCodesSelection" = "No cheat codes selected.";
+"NotSupportCheatCodes" = "This cheat code format is not supported.";
+"AddBookMarkSuccess" = "Bookmark added. This page will open by default next time.";
+"SearchCheatCodes" = "Search Cheat Codes";
+"JumpThirdPartAlert" = "You're about to open a third-party community. These sites are not operated by Manic EMU. Please follow their terms of service when using their resources.";
+"GlobalSettingAlert" = "You're editing global settings. This will override game or platform settings. Continue?";
+"GameOptionsSortDesc" = "All available menu actions are listed below. Touch and hold to drag them into groups and reorder. The in-game menu follows this layout.";
+"GamePlayShortcut" = "Game Shortcuts";
+"PlayerIndexChange" = "Assign Player";
+"PlayerIndexDesc" = "After you assign a player to this controller, it will only send that player's inputs.";
+"MappingKeyboardInputDesc" = "Map controller inputs to standard keyboard events so the core can receive keyboard input directly.";
+"RemovePlatformSettings" = "Remove %@ Settings";
+"SetForPlatfrom" = "Set for %@";
+"RemoveGlobalSettings" = "Remove Global Settings";
+"SetForGlobal" = "Set as Global";
+"GameShortcutsDesc" = "Shortcuts can appear on supported skins and in the in-game menu. Tap an action below to add it, or tap an item in the list to remove it.";
+"ResetAlert" = "Also reset platform or global settings?";
+"Copy" = "Copy";
+"RemoveAllAlert" = "Clear all items? This cannot be undone.";
+"AddMapping" = "Add Mapping";
+"SearchFromLibretro" = "Search Libretro";
+"SearchFromSteamGridDB" = "Search SteamGridDB";
+"DynamicBackground" = "Dynamic Background";
+"CarouselStyle" = "Carousel Style";
+"AddDynamicBackground" = "Add Dynamic Background";
+"DynamicBackgroundDesc" = "Manic EMU dynamic backgrounds use GLSL ShaderToy scripts. Add one with the button below, or place a .glsl file in the Manic EMU - Assets folder.\nFor performance reasons, only single Image scripts are supported. Please note that complex scripts may cause device battery drain or overheating.";
+"All" = "All";
+"CheckMetadata" = "View Metadata";
+"MetadataDesc" = "Manic EMU includes built-in game metadata. View or edit it here. If the current ROM doesn't match, use Search Metadata for a fuzzy match.";
+"Developer" = "Developer";
+"Publisher" = "Publisher";
+"ESRBRating" = "ESRB Rating";
+"Franchise" = "Series";
+"ReleaseDate" = "Release Date";
+"Region" = "Region";
+"Genre" = "Genre";
+"Overview" = "Overview";
+"SearchMetadata" = "Search Metadata";
+"HideGameRatingIcon" = "Hide Rating Icon";
+"Unknown" = "Unknown";
+"BoxArt" = "Cover";
+"BoxArtDesc" = "Cover art is the standard package image for a game. Manic EMU uses it in most views.";
+"Icon" = "Icon";
+"IconDesc" = "Shown when square artwork is required, such as when forced square aspect is on.";
+"Banner" = "Banner";
+"BannerDesc" = "Used as the selected game's background on the home screen in landscape.";
+"SteamGridDBAPIKeyDesc" = "SteamGridDB lets you download and share custom game artwork to personalize your library.";
+"SteamGridDBAPIKeyAlert" = "An API key is required to access SteamGridDB.";
+"CoreConfigsAlert" = "Core settings are advanced. Incorrect values may prevent games from running. Use More Settings in the navigation bar to restore defaults if needed.\n";
+"CoreConfigsEmpty" = "Couldn't load core options. Try again while a game is running.";
+"ResetGameCoreSettings" = "Reset This Game's Core Settings";
+"ResetGameTypeCoreSettings" = "Reset %@ Core Settings";
+"Rewind" = "Rewind";
+"RewindDesc" = "Rewind increases overhead. Add it to the shortcut menu, map it to a controller, or use Trigger Pro. Touch and hold the button to activate.";
+"Netplay" = "Netplay";
+"NetplayDesc" = "Supported cores: %@";
+"OthreNetworking" = "Other Netplay";
+"PubliclyAnnounceNetplay" = "Announce Publicly";
+"PubliclyAnnounceNetplayDesc" = "List this session in the public lobby. If off, clients must connect manually.";
+"UseRelayServer" = "Use Relay Server";
+"UseRelayServerDesc" = "Relay connections through an intermediate server. Useful when the host is behind a firewall or has NAT/UPnP issues.";
+"ServerPassword" = "Server Password";
+"ServerPasswordDesc" = "Password required for clients to join the host.";
+"NetplaySpectatorMode" = "Spectator Mode";
+"NetplaySpectatorModeDesc" = "Start netplay in spectator mode. You can switch modes later.";
+"ServerSpectateOnlyPassword" = "Spectator Password";
+"ServerSpectateOnlyPasswordDesc" = "Password for clients joining as spectators.";
+"StartNetplayHost" = "Host Game";
+"StartNetplayHostFailed" = "Failed to start hosting.";
+"StopNetplayHost" = "Stop Hosting";
+"StartNetplayHostDesc" = "Start netplay as the host (server).";
+"RefreshNetplayHostList" = "Refresh Internet Hosts";
+"RefreshNetplayHostListDesc" = "Scan for netplay hosts.";
+"RefreshNetplayLANList" = "Refresh LAN Hosts";
+"RefreshNetplayLANListDesc" = "Scan for netplay hosts on LAN.";
+"DisconnectFromNetplayHostDesc" = "Disconnect from the current netplay session.";
+"refreshNetplayListFailed" = "Failed to refresh host list.";
+"NoHostsFound" = "No hosts found.";
+"ConnectNetplayHost" = "Failed to connect to host.";
+"DisconnectedNetPlay" = "Disconnect";
+"UnknownHost" = "Unknown Host";
+"Anonymous" = "Anonymous";
+"LAN" = "LAN";
+"Relay" = "Relay";
+"Internet" = "Internet";
+"CannotConnectHost" = "Couldn't connect to this host. It may be restricted, or your network may be blocking the connection.";
+"ConnectHostSuccess" = "Connected to %@";
+"DisconnectWithHost" = "Couldn't connect to the host.";
+"ClientConnectSuccess" = "%@ connected";
+"DisconnectWithClient" = "Disconnected from %@";
+"JoinedGameSuccess" = "%@ joined the game";
+"LeftGameSuccess" = "%@ left the game";
+"Adventurer" = "Adventurer";
+"AdventurerCard" = "Adventurer Card";
+"Nickname" = "Nickname";
+"GameTime" = "Play Time";
+"JoinTime" = "Joined";
+"FetchGamesFromDukeX" = "Import Games from DukeX";
+"SkinSupport" = "Supports .manicskin and .deltaskin";
+"FocusHintMove" = "Move";
+"FocusHintBack" = "Back";
+"FocusHintAdjust" = "Adjust";
+"FocusShortcutsTips" = "Tips";
+
+"SymbianOSFirmware" = "Symbian OS Firmware";
+"SymbianOSFirmwareDesc" = "Firmware is required to run Symbian OS and install apps.";
+"SymbianOSFirmwareRecommend" = "Recommended firmware: %@";
+"NoFirmware" = "No Firmware";
+"AddFirmware" = "Add Firmware";
+"InstallFirmware" = "Install Firmware";
+"SymbianFirmwareFormatDesc" = "Symbian OS firmware uses the .ROM format.\nFirmware for S60v2 and later also requires an .RPKG resource file.";
+"AddRomFirmware" = "Add .ROM Firmware";
+"AddRpkgFile" = "Add .RPKG File";
+"SymbianFirmwareNeedRom" = "Add a .ROM firmware file first.";
+"SymbianFirmwareNeedRpkg" = "This firmware also requires an .RPKG resource file.";
+"SymbianFirmwareInstallSuccess" = "Firmware installed successfully.";
+"SymbianFirmwareInstallFailed" = "Firmware installation failed.";
+"SymbianFirmwareAlreadyExist" = "This firmware is already installed.";
+"SymbianFirmwareChoosing" = "Switch Firmware";
+"NoSystemApp" = "No System Apps";
+"SymbianGameNeedFirmware" = "Install Symbian OS firmware before adding Symbian games.";
+"GoToInstallFirmware" = "Install Firmware";
+"FirmwareNotSupport" = "This firmware doesn't support this Symbian app.";
+"NGagePendingInstallOverwrite" = "There's already an uninstalled game in the N-Gage folder. The N-Gage 2.0 app can only run one install at a time. Replace the previous package?";
+"NGagePackageReady" = "The package is ready. Install and open the N-Gage 2.0 app on S60v3 or later firmware to continue installation.";
+"NGage2Install" = "N-Gage 2.0 Install";
+"SymbianAppGetKilled" = "The Symbian app has exited.\nIf this was unexpected, try a different firmware.";
+
+"DolphinGameIDMissing" = "Unable to get the current game's GameID, so cheat codes can't be edited.";
+"BIOSCommondDesc" = "Some specific games may not run properly without a BIOS.";
+"WiiKeysBinDesc" = "BootMii format keys.bin is required to play Wii games.";
+"WiimoteSideways" = "Wiimote Sideways";
+"DolphinCoreWraning" = "Due to the current JITless performance limits of the dolphin core, the device may heat up and stutter with frame drops during game emulation, but there are plenty of heroes working hard behind the scenes to optimize things. Everything will gradually get better, right?";
+"DolphinSaveTips" = "Please use the Files app to open: Manic EMU - dolphin-emu - User to manage your save files on your own.";
+
+"AchievementsSubset" = "Achievement Set";
+"AchievementsSelectSubset" = "Select Achievement Set";
+"AchievementsBaseSet" = "Base Set";
+"AchievementsMultiSetsDesc" = "Multiset lets you earn subset achievements without a patched ROM.";
+"AchievementsNoSubset" = "This game has no extra achievement sets. You can enable subsets for this game on retroachievements.org.\n\nGames with Multiset enabled show a \"Subset Configuration\" button next to the set selector. Use it to enable or disable any set for the game.";
+"AchievementsMultiSetsGuide" = "This only switches which achievement list is shown. Changing the selected set does not affect earning achievements from any set while you play.";
+"GoToSettings" = "Go to Settings";
+"SymbianSaveTips" = "Symbian apps don't share a common save format. Please use the Files app to open: Manic EMU - EKA2L1 to manage your save files on your own.";
+
+"DCSaveTips" = "Dreamcast stores game progress on VMU memory cards. Please use the Files app to open: Manic EMU - Flycast - dc to manage your save files on your own.";
+"DoomSaveTips" = "Please use the Files app to open: Manic EMU - PrBoom - doom to manage your save files on your own.";
+
+"ContinuedAlert" = "Are you sure you want to %@? Any unsaved game progress will be lost!";
+
+"BackgroundMusic" = "Background Music";
+"SoundEffects" = "Sound Effects";
+
+"BackgroundMusicDesc" = "Add a track with the button below, or place .m4a / .aac / .mp3 / .wav files in the Manic EMU - Assets folder.\nName files as Song Title(Author).";
+"AddBackgroundMusic" = "Add Background Music";
+"CoverScraping" = "Cover Scraping";
+"CoverScrapingDesc" = "Automatically fetch covers, icons, and banners from SteamGridDB.";
+"SkipExistingCovers" = "Skip Existing Artwork";
+"ScrapeCover" = "Scrape Covers";
+"ScrapeIcon" = "Scrape Icons";
+"ScrapeBanner" = "Scrape Banners";
+"StartScraping" = "Start Scraping";
+"RemoveCover" = "Remove Covers";
+"RemoveIcon" = "Remove Icons";
+"RemoveBanner" = "Remove Banners";
+"RemoveAllArtwork" = "Remove All Artwork";
+"RemoveCoverAlert" = "Remove covers from these games? This cannot be undone.";
+"RemoveIconAlert" = "Remove icons from these games? This cannot be undone.";
+"RemoveBannerAlert" = "Remove banners from these games? This cannot be undone.";
+"RemoveAllArtworkAlert" = "Remove all covers, icons, and banners from these games? This cannot be undone.";
+"CoverScrapingComplete" = "Scraping complete.";
+"CoverScrapingStat" = "%@: %d updated, %d skipped, %d failed";
+"FetchGamesFromARMSX2" = "Import Games from ARMSX2";
+
+"CPUEmulationMethod" = "CPU Emulation Method";
+"DolphinCPUDesc" = "When JIT is unavailable, the core runs in interpreter mode.\nCached Interpreter: the official interpreter. It is more accurate, but more demanding on performance.\nManic Interpreter: Manic EMU's interpreter. Aggressive optimizations make it faster, but it may also produce more errors.";
+
+"JitMethod" = "JIT Method";
+"JitMethodExternalDebugger" = "External Debugger";
+"JitMethodBuiltInDebugger" = "Built-in Debugger";
+"JitActiveDebugger" = "Active Debugger";
+"JitDebuggerNotAttached" = "Not Attached";
+"JitExternalDebuggerAttached" = "An external debugger is already attached. Quit the external debugger first, then try the built-in debugger again.";
+"JitMethodExternalInfo" = "Opens StikDebug to attach to this app. StikDebug then relaunches Manic EMU with JIT enabled.";
+"JitMethodBuiltInInfo" = "Using the built-in debugger:\n1. Generate a remote pairing file with idevice_pair (lockdown files will fail) and import it.\n2. (Optional) On iOS 26.0 or later and iPhone 12 (A14) or newer, you also need LocalDevVPN for the debug network. Connect LocalDevVPN, then join a nearby Wi-Fi, or use Cellular → VPN → Airplane Mode.\n3. Enable JIT.\n\nTo reset the connection: create a new remote pairing file and import it again. If it still fails, restart the device.";
+"JitPairingNotImported" = "Not Imported";
+"JitImportPairingFile" = "Import Pairing File";
+"JitPrepare" = "Prepare JIT";
+"JitPrepareSuccess" = "JIT prepared successfully";
+"JitPrepareNotChecked" = "Not Checked";
+"JitTxmStatus" = "TXM / SPTM";
+"JitTxmPresent" = "TXM Present";
+"JitTxmNotPresent" = "SPTM / PPL";
+"JitTxmUnknown" = "Unknown";
+"JitPath" = "JIT Path";
+"JitPathLegacy" = "Legacy JIT";
+"JitPathPPL" = "PPL";
+"JitPathTXM" = "TXM";
+"JitResetDDI" = "Reset DDI Cache";
+"JitResetDDISuccess" = "DDI cache reset successfully";
+"JitRequiresiOS174" = "Built-in StikJIT requires iOS 17.4 or later.";
+"JitLiveContainerUnavailable" = "Built-in StikJIT is unavailable in LiveContainer.";
+"JitGetTaskAllowMissing" = "This build is missing get-task-allow, so a debugger cannot attach.";
+"JitPairingRequired" = "Import a pairing file to use built-in StikJIT.";
+"JitPrepareReady" = "Ready";
+"JitPrepareUnreachable" = "Unreachable";
+"JitPrepareNotReady" = "Not Ready";
+"JitAcquireTimeout" = "Timed out waiting for JIT. The game will start with the interpreter, or you can try again.";
+"JitAutoEnableOnLaunch" = "Enable JIT on Launch";
+"JitAutoEnableOnLaunchDesc" = "Make sure the debug environment is ready before launching the app.";
+"JitSupportedDesc" = "Cores that support JIT: %@";
+
+"SlowMotion" = "Slow Motion";
+"SlowMotionRatio" = "Slow Motion %@";
+"SlowMotionSpeedLimit" = "Maximum speed limited to 2x! Upgrade to Premium for 5x slow motion";
+"SlowMotionDesc" = "Slow motion has lower priority than fast forward. If fast forward is enabled, slow motion turns off automatically.";
+
+"ICloudROMSyncSetting" = "ROM Sync Settings";
+"ICloudROMSyncDesc" = "ROM sync is on by default. Turning it off stops future uploads. You can choose whether to remove existing copies from iCloud Drive. Local files stay on this device.";
+"ICloudROMPlatformConfig" = "Platform Settings";
+"ICloudROMGameConfig" = "Game Settings";
+"ICloudROMRemoveDriveTitle" = "Remove from iCloud Drive?";
+"ICloudROMRemoveDriveDetail" = "This only deletes the iCloud Drive copy to free space. The ROM stays on this device. Other devices that already downloaded it keep their local copies.";
+"ICloudROMRemoveDriveConfirm" = "Remove from iCloud Drive";
+"ICloudROMKeepDrive" = "Keep iCloud Copy";
+"ICloudSyncPaused" = "iCloud Sync Paused";
+"ICloudSyncProgressFormat" = "%d/%d";
+"ICloudRepairSync" = "Repair Sync";
+"ICloudRepairSyncDesc" = "Compares local files with iCloud Drive and retries uploads or downloads that failed or were missed. Progress appears above. Use this if a ROM did not appear in iCloud after import, or after the device was offline.";
+"ICloudRepairSyncInProgress" = "Repair is already in progress.";
+"ICloudRepairSyncNotReady" = "iCloud sync is still starting. Try again in a moment.";
+"ICloudRepairSyncAlreadyDone" = "Local files and iCloud Drive already match.";
+"ICloudRepairSyncResult" = "Repair finished. Uploaded %d, downloaded %d.";
+"ICloudRepairSyncResultPending" = "Repair finished. Uploaded %d, downloaded %d. %d files will retry later.";
+"ICloudROMStillSyncing" = "This ROM is still downloading from iCloud. Try again in a moment.";
+"ICloudROMWiFiOnly" = "Sync ROMs on Wi-Fi Only";
+"ICloudROMSizeLimit" = "ROM Size Limit";
+"ICloudROMSizeLimitUnlimited" = "No Limit";
+"ICloudROMSizeLimitDesc" = "ROMs larger than this are kept on this device only, so a single large disc image does not fill up iCloud Drive. Saves, save states, skins, and settings are never affected.";
+"ICloudROMTransferLimitDesc" = "These two limits apply to ROM files only. Saves, save states, skins, and settings keep syncing over any network and at any size. Opening a game always downloads its ROM, even when a limit would otherwise keep it from syncing.";
+
+"WSwanRotateDisplay" = "Rotate Display";
+"NDSLidToggle" = "Toggle Lid";
+"ResetTips" = "Reset Tips";
+"ResetTipsDesc" = "Show previously dismissed alerts and tips again";
+"ResetTipsSuccess" = "Tips reset successfully";
+
+"EnableCarouselStyle" = "Enable Carousel Style";
+
+"AddGameLink" = "Add Game Link";
+"FetchGamesFromOtherEmulators" = "Import from Other Emulators";
+"AddUrlGameName" = "Game Name";
+"AddUrlGameNamePlaceholder" = "Enter a name";
+"AddUrlGameUrl" = "URL Scheme";
+"AddUrlGamePlatform" = "Platform";
+"AddUrlGameAdd" = "Add";
+"AddUrlGameInvalidUrl" = "Please enter a valid URL scheme, such as delta://game/...";
+"AddUrlGameUnsupportedScheme" = "This URL scheme is not supported.";
+"AddUrlGameAlreadyExists" = "This game link already exists.";
+"AddUrlGameSuccess" = "Game link added";
+"EditLink" = "Edit Link";
+"AddUrlGameUpdated" = "Game link saved";
+"AddGameLinkDesc" = "Supported emulators: %@";
+
+"MultiDiscBuilderDesc" = "The MultiDisc Helper creates .m3u files for multi-disc games so you can swap discs during play. Add disc images of the same type, such as .cue(.bin), .gdi, .chd, .cdi, .iso, .rvz, or .d64. If you already have an .m3u file, skip this and import it directly.";
+"MultiDiscSupportedFormats" = "Supported formats: %@";
+"MultiDiscImportErrorConflict" = "Error: Cannot mix different disc image formats.";
+"MultiDiscImportErrorMissing" = "Error: No supported disc image found.";
+
+"SkinButtonBinding" = "Skin Button Binding";
+"SkinButtonBindingDesc" = "Bind skin buttons to keyboard keys.";
+
+"RommPasswordOrApiKey" = "Password or API Key";
+"RommPullFromService" = "Pull Data from RomM";
+"RommPushToService" = "Push Changes to RomM";
+"RommPullConfirmDetail" = "This will overwrite local covers, metadata, play time, game saves, and matching save states for %d linked games. Continue?";
+"RommPushConfirmDetail" = "This will overwrite RomM covers, summaries, game saves, and save states for %d linked games, and append play time. Continue?";
+"RommNoLinkedGames" = "No games imported from this RomM service.";
+"RommTransferSuccess" = "Finished. %d games updated.";
+"RommTransferPartial" = "Finished. %d succeeded, %d failed.";
+"RommTransferFailed" = "Transfer failed. Check the server connection.";
+"RommLanAddressOnly" = "RomM currently accepts LAN IP addresses only (such as 192.168.x.x, 10.x.x.x, or 169.254.x.x). Hostnames and public IPs are not supported yet.";
+"LandServiceEditServerNamePlaceholder" = "My Server";
+
+"WiimoteMotionPlusSideways" = "Wiimote+MotionPlus Sideways";
+"WiimoteDesc" = "In the default skin, Wiimote mappings:\n「X」 -> 「1」\n「Y」 -> 「2」\n「ZL」 -> 「Shake」\n「Right Thumbstick」 -> 「Tilt」\nGames that require MotionPlus (such as Skyward Sword) need a Wiimote+MotionPlus controller type.";
+
+"NextTap" = "Next Tab";
+"PreviousTap" = "Previous Tab";
+"ScrollToLastGame" = "Scroll to Last Game";
+"ScrollToFirstGame" = "Scroll to First Game";
+"WhatsNew" = "What’s New in v%@";

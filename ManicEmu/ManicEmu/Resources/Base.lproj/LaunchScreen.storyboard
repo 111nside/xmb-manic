@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="24765" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+    <device id="retina6_9" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24743"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <!--View Controller-->
+        <scene sceneID="EHf-IW-A2E">
+            <objects>
+                <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                    <layoutGuides>
+                        <viewControllerLayoutGuide type="top" id="1iW-YB-mha"/>
+                        <viewControllerLayoutGuide type="bottom" id="DYs-VJ-97c"/>
+                    </layoutGuides>
+                    <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                        <rect key="frame" x="0.0" y="0.0" width="440" height="956"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="launch_bg" translatesAutoresizingMaskIntoConstraints="NO" id="dGb-Sc-2GC">
+                                <rect key="frame" x="0.0" y="0.0" width="440" height="956"/>
+                            </imageView>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="icon_corner" translatesAutoresizingMaskIntoConstraints="NO" id="X4q-0E-ySM">
+                                <rect key="frame" x="180" y="358" width="80" height="80"/>
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="80" id="CfA-Vj-G08"/>
+                                    <constraint firstAttribute="width" constant="80" id="Z9y-tR-Fth"/>
+                                </constraints>
+                                <userDefinedRuntimeAttributes>
+                                    <userDefinedRuntimeAttribute type="number" keyPath="layerCornerRadius">
+                                        <real key="value" value="20"/>
+                                    </userDefinedRuntimeAttribute>
+                                    <userDefinedRuntimeAttribute type="boolean" keyPath="masksToBounds" value="YES"/>
+                                </userDefinedRuntimeAttributes>
+                            </imageView>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleToFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="app_title_light" translatesAutoresizingMaskIntoConstraints="NO" id="yFS-J3-ZEP">
+                                <rect key="frame" x="150.66666666666666" y="472" width="138.99999999999997" height="12"/>
+                            </imageView>
+                        </subviews>
+                        <color key="backgroundColor" red="0.090196078431372548" green="0.090196078431372548" blue="0.11372549019607843" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="yFS-J3-ZEP" firstAttribute="centerX" secondItem="dGb-Sc-2GC" secondAttribute="centerX" id="2uJ-Uu-E2J"/>
+                            <constraint firstItem="X4q-0E-ySM" firstAttribute="centerY" secondItem="dGb-Sc-2GC" secondAttribute="centerY" constant="-80" id="Lbr-9E-A9S"/>
+                            <constraint firstItem="dGb-Sc-2GC" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="MQB-YU-gS0"/>
+                            <constraint firstItem="dGb-Sc-2GC" firstAttribute="height" secondItem="Ze5-6b-2t3" secondAttribute="height" id="Qa3-cL-cjQ"/>
+                            <constraint firstItem="dGb-Sc-2GC" firstAttribute="width" secondItem="Ze5-6b-2t3" secondAttribute="width" id="flh-WP-GEw"/>
+                            <constraint firstItem="X4q-0E-ySM" firstAttribute="centerX" secondItem="dGb-Sc-2GC" secondAttribute="centerX" id="gLb-Q9-RvB"/>
+                            <constraint firstItem="yFS-J3-ZEP" firstAttribute="centerY" secondItem="dGb-Sc-2GC" secondAttribute="centerY" id="q8U-7l-J6l"/>
+                            <constraint firstItem="dGb-Sc-2GC" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="tDM-e0-hXw"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="51.81818181818182" y="374.05857740585776"/>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="app_title_light" width="138.33332824707031" height="11.666666984558105"/>
+        <image name="icon_corner" width="40" height="40"/>
+        <image name="launch_bg" width="812" height="812"/>
+    </resources>
+</document>

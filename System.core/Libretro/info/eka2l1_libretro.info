@@ -1,0 +1,38 @@
+# Software Information
+display_name = "Nokia - Symbian / N-Gage (EKA2L1)"
+authors = "EKA2L1 Team"
+supported_extensions = "sis|sisx|n-gage|nge|app"
+corename = "EKA2L1"
+categories = "Emulator"
+license = "GPLv3"
+permissions = ""
+display_version = "0.0.1-git"
+
+# Hardware Information
+manufacturer = "Nokia"
+systemname = "Symbian / N-Gage"
+systemid = "symbian"
+
+# Libretro Features
+database = "Nokia - N-Gage"
+supports_no_game = "false"
+savestate = "false"
+cheats = "false"
+input_descriptors = "true"
+memory_descriptors = "false"
+libretro_saves = "true"
+core_options = "true"
+core_options_version = "2.0"
+load_subsystem = "false"
+hw_render = "true"
+required_hw_api = "OpenGLES >= 3.0"
+needs_fullpath = "true"
+disk_control = "false"
+is_experimental = "true"
+
+# Firmware / BIOS
+firmware_count = 0
+
+notes = "(!) Firmware lives at <save>/EKA2L1/ — populate it with the standalone EKA2L1 (desktop / Android) OR call retro_eka2l1_install_rom_ex / retro_eka2l1_install_game at runtime via the custom extension API (see libretro_eka2l1.h).|(!) Content path: .sis/.sisx/.n-gage (install+run package; .n-gage = N-Gage 2.0 on S60v3+), a folder (original N-Gage 1.0 game-card dump with system/apps/), 'ngage:/abs/folder', or 'uid:0xXXXXXXXX' (launch installed app).|(!) CPU backend: dyncom (interpreter) is the default, dynarmic JIT requires iOS 26+ with StikDebug."
+
+description = "Port of the EKA2L1 Symbian OS / N-Gage emulator to libretro. Exposes a Symbian-specific extension surface (retro_eka2l1_*) so a custom RetroArch frontend can enumerate installed devices and apps, install ROM/RPKG/SIS images, and launch apps by UID — matching what the EKA2L1 Android client offers. Standard libretro callbacks handle HW OpenGLES3 video, audio_batch and RetroPad input."

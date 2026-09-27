@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>jgenesis web</title>
+        <meta charset="UTF-8">
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            html, body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background-color: black;
+            }
+
+            #jgenesis-wasm {
+                width: 100%;
+                height: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            #jgenesis-wasm canvas {
+                width: 100% !important;
+                height: 100% !important;
+                object-fit: fill;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="jgenesis-wasm"></div>
+        <script type="module">
+            import init, {
+                EmulatorChannel,
+                WebConfigRef,
+                run_emulator,
+            } from "./pkg/jgenesis_web.js";
+
+            await init();
+
+            let config = new WebConfigRef();
+            let channel = new EmulatorChannel();
+
+            // Base64 解码函数（在此定义以确保可用性）
+            function base64ToUint8Array(base64) {
+                const binary = atob(base64);
+                const len = binary.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                return bytes;
+            }
+            window.base64ToUint8Array = base64ToUint8Array;
+
+            // 暴露给 iOS 的全局接口
+            window.jgenesisAPI = {
+                // 配置相关
+                config: config,
+                channel: channel,
+                
+                // 文件操作
+                openFile: function(fileData, fileName) {
+                    console.log('📥 openFile 被调用:', fileName, 'fileData 类型:', typeof fileData);
+                    
+                    // 将 base64 或 ArrayBuffer 或 Uint8Array 转换为 Uint8Array
+                    let bytes;
+                    if (typeof fileData === 'string') {
+                        // base64
+                        console.log('🔄 解码 base64 数据...');
+                        const binaryString = atob(fileData);
+                        bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                    } else if (fileData instanceof Uint8Array) {
+                        // 已经是 Uint8Array
+                        bytes = fileData;
+                    } else if (fileData instanceof ArrayBuffer) {
+                        // ArrayBuffer
+                        bytes = new Uint8Array(fileData);
+                    } else {
+                        console.error('❌ 不支持的 fileData 类型:', fileData);
+                        return;
+                    }
+                    
+                    console.log('📦 文件大小:', bytes.length, 'bytes');
+                    
+                    // 直接传递 Uint8Array 给 WASM（避免 Array.from() 导致的内存膨胀）
+                    console.log('✅ 调用 channel.load_file_data');
+                    channel.load_file_data(bytes, fileName);
+                },
+                
+                
+                // 同时加载 Sega CD ROM 和多区域 BIOS 文件
+                // romData: ROM 文件数据（Uint8Array 或 Array）
+                // fileName: ROM 文件名
+                // americasBiosData: 美版 BIOS 数据（可选，Uint8Array/Array 或 null）
+                // japanBiosData: 日版 BIOS 数据（可选，Uint8Array/Array 或 null）
+                // europeBiosData: 欧版 BIOS 数据（可选，Uint8Array/Array 或 null）
+                openSegaCdFile: function(romData, fileName, americasBiosData, japanBiosData, europeBiosData) {
+                    console.log('📥 openSegaCdFile 被调用:', fileName);
+                    
+                    // 转换 ROM 数据为 Uint8Array
+                    let romBytes;
+                    if (romData instanceof Uint8Array) {
+                        romBytes = romData;
+                    } else if (Array.isArray(romData)) {
+                        romBytes = new Uint8Array(romData);
+                    } else {
+                        console.error('❌ 不支持的 romData 类型:', typeof romData);
+                        return;
+                    }
+                    
+                    // 转换 BIOS 数据（BIOS 文件较小，仍使用 Array 传递）
+                    const convertBiosToArray = (biosData) => {
+                        if (!biosData) return null;
+                        if (biosData instanceof Uint8Array) return Array.from(biosData);
+                        if (Array.isArray(biosData)) return biosData;
+                        return null;
+                    };
+                    
+                    const americasBiosVec = convertBiosToArray(americasBiosData);
+                    const japanBiosVec = convertBiosToArray(japanBiosData);
+                    const europeBiosVec = convertBiosToArray(europeBiosData);
+                    
+                    console.log('📦 ROM 大小:', romBytes.length, 'bytes');
+                    if (americasBiosVec) console.log('📦 Americas BIOS 大小:', americasBiosVec.length, 'bytes');
+                    if (japanBiosVec) console.log('📦 Japan BIOS 大小:', japanBiosVec.length, 'bytes');
+                    if (europeBiosVec) console.log('📦 Europe BIOS 大小:', europeBiosVec.length, 'bytes');
+                    
+                    // ROM 直接传递 Uint8Array（避免 Array.from() 导致的内存膨胀）
+                    // BIOS 文件较小，仍使用 Array 传递
+                    channel.load_sega_cd_file(romBytes, fileName, americasBiosVec, japanBiosVec, europeBiosVec);
+                    console.log('✅ Sega CD 文件加载请求已发送');
+                },
+                
+                // 模拟器控制
+                reset: function() {
+                    channel.request_reset();
+                },
+                
+                // 存档操作
+                downloadSave: function() {
+                    const currentFileName = channel.current_file_name();
+                    
+                    const openReq = indexedDB.open("saves");
+                    openReq.onsuccess = (event) => {
+                        const db = event.target.result;
+                        const tx = db.transaction(["files"]);
+                        const objectStore = tx.objectStore("files");
+                        
+                        const getReq = objectStore.get(currentFileName);
+                        getReq.onsuccess = (event) => {
+                            const value = event.target.result;
+                            if (!value || !value["data"] || !value["data"]["sav"]) {
+                                window.webkit.messageHandlers.jgenesis.postMessage({
+                                    type: "saveNotFound",
+                                    fileName: currentFileName
+                                });
+                                return;
+                            }
+                            
+                            const saveBytes = value["data"]["sav"];
+                            const saveFileName = currentFileName.replace(/\.[a-zA-Z]*$/, ".sav");
+                            
+                            // 将数据转为 base64 发送给 iOS
+                            const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(saveBytes)));
+                            window.webkit.messageHandlers.jgenesis.postMessage({
+                                type: "saveData",
+                                fileName: saveFileName,
+                                data: base64
+                            });
+                        };
+                    };
+                },
+                
+                uploadSave: function(saveData) {
+                    let bytes;
+                    if (typeof saveData === 'string') {
+                        const binaryString = atob(saveData);
+                        bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                    } else {
+                        bytes = new Uint8Array(saveData);
+                    }
+                    
+                    const vec = Array.from(bytes);
+                    channel.upload_save_file_data(vec);
+                },
+                
+                // Genesis/MCD/32X 配置
+                setGenesisAspectRatio: function(value) {
+                    config.set_genesis_aspect_ratio(value);
+                },
+                
+                setGenesisM68kDivider: function(value) {
+                    config.set_genesis_m68k_divider(parseInt(value));
+                },
+                
+                setGenesisNonLinearColorScale: function(enabled) {
+                    config.set_genesis_non_linear_color_scale(enabled);
+                },
+                
+                setGenesisRemoveSpriteLimits: function(enabled) {
+                    config.set_genesis_remove_sprite_limits(enabled);
+                },
+                
+                setGenesisEmulateLowPass: function(enabled) {
+                    config.set_genesis_emulate_low_pass(enabled);
+                },
+                
+                setGenesisRenderVerticalBorder: function(enabled) {
+                    config.set_genesis_render_vertical_border(enabled);
+                },
+                
+                setGenesisRenderHorizontalBorder: function(enabled) {
+                    config.set_genesis_render_horizontal_border(enabled);
+                },
+                
+                // 通用配置
+                setFilterMode: function(value) {
+                    config.set_filter_mode(value);
+                },
+                
+                setPreprocessShader: function(value) {
+                    config.set_preprocess_shader(value);
+                },
+                
+                setPrescaleFactor: function(value) {
+                    config.set_prescale_factor(parseInt(value));
+                },
+                
+                restoreDefaults: function() {
+                    config.restore_defaults();
+                },
+                
+                // 获取当前配置
+                getGenesisAspectRatio: function() {
+                    return config.genesis_aspect_ratio();
+                },
+                
+                getGenesisM68kDivider: function() {
+                    return config.genesis_m68k_divider();
+                },
+                
+                getGenesisNonLinearColorScale: function() {
+                    return config.genesis_non_linear_color_scale();
+                },
+                
+                getGenesisRemoveSpriteLimits: function() {
+                    return config.genesis_remove_sprite_limits();
+                },
+                
+                getGenesisEmulateLowPass: function() {
+                    return config.genesis_emulate_low_pass();
+                },
+                
+                getGenesisRenderVerticalBorder: function() {
+                    return config.genesis_render_vertical_border();
+                },
+                
+                getGenesisRenderHorizontalBorder: function() {
+                    return config.genesis_render_horizontal_border();
+                },
+                
+                getFilterMode: function() {
+                    return config.filter_mode();
+                },
+                
+                getPreprocessShader: function() {
+                    return config.preprocess_shader();
+                },
+                
+                getPrescaleFactor: function() {
+                    return config.prescale_factor();
+                },
+                
+                // 输入控制（通过 DOM 事件，兼容性好但有额外延迟）
+                // code 参数应该是 KeyboardEvent.code 的字符串值，例如 "KeyA", "ArrowUp", "Enter" 等
+                sendKeyDown: function(code) {
+                    const event = new KeyboardEvent('keydown', { code: code, bubbles: true });
+                    document.dispatchEvent(event);
+                },
+                
+                sendKeyUp: function(code) {
+                    const event = new KeyboardEvent('keyup', { code: code, bubbles: true });
+                    document.dispatchEvent(event);
+                },
+                
+                // 直接输入控制（绕过 DOM 事件，更低延迟）
+                // button: 按钮名称 "Up", "Down", "Left", "Right", "A", "B", "C", "X", "Y", "Z", "Start", "Mode"
+                // player: 玩家编号 1 或 2
+                // pressed: true 按下，false 释放
+                setGenesisButton: function(button, player, pressed) {
+                    channel.set_genesis_button(button, player, pressed);
+                },
+                
+                // 便捷方法：按下 Genesis 按钮（玩家1）
+                pressButton: function(button) {
+                    channel.set_genesis_button(button, 1, true);
+                },
+                
+                // 便捷方法：释放 Genesis 按钮（玩家1）
+                releaseButton: function(button) {
+                    channel.set_genesis_button(button, 1, false);
+                },
+                
+                // 音频控制
+                // 静音状态
+                _muted: false,
+                
+                // 设置静音（通过 Rust 端控制）
+                setMute: function(mute) {
+                    this._muted = mute;
+                    channel.set_mute(mute);
+                    console.log(mute ? '🔇 音频已静音' : '🔊 音频已恢复');
+                },
+                
+                // 获取静音状态
+                isMuted: function() {
+                    return this._muted;
+                },
+                
+                // 设置快进倍率
+                // multiplier: 1.0 = 正常速度, 2.0 = 2倍速, 0.5 = 半速
+                // 快进时 Rust 端会自动静音音频以避免卡顿失真
+                setSpeedMultiplier: function(multiplier) {
+                    multiplier = multiplier || 1.0;
+                    this._speedMultiplier = multiplier;
+                    channel.set_speed_multiplier(multiplier);
+                    console.log('⏩ 速度倍率设置为 ' + multiplier + 'x');
+                },
+                
+                // 开启快进 (默认 2 倍速)
+                enableFastForward: function(multiplier) {
+                    this.setSpeedMultiplier(multiplier || 2.0);
+                },
+                
+                // 关闭快进，恢复正常速度
+                disableFastForward: function() {
+                    this.setSpeedMultiplier(1.0);
+                },
+                
+                // 当前速度倍率
+                _speedMultiplier: 1.0,
+                
+                // 获取当前速度倍率
+                getSpeedMultiplier: function() {
+                    return this._speedMultiplier;
+                },
+                
+                // ========== 文件方式的 Save State / Load State ==========
+                
+                // 导出 save state 为文件数据
+                // 数据将通过 webkit.messageHandlers.jgenesis 回调返回
+                // 回调类型: 'exportSaveStateComplete'
+                // 回调数据: { type: 'exportSaveStateComplete', success: bool, data: base64String, size: number }
+                exportSaveState: function() {
+                    channel.export_save_state();
+                    console.log('📦 导出 Save State...');
+                },
+                
+                // 从文件数据导入 save state
+                // data: Base64 编码的 save state 数据，或 Uint8Array
+                importSaveState: function(data) {
+                    let uint8Data;
+                    try {
+                        if (typeof data === 'string') {
+                            // Base64 字符串
+                            console.log('📦 解码 Base64 数据，长度: ' + data.length + ' 字符');
+                            uint8Data = base64ToUint8Array(data);
+                        } else if (data instanceof Uint8Array) {
+                            uint8Data = data;
+                        } else if (Array.isArray(data)) {
+                            uint8Data = new Uint8Array(data);
+                        } else {
+                            console.error('Invalid save state data type:', typeof data);
+                            return;
+                        }
+                        
+                        console.log('📦 导入 Save State, 大小: ' + uint8Data.length + ' bytes');
+                        
+                        // 验证数据最小长度（至少需要 4 字节的头部长度）
+                        if (uint8Data.length < 4) {
+                            console.error('Save state 数据太短');
+                            return;
+                        }
+                        
+                        // 打印前几个字节用于调试
+                        const preview = Array.from(uint8Data.slice(0, Math.min(16, uint8Data.length)))
+                            .map(b => b.toString(16).padStart(2, '0'))
+                            .join(' ');
+                        console.log('📦 数据预览: ' + preview);
+                        
+                        // 导入 save state（Rust 端会处理暂停音频和刷新渲染器）
+                        channel.import_save_state(uint8Data);
+                    } catch (e) {
+                        console.error('导入 Save State 失败:', e);
+                    }
+                },
+                
+                // ========== 暂停/恢复 ==========
+                
+                // 暂停状态
+                _paused: false,
+                
+                // 暂停模拟器
+                pause: function() {
+                    channel.pause();
+                    this._paused = true;
+                    console.log('⏸️ 模拟器已暂停');
+                },
+                
+                // 恢复模拟器
+                resume: function() {
+                    channel.resume();
+                    this._paused = false;
+                    console.log('▶️ 模拟器已恢复');
+                },
+                
+                // 切换暂停状态
+                togglePause: function() {
+                    if (this._paused) {
+                        this.resume();
+                    } else {
+                        this.pause();
+                    }
+                },
+                
+                // 获取当前暂停状态
+                isPaused: function() {
+                    return this._paused;
+                }
+            };
+
+            run_emulator(config.clone(), channel.clone());
+        </script>
+    </body>
+</html>

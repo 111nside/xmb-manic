@@ -1,0 +1,16 @@
+/* 
+  InfoPlist.strings
+  ManicEmu
+
+  Created by Aoshuang Lee on 2024/12/25.
+  Copyright © 2024 Manic EMU. All rights reserved.
+*/
+
+"CFBundleDisplayName" = "Manic EMU";
+//Permission
+"NSPhotoLibraryAddUsageDescription" = "Udostępnienie dostępu pozwala zapisywać zrzuty ekranu z gry w galerii oraz wybierać zdjęcia z galerii jako okładki gier";
+"NSPhotoLibraryUsageDescription" = "Udostępnienie dostępu pozwala zapisywać zrzuty ekranu z gry w galerii oraz wybierać zdjęcia z galerii jako okładki gier";
+"NSMicrophoneUsageDescription" = "Aby zapewnić pełną funkcjonalność niektórych gier DS, wymagane jest udzielenie dostępu do mikrofonu dla Manic EMU!";
+"NSCameraUsageDescription" = "Wymagane jest udzielenie dostępu do aparatu, aby móc fotografować okładki gier w Manic EMU!";
+
+"NSLocalNetworkUsageDescription" = "Aby Manic EMU mógł wyszukiwać i łączyć się z innymi urządzeniami w grach online, wymaga dostępu do sieci lokalnej.";

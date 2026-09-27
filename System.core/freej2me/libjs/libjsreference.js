@@ -1,0 +1,1 @@
+const objectToId=new WeakMap;let nextId=1;function getId(e){if(null===e)return 0;if(objectToId.has(e))return objectToId.get(e);const t=nextId++;return objectToId.set(e,t),t}export default{Java_pl_zb3_freej2me_bridge_JSReference_getWeakObjectId:async(e,t)=>getId(t),Java_pl_zb3_freej2me_bridge_JSReference_checkReferenceEquality:async(e,t,n)=>t===n};

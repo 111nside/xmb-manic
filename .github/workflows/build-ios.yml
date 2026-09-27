@@ -1,0 +1,67 @@
+name: Build XMB Manic iOS
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout source (no LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          submodules: recursive
+      - name: Hydrate emulator assets from official Manic v2.0.1 release
+        env:
+          MANIC_RELEASE_TAG: v2.0.1
+        run: bash Scripts/hydrate_release_assets.sh
+      - name: Upload hydration diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Remaining-LFS-pointers
+          path: remaining-lfs-pointers.txt
+          if-no-files-found: ignore
+      - name: Refuse to compile with unresolved LFS pointers
+        run: |
+          if [ -s remaining-lfs-pointers.txt ]; then
+            echo 'Some required upstream LFS assets were not present in the official release bundle.'
+            echo 'Download the Remaining-LFS-pointers artifact and send it back for the next patch.'
+            exit 2
+          fi
+      - name: Show Xcode version and schemes
+        working-directory: ManicEmu
+        run: |
+          xcodebuild -version
+          xcodebuild -project ManicEmu.xcodeproj -list
+      - name: Resolve Swift packages
+        working-directory: ManicEmu
+        run: xcodebuild -resolvePackageDependencies -project ManicEmu.xcodeproj -scheme ManicEmuSideload
+      - name: Build unsigned iPhone app
+        working-directory: ManicEmu
+        run: |
+          set -o pipefail
+          xcodebuild -project ManicEmu.xcodeproj -scheme ManicEmuSideload -configuration SideloadRelease -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= build | tee "$RUNNER_TEMP/xcodebuild.log"
+      - name: Package unsigned IPA
+        if: success()
+        run: |
+          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -type d -name '*.app' | head -1)
+          test -n "$APP"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP" && zip -qry ManicEMU-XMB-unsigned.ipa Payload
+      - name: Upload unsigned IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ManicEMU-XMB-unsigned-IPA
+          path: ${{ runner.temp }}/ManicEMU-XMB-unsigned.ipa
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Xcode-build-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore

@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <title>freej2me-web</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden; position: fixed;
+            touch-action: none; background: #000;
+        }
+        #screen-area {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+        }
+        #display {
+            display: none;
+            position: absolute;
+            top: 0; left: 0;
+            background: #000;
+            image-rendering: pixelated;
+        }
+        #display:focus { outline: none; }
+        #loading {
+            color: #fff;
+            font-size: 1.2em;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+    <script>
+    // Prevent double-tap zoom and scroll on iOS
+    document.addEventListener('touchmove', function(e) {
+        var target = e.target;
+        while (target && target !== document.body) {
+            if (target.scrollHeight > target.clientHeight ||
+                target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
+                target.contentEditable === 'true') return;
+            target = target.parentElement;
+        }
+        e.preventDefault();
+    }, { passive: false });
+    var lastTouchEnd = 0;
+    document.addEventListener('touchend', function(e) {
+        var now = Date.now();
+        if (now - lastTouchEnd <= 300) e.preventDefault();
+        lastTouchEnd = now;
+    }, false);
+    </script>
+</head>
+<body>
+    <div id="screen-area">
+        <canvas tabindex="0" id="display"></canvas>
+        <div id="loading"></div>
+    </div>
+
+    <script>
+    // ================================================================
+    // CheerpJ caching via Cache API (works in WKWebView without SW)
+    // ================================================================
+    (function() {
+        var CACHE_NAME = 'cheerpj-cache-v2';
+        var CACHEABLE_HOSTS = ['cjrtnc.leaningtech.com'];
+
+        function isCacheable(urlStr) {
+            try {
+                var u = new URL(urlStr, location.href);
+                return CACHEABLE_HOSTS.some(function(h) { return u.hostname.indexOf(h) !== -1; });
+            } catch(e) { return false; }
+        }
+
+        var _originalFetch = window.fetch;
+        window.fetch = function(input, init) {
+            var urlStr = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
+            if (!isCacheable(urlStr)) return _originalFetch.call(this, input, init);
+
+            var request = (typeof input === 'string') ? new Request(input) : input;
+            return caches.open(CACHE_NAME).then(function(cache) {
+                return cache.match(request).then(function(cached) {
+                    if (cached) return cached;
+                    return _originalFetch.call(window, input, init).then(function(response) {
+                        if (response && response.status === 200 && response.type !== 'opaque') {
+                            cache.put(request, response.clone());
+                        }
+                        return response;
+                    });
+                });
+            }).catch(function() {
+                return _originalFetch.call(window, input, init);
+            });
+        };
+    })();
+    </script>
+
+    <script src="https://cjrtnc.leaningtech.com/4.2/loader.js"></script>
+    <script type="module">
+        import { LibMedia } from "./libmedia/libmedia.js";
+        import { LibMidi, createUnlockingAudioContext } from "./libmidi/libmidi.js";
+        import { codeMap, KeyRepeatManager } from "./src/key.js";
+        import { EventQueue } from "./src/eventqueue.js";
+
+        import canvasFontNatives from "./libjs/libcanvasfont.js";
+        import canvasGraphicsNatives from "./libjs/libcanvasgraphics.js";
+        import gles2Natives from "./libjs/libgles2.js";
+        import jsReferenceNatives from "./libjs/libjsreference.js";
+        import mediaBridgeNatives from "./libjs/libmediabridge.js";
+        import midiBridgeNatives from "./libjs/libmidibridge.js";
+
+        // ================================================================
+        // State
+        // ================================================================
+        const evtQueue = new EventQueue();
+        const appPath = window.location.pathname;
+        const appDir = appPath.substring(0, appPath.lastIndexOf('/'));
+        const cheerpjWebRoot = '/app' + appDir;
+
+        let display = null;
+        let screenCtx = null;           // The 2D context Java paints into
+        let _origDrawImage = null;       // Original screenCtx.drawImage for pause
+        let libmidi = null;
+        let libmedia = null;
+        let keyRepeatManager = null;
+        let freej2meLib = null;
+
+        // Pause / mute state
+        let isPaused = false;
+        let isMuted = false;
+        // Track all MediaPlayer instances so we can mute their <video> elements
+        let _mediaPlayers = [];
+
+        // Save state
+        let _currentAppId = null;
+        let _saveNotifyTimer = null;  // debounce timer for save notifications
+
+        // Locale to inject into System.setProperty once the game is running.
+        // Set by openJar() and applied on first waitForAndDispatchEvents call.
+        let _pendingLocale = null;
+        let _localeInjected = false;
+
+        // Scale mode
+        let _scaleMode = 'stretch';
+        let _canvasNativeW = 0;
+        let _canvasNativeH = 0;
+
+        // Rotation: set by openJar(). When true, Java's FreeJ2ME uses TRANS_ROT270
+        // to paint and swaps setCanvasSize(w,h). Java's pointer handler does a simple
+        // swap (x=e.y, y=e.x) but omits the Y-axis flip needed for ROT270, so we
+        // compensate on the JS side by flipping the Y coordinate before sending it.
+        let _isRotated = false;
+
+        const keyCodeMap = {
+            'Enter': 13, 'Backspace': 8, 'Delete': 46,
+            'ArrowLeft': 37, 'ArrowRight': 39, 'ArrowUp': 38, 'ArrowDown': 40,
+            'Escape': 27,
+            'Digit0': 48, 'Digit1': 49, 'Digit2': 50, 'Digit3': 51, 'Digit4': 52,
+            'Digit5': 53, 'Digit6': 54, 'Digit7': 55, 'Digit8': 56, 'Digit9': 57,
+            'Numpad0': 96, 'Numpad1': 97, 'Numpad2': 98, 'Numpad3': 99, 'Numpad4': 100,
+            'Numpad5': 101, 'Numpad6': 102, 'Numpad7': 103, 'Numpad8': 104, 'Numpad9': 105,
+            'NumpadDivide': 111, 'NumpadMultiply': 106,
+            'F1': 112, 'F2': 113, 'F3': 114,
+            'Space': 32,
+            'KeyA': 65, 'KeyB': 66, 'KeyC': 67, 'KeyD': 68, 'KeyE': 69, 'KeyF': 70,
+            'KeyG': 71, 'KeyH': 72, 'KeyI': 73, 'KeyJ': 74, 'KeyK': 75, 'KeyL': 76,
+            'KeyM': 77, 'KeyN': 78, 'KeyO': 79, 'KeyP': 80, 'KeyQ': 81, 'KeyR': 82,
+            'KeyS': 83, 'KeyT': 84, 'KeyU': 85, 'KeyV': 86, 'KeyW': 87, 'KeyX': 88,
+            'KeyY': 89, 'KeyZ': 90
+        };
+
+        // ================================================================
+        // Canvas scaling
+        // ================================================================
+        function applyCanvasScale() {
+            if (!display || _canvasNativeW <= 0 || _canvasNativeH <= 0) return;
+
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            let w, h, top, left, tf;
+
+            if (_scaleMode === 'fit') {
+                const scale = Math.min(vw / _canvasNativeW, vh / _canvasNativeH);
+                w = Math.floor(_canvasNativeW * scale) + 'px';
+                h = Math.floor(_canvasNativeH * scale) + 'px';
+                top = '50%'; left = '50%'; tf = 'translate(-50%,-50%)';
+            } else {
+                w = vw + 'px'; h = vh + 'px';
+                top = '0px'; left = '0px'; tf = '';
+            }
+
+            display.style.width = w;
+            display.style.height = h;
+            display.style.top = top;
+            display.style.left = left;
+            display.style.transform = tf || 'none';
+        }
+
+        // WKWebView may animate window size changes; the resize event fires at
+        // the START of the animation with an intermediate size. Schedule a
+        // delayed re-application to catch the final size after the animation.
+        let _applying = false;
+        let _applyTimer = null;
+        function safeApply() {
+            if (_applying) return;
+            _applying = true;
+            applyCanvasScale();
+            _applying = false;
+            clearTimeout(_applyTimer);
+            _applyTimer = setTimeout(function() {
+                _applying = true;
+                applyCanvasScale();
+                _applying = false;
+            }, 350);
+        }
+
+        window.addEventListener('resize', safeApply);
+
+        // ================================================================
+        // Touch coordinate mapping
+        //
+        // When rotated, Java's FreeJ2ME paints with TRANS_ROT270 and its
+        // pointer handler does a simple swap: gameX=e.y, gameY=e.x.
+        // TRANS_ROT270 maps game(gx,gy) → canvas(gy, gameW-1-gx), so the
+        // correct reverse is game(gameW-1-cy, cx).  Since Java only does
+        // (cy, cx) we need to pass (cx, gameW-1-cy) — i.e. flip the Y
+        // coordinate — so Java's swap produces the right result.
+        //
+        // "gameW" here is canvas.height (because setCanvasSize swaps w/h).
+        // ================================================================
+        function touchToCanvasCoords(touchX, touchY) {
+            const rect = display.getBoundingClientRect();
+            const scaleX = _canvasNativeW / rect.width;
+            const scaleY = _canvasNativeH / rect.height;
+            const cx = Math.floor((touchX - rect.left) * scaleX);
+            const cy = Math.floor((touchY - rect.top) * scaleY);
+
+            if (_isRotated) {
+                return { x: cx, y: _canvasNativeH - 1 - cy };
+            }
+            return { x: cx, y: cy };
+        }
+
+        // ================================================================
+        // Event listeners
+        // ================================================================
+        function setListeners() {
+            keyRepeatManager = new KeyRepeatManager();
+
+            keyRepeatManager.register((kind, key, args) => {
+                if (codeMap[key]) {
+                    const symbol = key.startsWith('Digit') ? key.substring(5).charCodeAt(0) : '\x00';
+                    if (kind === 'down' || kind === 'repeat') {
+                        evtQueue.queueEvent({
+                            kind: 'keydown',
+                            args: [codeMap[key], args.symbol || symbol, false, false]
+                        });
+                    } else if (kind === 'up') {
+                        evtQueue.queueEvent({
+                            kind: 'keyup',
+                            args: [codeMap[key], args.symbol || symbol, false, false]
+                        });
+                    }
+                }
+            });
+
+            // Touch events
+            display.addEventListener('touchstart', e => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const coords = touchToCanvasCoords(touch.clientX, touch.clientY);
+                evtQueue.queueEvent({ kind: 'pointerpressed', x: coords.x, y: coords.y });
+            }, { passive: false });
+
+            display.addEventListener('touchmove', e => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const coords = touchToCanvasCoords(touch.clientX, touch.clientY);
+                evtQueue.queueEvent({ kind: 'pointerdragged', x: coords.x, y: coords.y });
+            }, { passive: false });
+
+            display.addEventListener('touchend', e => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const coords = touchToCanvasCoords(touch.clientX, touch.clientY);
+                evtQueue.queueEvent({ kind: 'pointerreleased', x: coords.x, y: coords.y });
+            }, { passive: false });
+
+            // Mouse events (for browser testing)
+            display.addEventListener('mousedown', e => {
+                const coords = touchToCanvasCoords(e.clientX, e.clientY);
+                evtQueue.queueEvent({ kind: 'pointerpressed', x: coords.x, y: coords.y });
+            });
+
+            display.addEventListener('mousemove', e => {
+                if (e.buttons) {
+                    const coords = touchToCanvasCoords(e.clientX, e.clientY);
+                    evtQueue.queueEvent({ kind: 'pointerdragged', x: coords.x, y: coords.y });
+                }
+            });
+
+            display.addEventListener('mouseup', e => {
+                const coords = touchToCanvasCoords(e.clientX, e.clientY);
+                evtQueue.queueEvent({ kind: 'pointerreleased', x: coords.x, y: coords.y });
+            });
+
+            // Keyboard events
+            document.addEventListener('keydown', e => {
+                if (e.repeat) return;
+                keyRepeatManager.post(true, e.code, { symbol: keyCodeMap[e.code] || 0 });
+            });
+
+            document.addEventListener('keyup', e => {
+                keyRepeatManager.post(false, e.code, { symbol: keyCodeMap[e.code] || 0 });
+            });
+
+            display.focus();
+            display.addEventListener('blur', () => {
+                setTimeout(() => display.focus(), 10);
+            });
+        }
+
+        // ================================================================
+        // Audio helpers
+        // ================================================================
+
+        // Apply mute/unmute to all known audio sources.
+        // Uses gainNode (value=0) rather than AudioContext.suspend() to avoid
+        // WKWebView quirks where a suspended context cannot be resumed reliably.
+        function _applyAudioMute(muted) {
+            // 1. MIDI: set gainNode gain to 0
+            try {
+                if (libmidi && libmidi._midiPlayer && libmidi._midiPlayer.gainNode) {
+                    libmidi._midiPlayer.gainNode.gain.value = muted ? 0 : 1;
+                }
+            } catch(e) {}
+
+            // 2. Media players (<video>/<audio> elements): set volume to 0
+            _mediaPlayers = _mediaPlayers.filter(p => p && p.mediaElement);
+            _mediaPlayers.forEach(function(p) {
+                try { p.mediaElement.muted = muted; } catch(e) {}
+            });
+        }
+
+        // ================================================================
+        // CheerpJ initialization
+        // ================================================================
+        async function initCheerpJ() {
+            // Wrap createMediaPlayer to track all MediaPlayer instances for mute control
+            const wrappedMediaBridgeNatives = Object.assign({}, mediaBridgeNatives, {
+                async Java_pl_zb3_freej2me_bridge_media_MediaBridge_createMediaPlayer(lib) {
+                    const player = window.libmedia.createMediaPlayer();
+                    player.addEventListener('end-of-media', e => {
+                        window.evtQueue.queueEvent({kind: 'player-eom', player: e.target});
+                    });
+                    // Track player for mute/pause control
+                    _mediaPlayers.push(player);
+                    if (isMuted) { try { player.mediaElement.muted = true; } catch(e) {} }
+                    return player;
+                }
+            });
+
+            return cheerpjInit({
+                enableDebug: false,
+                natives: {
+                    ...canvasFontNatives,
+                    ...canvasGraphicsNatives,
+                    ...gles2Natives,
+                    ...jsReferenceNatives,
+                    ...wrappedMediaBridgeNatives,
+                    ...midiBridgeNatives,
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_setTitle(lib, title) {
+                        document.title = title;
+                    },
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_setIcon(lib, iconBytes) {
+                    },
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_getScreenCtx(lib) {
+                        return screenCtx;
+                    },
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_setCanvasSize(lib, width, height) {
+                        screenCtx.canvas.width = width;
+                        screenCtx.canvas.height = height;
+                        _canvasNativeW = width;
+                        _canvasNativeH = height;
+                        document.getElementById('loading').hidden = true;
+                        display.style.display = 'block';
+                        safeApply();
+                        display.focus();
+                    },
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_waitForAndDispatchEvents(lib, listener) {
+                        // Inject locale on first call — at this point runJar() has started
+                        // (MIDlet.startApp() is about to run) and setSystemPropertyOverrides()
+                        // has already executed, so this call wins and the game reads the correct locale.
+                        if (!_localeInjected && _pendingLocale) {
+                            _localeInjected = true;
+                            try {
+                                const System = await lib.java.lang.System;
+                                await System.setProperty('microedition.locale', _pendingLocale);
+                                console.log('[freej2me] Injected microedition.locale =', _pendingLocale);
+                            } catch(e) {
+                                console.error('[freej2me] Failed to inject locale:', e);
+                            }
+                        }
+                        if (isPaused) {
+                            await new Promise(r => setTimeout(r, 100));
+                            return;
+                        }
+                        const KeyEvent = await lib.pl.zb3.freej2me.bridge.shell.KeyEvent;
+                        const PointerEvent = await lib.pl.zb3.freej2me.bridge.shell.PointerEvent;
+
+                        const evt = await evtQueue.waitForEvent();
+                        if (evt.kind === 'keydown') {
+                            await listener.keyPressed(await new KeyEvent(...evt.args));
+                        } else if (evt.kind === 'keyup') {
+                            await listener.keyReleased(await new KeyEvent(...evt.args));
+                        } else if (evt.kind === 'pointerpressed') {
+                            await listener.pointerPressed(await new PointerEvent(evt.x, evt.y));
+                        } else if (evt.kind === 'pointerdragged') {
+                            await listener.pointerDragged(await new PointerEvent(evt.x, evt.y));
+                        } else if (evt.kind === 'pointerreleased') {
+                            await listener.pointerReleased(await new PointerEvent(evt.x, evt.y));
+                        } else if (evt.kind === 'player-eom') {
+                            await listener.playerEOM(evt.player);
+                        } else if (evt.kind === 'player-video-frame') {
+                            await listener.playerVideoFrame(evt.player);
+                        }
+                    },
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_restart(lib) {
+                        location.reload();
+                    },
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_exit(lib) {
+                        try {
+                            window.webkit.messageHandlers.j2me.postMessage({ type: 'exit' });
+                        } catch(e) {}
+                    },
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_say(lib, sth) {
+                        console.log('[say]', sth);
+                    },
+                    async Java_pl_zb3_freej2me_bridge_shell_Shell_onSaveDataChanged(lib) {
+                        _scheduleSaveNotify();
+                    }
+                }
+            });
+        }
+
+        // ================================================================
+        // Initialization
+        // ================================================================
+        async function init() {
+            display = document.getElementById('display');
+            screenCtx = display.getContext('2d');
+            // Save the real drawImage so we can restore it on resume
+            _origDrawImage = screenCtx.drawImage.bind(screenCtx);
+
+            setListeners();
+
+            document.getElementById('loading').textContent = '';
+
+            libmidi = new LibMidi(createUnlockingAudioContext());
+            await libmidi.init();
+            window.libmidi = libmidi;
+            // Expose evtQueue for mediaBridgeNatives override above
+            window.evtQueue = evtQueue;
+
+            libmedia = new LibMedia();
+            window.libmedia = libmedia;
+
+            document.getElementById('loading').textContent = '';
+            console.log('Start loading CheerpJ');
+            await initCheerpJ();
+            console.log('CheerpJ loaded');
+            document.getElementById('loading').textContent = '';
+
+            console.log('Start loading freej2me');
+            freej2meLib = await cheerpjRunLibrary(cheerpjWebRoot + '/freej2me-web.jar');
+            console.log('freej2me loaded');
+            window.freej2meReady = true;
+
+            notifyReady();
+            console.log('Notify Swift');
+
+            var tp = new URLSearchParams(window.location.search);
+            if (tp.get('test') === '1') {
+                const testJarPath = cheerpjWebRoot + '/../Anyview4.0.jar';
+                const FreeJ2ME = await freej2meLib.org.recompile.freej2me.FreeJ2ME;
+                FreeJ2ME.main(['jar', testJarPath]).catch(e => {
+                    console.error('Test JAR error:', e);
+                });
+            }
+        }
+
+        // ================================================================
+        // Notify Swift
+        // ================================================================
+        function notifyReady() {
+            try {
+                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.j2me) {
+                    window.webkit.messageHandlers.j2me.postMessage({ type: 'ready' });
+                }
+            } catch(e) {}
+        }
+
+        // ================================================================
+        // Public API
+        // ================================================================
+        // openJar(jarData, jarName, saveB64?, locale?, screenSize?, rotation?)
+        //
+        // Why 'app' mode instead of 'jar' mode:
+        //   FreeJ2ME.main() in 'jar' mode calls initApp(null,null,null), which
+        //   internally calls saveApp(null,null,null) — this REPLACES any pre-written
+        //   settings.conf with Config.DEFAULT_SETTINGS (240x320, rotate=off, etc.).
+        //   That's why screenSize/rotation parameters never took effect.
+        //
+        //   The desktop flow uses TWO pages: index.html (launcher) saves settings via
+        //   LauncherUtil.initApp(), then navigates to run.html which launches with
+        //   FreeJ2ME.main(['app', appId]) — 'app' mode reads the persisted settings
+        //   without overwriting them.
+        //
+        //   Our fix: mimic the desktop flow in a single page. We install the JAR as
+        //   a proper app via LauncherUtil.initApp() (which writes settings.conf with
+        //   our width/height/rotate values), then launch with 'app' mode.
+        //
+        async function openJar(jarData, jarName, saveB64, locale, screenSize, rotation) {
+            console.log('Start openJar!');
+            if (!freej2meLib) {
+                await init();
+            }
+            console.log('freej2meLib init done');
+            const array = (jarData instanceof Uint8Array) ? jarData : new Uint8Array(jarData);
+            _mediaPlayers = [];
+
+            // Set locale for injection on first waitForAndDispatchEvents call
+            _pendingLocale = locale || navigator.language || 'en-US';
+            _localeInjected = false;
+            console.log('[freej2me] Pending locale =', _pendingLocale);
+
+            // ---- Install as a proper app (mimics index.html → launcher.js flow) ----
+            // This writes settings.conf ONCE with our values and never overwrites them.
+            const LauncherUtil = await freej2meLib.pl.zb3.freej2me.launcher.LauncherUtil;
+            const MIDletLoader = await freej2meLib.org.recompile.mobile.MIDletLoader;
+            const File = await freej2meLib.java.io.File;
+            const HashMap = await freej2meLib.java.util.HashMap;
+            const Config = await freej2meLib.org.recompile.freej2me.Config;
+
+            // Reset temp dir for clean state
+            await LauncherUtil.resetTmpDir();
+
+            // Write JAR to a temp file in CheerpJ's virtual filesystem
+            const jarFile = await new File('/files/_tmp/game.jar');
+            await LauncherUtil.copyJar(new Int8Array(array.buffer), jarFile);
+
+            // Create a MIDletLoader to extract appId, name, icon from the JAR manifest
+            const loader = await MIDletLoader.getMIDletLoader(jarFile);
+            let appId = await loader.getAppId();
+            if (!appId) {
+                // If no MIDlet-Name in MANIFEST.MF, derive appId from filename
+                const cleanName = (jarName || 'game.jar').replace(/\.jar$/i, '');
+                await LauncherUtil.ensureAppId(loader, cleanName);
+                appId = await loader.getAppId();
+            }
+            _currentAppId = appId;
+            console.log('[freej2me] appId =', appId);
+
+            // Build settings HashMap from Config.DEFAULT_SETTINGS + our overrides
+            const defaultSettings = {};
+            const ds = await Config.DEFAULT_SETTINGS;
+            const es = await ds.entrySet();
+            const esi = await es.iterator();
+            while (await esi.hasNext()) {
+                const entry = await esi.next();
+                defaultSettings[await entry.getKey()] = await entry.getValue();
+            }
+
+            // Apply screenSize override
+            if (screenSize) {
+                const parts = String(screenSize).trim().split(/[x,]/);
+                if (parts.length === 2) {
+                    const sw = parseInt(parts[0], 10), sh = parseInt(parts[1], 10);
+                    if (sw > 0 && sh > 0) {
+                        defaultSettings['width'] = String(sw);
+                        defaultSettings['height'] = String(sh);
+                        console.log('[freej2me] screenSize →', sw, 'x', sh);
+                    }
+                }
+            }
+
+            // Apply rotation override
+            if (rotation !== undefined && rotation !== null) {
+                defaultSettings['rotate'] = rotation ? 'on' : 'off';
+                console.log('[freej2me] rotation →', defaultSettings['rotate']);
+            }
+            _isRotated = (defaultSettings['rotate'] === 'on');
+
+            // Convert to Java HashMap
+            const settingsMap = await new HashMap();
+            for (const k of Object.keys(defaultSettings)) {
+                await settingsMap.put(k, defaultSettings[k]);
+            }
+
+            // Install the app: writes JAR, name, icon, settings.conf, etc.
+            // This is the same call that launcher.js makes when user clicks "Add game".
+            await LauncherUtil.initApp(jarFile, loader, settingsMap, null, null);
+            console.log('[freej2me] App installed with settings');
+
+            // Close the loader
+            try { await loader.close(); } catch(e) {}
+
+            // Restore RMS save data AFTER the app directory is created by initApp.
+            // importRmsData only touches {appId}/rms/, leaving JARs and config intact.
+            if (saveB64) {
+                try {
+                    const binary = atob(saveB64);
+                    const arr = new Int8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) { arr[i] = binary.charCodeAt(i); }
+                    const result = await LauncherUtil.importRmsData(appId, arr);
+                    console.log('[freej2me] RMS save data restored:', result);
+                } catch(e) {
+                    console.error('[freej2me] Failed to restore RMS save data:', e);
+                }
+            }
+
+            // ---- Launch in 'app' mode (mimics run.html flow) ----
+            // 'app' mode reads the settings.conf we just wrote without overwriting it.
+            console.log('Start loading app, appId:', appId);
+            const FreeJ2ME = await freej2meLib.org.recompile.freej2me.FreeJ2ME;
+            console.log('FreeJ2ME loaded');
+            FreeJ2ME.main(['app', appId]).catch(e => {
+                console.error('FreeJ2ME error:', e);
+                document.getElementById('loading').textContent = '';
+            });
+        }
+
+        function pressKey(key) {
+            if (keyRepeatManager) {
+                keyRepeatManager.post(true, key, { symbol: keyCodeMap[key] || 0 });
+            }
+        }
+
+        function releaseKey(key) {
+            if (keyRepeatManager) {
+                keyRepeatManager.post(false, key, { symbol: keyCodeMap[key] || 0 });
+            }
+        }
+
+        // ================================================================
+        // Pause / Resume
+        // Pausing:
+        //   - Blocks input dispatch (isPaused flag in waitForAndDispatchEvents)
+        //   - Patches screenCtx.drawImage to no-op so the canvas freezes
+        //   - Silences all audio via gain=0 / muted=true
+        // Resuming reverses all of the above.
+        // ================================================================
+        function pause() {
+            if (isPaused) return;
+            isPaused = true;
+
+            // Freeze canvas: replace drawImage with a no-op so the Java painter
+            // thread's calls have no visual effect while paused
+            if (screenCtx && _origDrawImage) {
+                screenCtx.drawImage = function() {};
+            }
+
+            _applyAudioMute(true);
+            console.log('[iOS] freej2me paused');
+        }
+
+        function resume() {
+            if (!isPaused) return;
+            isPaused = false;
+
+            // Restore canvas drawing
+            if (screenCtx && _origDrawImage) {
+                screenCtx.drawImage = _origDrawImage;
+            }
+
+            // Restore audio only if not globally muted
+            if (!isMuted) {
+                _applyAudioMute(false);
+            }
+            console.log('[iOS] freej2me resumed');
+        }
+
+        // ================================================================
+        // Mute / Unmute
+        // Independent of pause: sets gain=0 on MIDI gainNode and mutes
+        // all <video>/<audio> mediaElement instances.
+        // ================================================================
+        function setMute(muted) {
+            isMuted = muted;
+            // Only touch audio if not paused (pause already silences audio)
+            if (!isPaused) {
+                _applyAudioMute(muted);
+            }
+        }
+
+        // ================================================================
+        // Speed — CheerpJ does not support Java execution speed adjustment.
+        // We simply log the request. Audio playback rate is not applicable
+        // to AudioWorklet-based MIDI synthesis.
+        // ================================================================
+        function setSpeed(multiplier) {
+            console.log('[iOS] setSpeed', multiplier, '(not supported by CheerpJ)');
+        }
+
+        // ================================================================
+        // Save data
+        // getSaveData: exports only {appId}/rms/ as a ZIP → base64 string.
+        // loadSaveData: base64 ZIP → restored into {appId}/rms/.
+        //   NOTE: loadSaveData (via openJar's saveB64 param) is applied AFTER
+        //   the app is installed so the appId directory already exists.
+        // ================================================================
+        async function getSaveData() {
+            if (!freej2meLib || !_currentAppId) return null;
+            try {
+                const LauncherUtil = await freej2meLib.pl.zb3.freej2me.launcher.LauncherUtil;
+                const zipBytes = await LauncherUtil.exportRmsData(_currentAppId);
+                if (!zipBytes) return null;
+                // CheerpJ returns Java byte[] as Int8Array; convert to Uint8Array for btoa
+                const u8 = new Uint8Array(zipBytes.buffer || zipBytes);
+                if (u8.length === 0) return null;
+                // Chunked btoa to avoid stack overflow on large saves
+                let binary = '';
+                const CHUNK = 8192;
+                for (let i = 0; i < u8.length; i += CHUNK) {
+                    binary += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+                }
+                return btoa(binary);
+            } catch(e) {
+                console.error('[freej2me] getSaveData error:', e);
+                return null;
+            }
+        }
+
+        async function loadSaveData(b64Data) {
+            if (!freej2meLib || !b64Data || !_currentAppId) return false;
+            try {
+                const binary = atob(b64Data);
+                // LauncherUtil.importRmsData() expects byte[] (Int8Array)
+                const arr = new Int8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) { arr[i] = binary.charCodeAt(i); }
+                const LauncherUtil = await freej2meLib.pl.zb3.freej2me.launcher.LauncherUtil;
+                const result = await LauncherUtil.importRmsData(_currentAppId, arr);
+                console.log('[freej2me] loadSaveData result:', result);
+                return !!result;
+            } catch(e) {
+                console.error('[freej2me] loadSaveData error:', e);
+                return false;
+            }
+        }
+
+        // ================================================================
+        // Save data change notification (event-driven, no polling)
+        // Shell.onSaveDataChanged() is called from RecordStore.save() on
+        // every RMS write. We debounce on the JS side (games often write
+        // several records in a burst), then export only the rms directory
+        // and notify Swift via a 'saveDataWritten' message.
+        // ================================================================
+        function _scheduleSaveNotify() {
+            clearTimeout(_saveNotifyTimer);
+            _saveNotifyTimer = setTimeout(async function() {
+                if (!freej2meLib || !_currentAppId) return;
+                try {
+                    const LauncherUtil = await freej2meLib.pl.zb3.freej2me.launcher.LauncherUtil;
+                    const zipBytes = await LauncherUtil.exportRmsData(_currentAppId);
+                    if (!zipBytes) return;
+                    const u8 = new Uint8Array(zipBytes.buffer || zipBytes);
+                    if (u8.length === 0) return;
+                    let binary = '';
+                    const CHUNK = 8192;
+                    for (let i = 0; i < u8.length; i += CHUNK) {
+                        binary += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+                    }
+                    const b64 = btoa(binary);
+                    window.webkit.messageHandlers.j2me.postMessage({ type: 'saveDataWritten', data: b64 });
+                } catch(e) {
+                    console.error('[freej2me] saveDataWritten notify error:', e);
+                }
+            }, 500);  // 500 ms debounce — covers burst writes within a single save operation
+        }
+
+        // ================================================================
+        // Scale / Screen
+        // ================================================================
+        function setScaleMode(mode) {
+            _scaleMode = (mode === 'fit') ? 'fit' : 'stretch';
+            safeApply();
+        }
+
+        function getScaleMode() {
+            return _scaleMode;
+        }
+
+        // ================================================================
+        // Expose APIs
+        // ================================================================
+        window.freej2meReady = false;
+
+        window.freej2meAPI = {
+            openJar,
+            pressKey,
+            releaseKey,
+            pause,
+            resume,
+            setMute,
+            setScaleMode,
+            getScaleMode,
+            setSpeed,
+            getSaveData,
+            loadSaveData,
+            safeApply: safeApply
+        };
+
+        // Input API matching J2meJS pattern for Swift pressButton calls
+        window.Input = {
+            keyDown: function(k) { pressKey(k); },
+            keyUp: function(k) { releaseKey(k); }
+        };
+
+        // Parse URL params
+        var tp = new URLSearchParams(window.location.search);
+        if (tp.get('scale') === 'fit') { _scaleMode = 'fit'; }
+
+        // Auto-initialize
+        init().catch(e => {
+            console.error('Initialization error:', e);
+            document.getElementById('loading').textContent = '';
+        });
+    </script>
+</body>
+</html>

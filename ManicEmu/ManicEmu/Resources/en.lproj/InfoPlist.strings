@@ -1,0 +1,14 @@
+/* 
+  InfoPlist.strings
+  ManicEmu
+
+  Created by Aoshuang Lee on 2024/12/25.
+  Copyright © 2024 Manic EMU. All rights reserved.
+*/
+
+"CFBundleDisplayName" = "Manic EMU";
+"NSPhotoLibraryAddUsageDescription" = "Manic EMU requires photo library access to save game screenshots and create custom game covers";
+"NSPhotoLibraryUsageDescription" = "Manic EMU requires photo library access to save screenshots and select images for game covers";
+"NSMicrophoneUsageDescription" = "Microphone access required for full Nintendo DS game functionality in Manic EMU";
+"NSCameraUsageDescription" = "Camera access required to capture photos for custom game covers in Manic EMU";
+"NSLocalNetworkUsageDescription" = "Manic EMU needs access to your local network to find and connect with other devices for online gaming.";
