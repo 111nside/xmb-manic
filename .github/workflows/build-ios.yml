@@ -40,7 +40,27 @@ jobs:
 
           p.write_text("\n".join(out) + "\n")
           PY
+      - name: Patch SF Symbol templates for Xcode 16
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
 
+          root = Path("ManicEmu/ManicEmu/Resources/Assets.xcassets")
+
+          changed = 0
+          for p in root.rglob("*.svg"):
+              s = p.read_text(errors="ignore")
+
+              new = s.replace("Template v.7.0", "Template v.6.0")
+              new = new.replace("Template format 7.0", "Template format 6.0")
+
+              if new != s:
+                  p.write_text(new)
+                  print("Patched:", p)
+                  changed += 1
+
+          print("Patched SVG files:", changed)
+          PY
       - name: Hydrate emulator assets from official Manic v2.0.1 release
         env:
           MANIC_RELEASE_TAG: v2.0.1
