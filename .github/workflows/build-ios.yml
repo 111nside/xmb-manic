@@ -26,18 +26,19 @@ jobs:
           from pathlib import Path
 
           p = Path("Dependencies/ProHUD/Sources/ProHUD/Core/Utils/AppContext.swift")
-          s = p.read_text()
+          lines = p.read_text().splitlines()
 
-          target = "setNeedsUpdateOfPrefersInterfaceOrientationLocked()"
+          out = []
+          for line in lines:
+              if "setNeedsUpdateOfPrefersInterfaceOrientationLocked()" in line:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(indent + "#if compiler(>=6.2)")
+                  out.append(line)
+                  out.append(indent + "#endif")
+              else:
+                  out.append(line)
 
-          s = s.replace(
-              target,
-              """#if compiler(>=6.2)
-          setNeedsUpdateOfPrefersInterfaceOrientationLocked()
-          #endif"""
-          )
-
-          p.write_text(s)
+          p.write_text("\n".join(out) + "\n")
           PY
 
       - name: Hydrate emulator assets from official Manic v2.0.1 release
