@@ -38,12 +38,12 @@ jobs:
           xcodebuild -project ManicEmu.xcodeproj -list
       - name: Resolve Swift packages
         working-directory: ManicEmu
-        run: xcodebuild -resolvePackageDependencies -project ManicEmu.xcodeproj -scheme ManicEmuSideload
+        run: xcodebuild -resolvePackageDependencies -project ManicEmu.xcodeproj -scheme ManicEmuSideload -skipPackagePluginValidation
       - name: Build unsigned iPhone app
         working-directory: ManicEmu
         run: |
           set -o pipefail
-          xcodebuild -project ManicEmu.xcodeproj -scheme ManicEmuSideload -configuration SideloadRelease -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= build | tee "$RUNNER_TEMP/xcodebuild.log"
+          xcodebuild -project ManicEmu.xcodeproj -scheme ManicEmuSideload -configuration SideloadRelease -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/DerivedData" -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= build | tee "$RUNNER_TEMP/xcodebuild.log"
       - name: Package unsigned IPA
         if: success()
         run: |
