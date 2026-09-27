@@ -115,50 +115,55 @@ for dp, dns, fns in os.walk(ext):
 replaced = []
 
 cores = os.path.join(root, "Cores")
+os.makedirs(cores, exist_ok=True)
 
-if os.path.isdir(cores):
-    for name in os.listdir(cores):
+# Restore every framework found in the official IPA into Cores,
+# even if the framework is completely absent from the Git checkout.
+for name, candidates in frameworks.items():
+    src = None
 
-        if not name.endswith(".framework"):
-            continue
+    for candidate in candidates:
+        binary_name = name.removesuffix(".framework")
+        binary = os.path.join(candidate, binary_name)
 
+        if (
+            os.path.isfile(binary)
+            and not pointer(binary)
+            and os.path.getsize(binary) > 1000
+        ):
+            src = candidate
+            break
+
+    if src:
         dst = os.path.join(cores, name)
-        candidates = frameworks.get(name, [])
 
-        if not candidates:
-            continue
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(src, dst, symlinks=True)
 
-        src = None
+        replaced.append(dst)
+        print("Hydrated framework:", name)
 
-        for candidate in candidates:
-            binary_name = name.removesuffix(".framework")
-            binary = os.path.join(candidate, binary_name)
+citra = os.path.join(cores, "Citra.framework")
 
-            if (
-                os.path.isfile(binary)
-                and not pointer(binary)
-                and os.path.getsize(binary) > 1000
-            ):
-                src = candidate
-                break
+print("Citra framework exists:", os.path.isdir(citra))
 
-        if src:
-            shutil.rmtree(dst, ignore_errors=True)
+if os.path.isdir(citra):
+    for required in [
+        "Citra",
+        "Info.plist",
+        "Headers/Citra.h",
+        "Modules/module.modulemap",
+    ]:
+        p = os.path.join(citra, required)
 
-            shutil.copytree(
-                src,
-                dst,
-                symlinks=True
-            )
-
-            replaced.append(dst)
-
-            print(
-                "Hydrated framework:",
-                name
-            )
-
-
+        print(
+            "Citra file:",
+            required,
+            "exists=",
+            os.path.exists(p),
+            "size=",
+            os.path.getsize(p) if os.path.isfile(p) else 0
+        )
 for dp, _, fns in os.walk(root):
 
     if "/.git/" in dp.replace("\\", "/"):
