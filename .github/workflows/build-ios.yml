@@ -16,6 +16,7 @@ jobs:
       - name: Hydrate emulator assets from official Manic v2.0.1 release
         env:
           MANIC_RELEASE_TAG: v2.0.1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash Scripts/hydrate_release_assets.sh
       - name: Upload hydration diagnostic
         if: always()

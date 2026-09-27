@@ -6,7 +6,12 @@ TMP="${RUNNER_TEMP:-/tmp}/manic-release-assets"
 rm -rf "$TMP" && mkdir -p "$TMP/downloads" "$TMP/extracted"
 API="https://api.github.com/repos/Manic-EMU/ManicEMU/releases/tags/$TAG"
 echo "Fetching official ManicEMU $TAG release metadata..."
-curl -fsSL -H 'Accept: application/vnd.github+json' "$API" > "$TMP/release.json"
+curl -fsSL \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "User-Agent: xmb-manic-actions" \
+  "$API" > "$TMP/release.json"
 python3 - "$TMP/release.json" "$TMP/downloads" <<'PY'
 import json,sys,urllib.request,os
 meta=json.load(open(sys.argv[1])); out=sys.argv[2]
