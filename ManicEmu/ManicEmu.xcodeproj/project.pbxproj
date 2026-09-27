@@ -16779,7 +16779,7 @@
 		};
 		579096CF303F0B4C00A53656 /* XCRemoteSwiftPackageReference "HXPhotoPicker" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Daiuno/HXPhotoPicker.git";
+			repositoryURL = "https://github.com/SilenceLove/HXPhotoPicker.git";
 			requirement = {
 				kind = exactVersion;
 				version = 5.0.3;
