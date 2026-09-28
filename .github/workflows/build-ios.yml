@@ -74,27 +74,69 @@ jobs:
           path: remaining-lfs-pointers.txt
           if-no-files-found: ignore
 
-      - name: Inspect Citra API
+      - name: Generate Citra headers
         run: |
+          set -e
+
           BIN="Cores/Citra.framework/Citra"
+          OUT="$RUNNER_TEMP/citra-headers"
 
-          echo "=== Citra selector strings ==="
-          strings -a "$BIN" | \
-            grep -E \
-            'shared|getCIA|getTitle|information|importGame|saveState|loadState|pause|stop|reset|Amiibo|Keyboard|keyboard|Vulkan|Metal|Cartridge|orientation|thumbstick|touch|virtualController|Motion|Blowing|FrameLimit|Resolution|reload|updateSettings|openKeyboard|CIA|Cheat' | \
-            sort -u | \
-            head -500 || true
+          mkdir -p "$OUT"
 
-          echo "=== All Citra-related strings ==="
-          strings -a "$BIN" | \
-            grep -i -E 'citra|cia|amiibo|keyboard|savestate' | \
-            sort -u | \
-            head -500 || true
+          echo "Downloading classdump..."
+          curl -L \
+            https://github.com/lechium/classdumpios/releases/latest/download/classdump \
+            -o "$RUNNER_TEMP/classdump"
 
-          echo "=== Objective-C method-name section ==="
-          otool -v -s __TEXT __objc_methname "$BIN" | \
-            head -1000 || true
+          chmod +x "$RUNNER_TEMP/classdump"
 
+          echo "Dumping Citra Objective-C headers..."
+          "$RUNNER_TEMP/classdump" \
+            -H \
+            -o "$OUT" \
+            "$BIN"
+
+          echo "=== Generated headers ==="
+          find "$OUT" -maxdepth 1 -type f -print
+
+          mkdir -p Cores/Citra.framework/Headers
+          mkdir -p Cores/Citra.framework/Modules
+
+          cp "$OUT/CitraCore.h" \
+             Cores/Citra.framework/Headers/CitraCore.h
+
+          cp "$OUT/CitraKeyboardConfig.h" \
+             Cores/Citra.framework/Headers/CitraKeyboardConfig.h
+
+          if [ -f "$OUT/CitraCheatsManager.h" ]; then
+            cp "$OUT/CitraCheatsManager.h" \
+               Cores/Citra.framework/Headers/CheatsManager.h
+          fi
+
+          cat > Cores/Citra.framework/Headers/Citra.h <<'EOF'
+          #import <Foundation/Foundation.h>
+          #import <UIKit/UIKit.h>
+
+          #import "CitraCore.h"
+          #import "CitraKeyboardConfig.h"
+
+          #if __has_include("CheatsManager.h")
+          #import "CheatsManager.h"
+          #endif
+          EOF
+
+          cat > Cores/Citra.framework/Modules/module.modulemap <<'EOF'
+          framework module Citra {
+            umbrella header "Citra.h"
+            export *
+            module * { export * }
+          }
+          EOF
+
+          echo "=== Citra framework after reconstruction ==="
+          find Cores/Citra.framework/Headers \
+               Cores/Citra.framework/Modules \
+               -type f -maxdepth 2 -print
       - name: Refuse to compile with unresolved LFS pointers
         run: |
           if [ -s remaining-lfs-pointers.txt ]; then
