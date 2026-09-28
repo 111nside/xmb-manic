@@ -321,7 +321,6 @@ jobs:
             -project ManicEmu.xcodeproj \
             -scheme ManicEmuSideload \
             -configuration SideloadRelease \
-            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -skipPackagePluginValidation \
