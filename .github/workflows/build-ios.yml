@@ -84,12 +84,73 @@ jobs:
           mkdir -p "$OUT"
 
           echo "Downloading classdump..."
-          curl -L \
-            https://github.com/lechium/classdumpios/releases/latest/download/classdump \
-            -o "$RUNNER_TEMP/classdump"
+          echo "Finding latest macOS classdump release..."
 
-          chmod +x "$RUNNER_TEMP/classdump"
+          python3 - <<'PY'
+          import json
+          import urllib.request
+          import os
 
+          api = "https://api.github.com/repos/lechium/classdumpios/releases/latest"
+
+          req = urllib.request.Request(
+              api,
+              headers={"User-Agent": "xmb-manic-actions"}
+          )
+
+          with urllib.request.urlopen(req) as r:
+              release = json.load(r)
+
+          assets = release.get("assets", [])
+
+          print("Available assets:")
+          for asset in assets:
+              print(" -", asset["name"])
+
+          mac_asset = None
+
+          for asset in assets:
+              name = asset["name"].lower()
+
+              if (
+                  "mac" in name
+                  or "osx" in name
+                  or "darwin" in name
+              ):
+                  mac_asset = asset
+                  break
+
+          if mac_asset is None:
+              raise SystemExit("No macOS classdump asset found")
+
+          url = mac_asset["browser_download_url"]
+          output = os.path.join(
+              os.environ["RUNNER_TEMP"],
+              "classdump-download"
+          )
+
+          print("Downloading:", mac_asset["name"])
+
+          echo "Inspecting downloaded asset..."
+          file "$RUNNER_TEMP/classdump-download"
+
+          chmod +x "$RUNNER_TEMP/classdump-download"
+
+          "$RUNNER_TEMP/classdump-download" \
+            -H \
+            -o "$OUT" \
+            "$BIN"
+
+          req = urllib.request.Request(
+              url,
+              headers={"User-Agent": "xmb-manic-actions"}
+          )
+
+          with urllib.request.urlopen(req) as r, open(output, "wb") as f:
+              f.write(r.read())
+
+          print("Saved to:", output)
+          PY
           echo "Dumping Citra Objective-C headers..."
           "$RUNNER_TEMP/classdump" \
             -H \
