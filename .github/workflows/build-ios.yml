@@ -20,6 +20,21 @@ jobs:
           lfs: false
           submodules: recursive
 
+      - name: Ensure RswiftLibrary is linked
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("ManicEmu/ManicEmu.xcodeproj/project.pbxproj")
+          text = p.read_text()
+
+          print("Checking for RswiftLibrary references...")
+
+          for line in text.splitlines():
+              if "Rswift" in line:
+                  print(line)
+          PY
+
       - name: Patch ProHUD for Xcode 16
         run: |
           python3 - <<'PY'
