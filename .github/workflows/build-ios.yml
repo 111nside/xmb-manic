@@ -215,7 +215,6 @@ jobs:
 
           find Cores/Citra.framework/Headers \
                Cores/Citra.framework/Modules \
-               -type f -maxdepth 2 -print               Cores/Citra.framework/Modules \
                -type f -maxdepth 2 -print
 
       - name: Refuse to compile with unresolved LFS pointers
