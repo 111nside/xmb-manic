@@ -149,12 +149,13 @@ jobs:
           echo "=== Extracted contents ==="
           find "$EXTRACT" -maxdepth 3 -type f -print
 
-          CLASSDUMP=$(find "$EXTRACT" -type f \
-            \( -name "classdump*" -o -name "class-dump*" \) \
-            ! -name "*.txt" \
-            ! -name "*.md" \
-            ! -name "*.plist" \
-            | head -1)
+          CLASSDUMP="$EXTRACT/Release/classdumpc"
+
+          if [ ! -f "$CLASSDUMP" ]; then
+            echo "Could not find macOS classdump executable"
+            find "$EXTRACT" -maxdepth 3 -type f -print
+            exit 1
+          fi
 
           if [ -z "$CLASSDUMP" ]; then
             echo "Could not find classdump executable"
