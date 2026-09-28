@@ -284,8 +284,8 @@ jobs:
           #import <Foundation/Foundation.h>
           #import <UIKit/UIKit.h>
 
-          #import "CDStructures.h"
-          #import "CitraKeyboardConfig.h"          #import "CitraCIAInfo.h"
+          #import "CitraKeyboardConfig.h"
+          #import "CitraCIAInfo.h"
           #import "CitraSaveStateInfo.h"
           #import "CitraSaveStateResult.h"
           #import "CitraGameInformation.h"
@@ -297,9 +297,8 @@ jobs:
 
           cat > Cores/Citra.framework/Modules/module.modulemap <<'EOF'
           framework module Citra {
-            umbrella header "Citra.h"
+            header "Citra.h"
             export *
-            module * { export * }
           }
           EOF
 
