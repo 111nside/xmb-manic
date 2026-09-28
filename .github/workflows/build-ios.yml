@@ -66,23 +66,6 @@ jobs:
           MANIC_RELEASE_TAG: v2.0.1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash Scripts/hydrate_release_assets.sh
-      - name: Inspect Citra framework
-        run: |
-          echo "=== Citra binary ==="
-          file Cores/Citra.framework/Citra
-
-          echo "=== Architectures ==="
-          lipo -info Cores/Citra.framework/Citra || true
-
-          echo "=== Citra classes ==="
-          nm -gjU Cores/Citra.framework/Citra | \
-            grep -E 'CitraCore|CitraKeyboard|CitraVirtual|CheatsManager' | \
-            head -100 || true
-
-          echo "=== Objective-C metadata ==="
-          otool -ov Cores/Citra.framework/Citra | \
-            grep -E 'CitraCore|CitraKeyboard|CitraVirtual|CheatsManager' | \
-            head -200 || true
       - name: Upload hydration diagnostic
         if: always()
         uses: actions/upload-artifact@v4
@@ -90,6 +73,28 @@ jobs:
           name: Remaining-LFS-pointers
           path: remaining-lfs-pointers.txt
           if-no-files-found: ignore
+
+      - name: Inspect Citra API
+        run: |
+          BIN="Cores/Citra.framework/Citra"
+
+          echo "=== CitraCore metadata ==="
+          otool -ov "$BIN" | \
+            grep -A 450 -B 20 "CitraCore$" | \
+            grep -E "name|types|imp|CitraCore|baseMethods|count" | \
+            head -350 || true
+
+          echo "=== CitraKeyboardConfig metadata ==="
+          otool -ov "$BIN" | \
+            grep -A 250 -B 20 "CitraKeyboardConfig$" | \
+            grep -E "name|types|imp|CitraKeyboardConfig|baseMethods|count" | \
+            head -250 || true
+
+          echo "=== CitraCheatsManager metadata ==="
+          otool -ov "$BIN" | \
+            grep -A 250 -B 20 "CitraCheatsManager$" | \
+            grep -E "name|types|imp|CitraCheatsManager|baseMethods|count" | \
+            head -250 || true
 
       - name: Refuse to compile with unresolved LFS pointers
         run: |
