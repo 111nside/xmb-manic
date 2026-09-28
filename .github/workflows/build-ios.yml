@@ -83,7 +83,6 @@ jobs:
 
           mkdir -p "$OUT"
 
-          echo "Downloading classdump..."
           echo "Finding latest macOS classdump release..."
 
           python3 - <<'PY'
@@ -124,22 +123,13 @@ jobs:
               raise SystemExit("No macOS classdump asset found")
 
           url = mac_asset["browser_download_url"]
+
           output = os.path.join(
               os.environ["RUNNER_TEMP"],
               "classdump-download"
           )
 
           print("Downloading:", mac_asset["name"])
-
-          echo "Inspecting downloaded asset..."
-          file "$RUNNER_TEMP/classdump-download"
-
-          chmod +x "$RUNNER_TEMP/classdump-download"
-
-          "$RUNNER_TEMP/classdump-download" \
-            -H \
-            -o "$OUT" \
-            "$BIN"
 
           req = urllib.request.Request(
               url,
@@ -151,12 +141,59 @@ jobs:
 
           print("Saved to:", output)
           PY
+
+          echo "Inspecting downloaded asset..."
+          file "$RUNNER_TEMP/classdump-download"
+
+          chmod +x "$RUNNER_TEMP/classdump-download"
+
           echo "Dumping Citra Objective-C headers..."
-          "$RUNNER_TEMP/classdump" \
+
+          "$RUNNER_TEMP/classdump-download" \
             -H \
             -o "$OUT" \
             "$BIN"
 
+          echo "=== Generated headers ==="
+          find "$OUT" -maxdepth 1 -type f -print
+
+          mkdir -p Cores/Citra.framework/Headers
+          mkdir -p Cores/Citra.framework/Modules
+
+          cp "$OUT/CitraCore.h" \
+             Cores/Citra.framework/Headers/CitraCore.h
+
+          cp "$OUT/CitraKeyboardConfig.h" \
+             Cores/Citra.framework/Headers/CitraKeyboardConfig.h
+
+          if [ -f "$OUT/CitraCheatsManager.h" ]; then
+            cp "$OUT/CitraCheatsManager.h" \
+               Cores/Citra.framework/Headers/CheatsManager.h
+          fi
+
+          cat > Cores/Citra.framework/Headers/Citra.h <<'EOF'
+          #import <Foundation/Foundation.h>
+          #import <UIKit/UIKit.h>
+          #import "CitraCore.h"
+          #import "CitraKeyboardConfig.h"
+
+          #if __has_include("CheatsManager.h")
+          #import "CheatsManager.h"
+          #endif
+          EOF
+
+          cat > Cores/Citra.framework/Modules/module.modulemap <<'EOF'
+          framework module Citra {
+            umbrella header "Citra.h"
+            export *
+            module * { export * }
+          }
+          EOF
+
+          echo "=== Citra framework after reconstruction ==="
+          find Cores/Citra.framework/Headers \
+               Cores/Citra.framework/Modules \
+               -type f -maxdepth 2 -print
           echo "=== Generated headers ==="
           find "$OUT" -maxdepth 1 -type f -print
 
