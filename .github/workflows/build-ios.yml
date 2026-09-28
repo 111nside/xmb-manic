@@ -180,6 +180,38 @@ jobs:
           echo "=== Generated headers ==="
           find "$OUT" -maxdepth 2 -type f -print
 
+          echo "Removing invalid classdump imports..."
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path(__import__("os").environ["RUNNER_TEMP"]) / "citra-headers"
+
+          existing = {p.name for p in root.glob("*.h")}
+
+          for header in root.glob("*.h"):
+              lines = header.read_text(errors="ignore").splitlines()
+              output = []
+
+              for line in lines:
+                  m = re.match(r'\s*#import\s+"([^"]+)"', line)
+
+                  if m:
+                      imported = m.group(1)
+
+                      if imported not in existing:
+                          print(
+                              f"Removing invalid import from {header.name}: "
+                              f"{imported}"
+                          )
+                          continue
+
+                  output.append(line)
+
+              header.write_text("\n".join(output) + "\n")
+          PY
+
           mkdir -p Cores/Citra.framework/Headers
           mkdir -p Cores/Citra.framework/Modules
 
