@@ -66,7 +66,23 @@ jobs:
           MANIC_RELEASE_TAG: v2.0.1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash Scripts/hydrate_release_assets.sh
+      - name: Inspect Citra framework
+        run: |
+          echo "=== Citra binary ==="
+          file Cores/Citra.framework/Citra
 
+          echo "=== Architectures ==="
+          lipo -info Cores/Citra.framework/Citra || true
+
+          echo "=== Citra classes ==="
+          nm -gjU Cores/Citra.framework/Citra | \
+            grep -E 'CitraCore|CitraKeyboard|CitraVirtual|CheatsManager' | \
+            head -100 || true
+
+          echo "=== Objective-C metadata ==="
+          otool -ov Cores/Citra.framework/Citra | \
+            grep -E 'CitraCore|CitraKeyboard|CitraVirtual|CheatsManager' | \
+            head -200 || true
       - name: Upload hydration diagnostic
         if: always()
         uses: actions/upload-artifact@v4
