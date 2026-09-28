@@ -183,26 +183,24 @@ jobs:
           mkdir -p Cores/Citra.framework/Headers
           mkdir -p Cores/Citra.framework/Modules
 
-          cp "$OUT/CitraCore.h" \
-             Cores/Citra.framework/Headers/CitraCore.h
+          echo "Copying all generated Citra headers..."
 
-          cp "$OUT/CitraKeyboardConfig.h" \
-             Cores/Citra.framework/Headers/CitraKeyboardConfig.h
-
-          if [ -f "$OUT/CitraCheatsManager.h" ]; then
-            cp "$OUT/CitraCheatsManager.h" \
-               Cores/Citra.framework/Headers/CheatsManager.h
-          fi
+          cp "$OUT"/*.h \
+             Cores/Citra.framework/Headers/
 
           cat > Cores/Citra.framework/Headers/Citra.h <<'EOF'
           #import <Foundation/Foundation.h>
           #import <UIKit/UIKit.h>
+
           #import "CitraCore.h"
           #import "CitraKeyboardConfig.h"
-
-          #if __has_include("CheatsManager.h")
-          #import "CheatsManager.h"
-          #endif
+          #import "CitraCheatsManager.h"
+          #import "CitraCIAInfo.h"
+          #import "CitraSaveStateInfo.h"
+          #import "CitraSaveStateResult.h"
+          #import "CitraGameInformation.h"
+          #import "CitraCoreVersion.h"
+          #import "ThreeDSObjC.h"
           EOF
 
           cat > Cores/Citra.framework/Modules/module.modulemap <<'EOF'
@@ -217,6 +215,7 @@ jobs:
 
           find Cores/Citra.framework/Headers \
                Cores/Citra.framework/Modules \
+               -type f -maxdepth 2 -print               Cores/Citra.framework/Modules \
                -type f -maxdepth 2 -print
 
       - name: Refuse to compile with unresolved LFS pointers
