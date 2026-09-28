@@ -238,6 +238,25 @@ jobs:
           if core.exists():
               text = core.read_text(errors="ignore")
 
+              # Fix CitraCore.shared() returning Any? in Swift.
+              text = re.sub(
+                  r'\+\s*\(id\)\s*shared\s*;',
+                  '+ (instancetype)shared;',
+                  text
+              )
+
+              text = re.sub(
+                  r'\+\s*\(id\s*_\s*Nullable\)\s*shared\s*;',
+                  '+ (instancetype)shared;',
+                  text
+              )
+
+              text = re.sub(
+                  r'\+\s*\(id\s*_\s*Nonnull\)\s*shared\s*;',
+                  '+ (instancetype)shared;',
+                  text
+              )
+
               prefix = '''
           #import <Foundation/Foundation.h>
           @class CitraKeyboardConfig;
@@ -265,8 +284,8 @@ jobs:
           #import <Foundation/Foundation.h>
           #import <UIKit/UIKit.h>
 
-          #import "CitraKeyboardConfig.h"
-          #import "CitraCIAInfo.h"
+          #import "CDStructures.h"
+          #import "CitraKeyboardConfig.h"          #import "CitraCIAInfo.h"
           #import "CitraSaveStateInfo.h"
           #import "CitraSaveStateResult.h"
           #import "CitraGameInformation.h"
