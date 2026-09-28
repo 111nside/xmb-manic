@@ -80,10 +80,13 @@ jobs:
 
           BIN="Cores/Citra.framework/Citra"
           OUT="$RUNNER_TEMP/citra-headers"
+          ZIP="$RUNNER_TEMP/classdump.zip"
+          EXTRACT="$RUNNER_TEMP/classdump-extracted"
 
           mkdir -p "$OUT"
+          mkdir -p "$EXTRACT"
 
-          echo "Finding latest macOS classdump release..."
+          echo "Finding latest classdump release..."
 
           python3 - <<'PY'
           import json
@@ -106,30 +109,25 @@ jobs:
           for asset in assets:
               print(" -", asset["name"])
 
-          mac_asset = None
+          asset = None
 
-          for asset in assets:
-              name = asset["name"].lower()
+          for item in assets:
+              name = item["name"].lower()
 
-              if (
-                  "mac" in name
-                  or "osx" in name
-                  or "darwin" in name
-              ):
-                  mac_asset = asset
+              if name.endswith(".zip") and "classdump" in name:
+                  asset = item
                   break
 
-          if mac_asset is None:
-              raise SystemExit("No macOS classdump asset found")
+          if asset is None:
+              raise SystemExit("No classdump ZIP asset found")
 
-          url = mac_asset["browser_download_url"]
-
+          url = asset["browser_download_url"]
           output = os.path.join(
               os.environ["RUNNER_TEMP"],
-              "classdump-download"
+              "classdump.zip"
           )
 
-          print("Downloading:", mac_asset["name"])
+          print("Downloading:", asset["name"])
 
           req = urllib.request.Request(
               url,
@@ -142,20 +140,44 @@ jobs:
           print("Saved to:", output)
           PY
 
-          echo "Inspecting downloaded asset..."
-          file "$RUNNER_TEMP/classdump-download"
+          echo "=== Downloaded file ==="
+          file "$ZIP"
 
-          chmod +x "$RUNNER_TEMP/classdump-download"
+          echo "=== Extracting ==="
+          unzip -q "$ZIP" -d "$EXTRACT"
+
+          echo "=== Extracted contents ==="
+          find "$EXTRACT" -maxdepth 3 -type f -print
+
+          CLASSDUMP=$(find "$EXTRACT" -type f \
+            \( -name "classdump*" -o -name "class-dump*" \) \
+            ! -name "*.txt" \
+            ! -name "*.md" \
+            ! -name "*.plist" \
+            | head -1)
+
+          if [ -z "$CLASSDUMP" ]; then
+            echo "Could not find classdump executable"
+            exit 1
+          fi
+
+          echo "Using classdump:"
+          echo "$CLASSDUMP"
+
+          chmod +x "$CLASSDUMP"
+
+          echo "=== classdump file type ==="
+          file "$CLASSDUMP"
 
           echo "Dumping Citra Objective-C headers..."
 
-          "$RUNNER_TEMP/classdump-download" \
+          "$CLASSDUMP" \
             -H \
             -o "$OUT" \
             "$BIN"
 
           echo "=== Generated headers ==="
-          find "$OUT" -maxdepth 1 -type f -print
+          find "$OUT" -maxdepth 2 -type f -print
 
           mkdir -p Cores/Citra.framework/Headers
           mkdir -p Cores/Citra.framework/Modules
@@ -190,51 +212,12 @@ jobs:
           }
           EOF
 
-          echo "=== Citra framework after reconstruction ==="
+          echo "=== Reconstructed Citra framework ==="
+
           find Cores/Citra.framework/Headers \
                Cores/Citra.framework/Modules \
                -type f -maxdepth 2 -print
-          echo "=== Generated headers ==="
-          find "$OUT" -maxdepth 1 -type f -print
 
-          mkdir -p Cores/Citra.framework/Headers
-          mkdir -p Cores/Citra.framework/Modules
-
-          cp "$OUT/CitraCore.h" \
-             Cores/Citra.framework/Headers/CitraCore.h
-
-          cp "$OUT/CitraKeyboardConfig.h" \
-             Cores/Citra.framework/Headers/CitraKeyboardConfig.h
-
-          if [ -f "$OUT/CitraCheatsManager.h" ]; then
-            cp "$OUT/CitraCheatsManager.h" \
-               Cores/Citra.framework/Headers/CheatsManager.h
-          fi
-
-          cat > Cores/Citra.framework/Headers/Citra.h <<'EOF'
-          #import <Foundation/Foundation.h>
-          #import <UIKit/UIKit.h>
-
-          #import "CitraCore.h"
-          #import "CitraKeyboardConfig.h"
-
-          #if __has_include("CheatsManager.h")
-          #import "CheatsManager.h"
-          #endif
-          EOF
-
-          cat > Cores/Citra.framework/Modules/module.modulemap <<'EOF'
-          framework module Citra {
-            umbrella header "Citra.h"
-            export *
-            module * { export * }
-          }
-          EOF
-
-          echo "=== Citra framework after reconstruction ==="
-          find Cores/Citra.framework/Headers \
-               Cores/Citra.framework/Modules \
-               -type f -maxdepth 2 -print
       - name: Refuse to compile with unresolved LFS pointers
         run: |
           if [ -s remaining-lfs-pointers.txt ]; then
