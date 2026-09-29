@@ -1,0 +1,127 @@
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\GameInfo\VIews\SaveStateListView.swift:308: guard game.isCitra3DS else {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Games\Models\GameOption.swift:1173: if game.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Games\Models\GameOptionPerform.swift:682: } else if firstGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:13: import Citra
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:188: let ciaPath = CitraCore.shared().getCIAContentPath(identifier: identifierFor3DS, isSdmc: true) {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:191: let urlInNand = CitraCore.shared().getCIAContentPath(identifier: identifierFor3DS, isSdmc: false){
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:244: if let titlePath = CitraCore.shared().getTitlePath(identifier: identifierFor3DS, isSdmc: true) {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:954: if isCitra3DS || isJGenesisCore || isJ2MECore || isRuffleCore {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:960: var isCitra3DS: Bool {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:1265: if (isCitra3DS && !Settings.defalut.threeDSAdvancedSettingMode) ||
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:1282: if isLibretroType || isJ2MECore || isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Models\Game.swift:1361: if isCitra3DS ||
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:48: !self.manicGame.isCitra3DS,
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:85: private var citraCore: ThreeDSEmulatorBridge? = nil
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:369: citraCore?.updateConfig(["ManicEMU.useShadersAccurateMul": self.manicGame.accurateShaders])
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:372: citraCore?.updateConfig(["ManicEMU.disableRightEyeRender": self.manicGame.renderRightEye])
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:390: self.manicGame.isCitra3DS,
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:391: let citraCore = self.citraCore {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:392: citraCore.updateConfig()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:886: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:887: citraCore?.destory()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1078: now.timeIntervalSince1970ms - lastSaveDate.timeIntervalSince1970ms < (manicGame.isCitra3DS ? 5000 : 3000) {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1123: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1124: if let citraCore {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1125: let result = citraCore.saveState()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1170: now.timeIntervalSince1970ms - lastLoadDate.timeIntervalSince1970ms < (manicGame.isCitra3DS ?  5000 : 1000) {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1176: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1177: if let citraCore {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1185: citraCore.addSaveState(fileUrl: fileUrl, slot: slot)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1187: citraCore.loadState(slot)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1457: if manicGame.isCitra3DS, let citraCore {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1458: return citraCore.isPaused
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1477: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1478: citraCore?.pause()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1502: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1503: citraCore?.resume()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1564: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1567: citraCore?.disableVolume()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1569: citraCore?.enableVolume()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1572: citraCore?.disableVolume()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1606: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1766: if self.manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:1784: DispatchQueue.main.asyncAfter(delay: (manicGame.isCitra3DS || manicGame.gameType == .psp) ? 0 : 1) { [weak self] in
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:2568: } else if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:2569: citraCore?.applyCurrentMotionRotation()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:2681: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:2862: guard manicGame.isCitra3DS else { return }
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:2876: citraCore = self.emulatorCore?.deltaCore.emulatorBridge as? ThreeDSEmulatorBridge
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:2887: citraCore?.start(withGameURL: manicGame.romUrl,
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:2903: citraCore?.openKeyboardAction { [weak self] config in
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3343: } else if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3348: citraCore?.updateViews(topRect: topRect,
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3367: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3369: citraCore?.updateViews(topRect: frames.mainGameViewFrame,
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3419: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3420: citraCore?.stop()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3460: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3463: self.citraCore?.jumpToHome()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3483: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3484: citraCore?.setSimBlowing(start: true)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3486: self?.citraCore?.setSimBlowing(start: false)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3527: let isSearchingAmiibo = (manicGame.isCitra3DS && (citraCore?.isAmiiboSearching() ?? false)) || (manicGame.isAzahar3DS && LibretroCore.sharedInstance().isSearchingAmiibo())
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3541: if self.manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3542: self.citraCore?.loadAmiibo(path: url.path)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3559: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3560: citraCore?.setResolution(resolution: resolution)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3586: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3587: citraCore?.reload()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:3619: if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\VIewControllers\PlayViewController.swift:4218: } else if manicGame.isCitra3DS {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Views\ThreeDSKeyboardView.swift:10: import Citra
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Business\Play\Views\ThreeDSKeyboardView.swift:14: static func showForCitra(config: CitraKeyboardConfig,
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:12: import Citra
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:229: private let citraCore = CitraCore.shared()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:245: citraCore.setSimBlowing(start: start)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:250: citraCore.setMotionRotation(rotation)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:258: citraCore.setMotionRotation(0)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:260: citraCore.setMotionRotation(1)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:262: citraCore.setMotionRotation(2)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:264: citraCore.setMotionRotation(3)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:266: citraCore.setMotionRotation(3)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:271: citraCore.setFrameLimit(limit)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:275: citraCore.jumpToHome()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:279: citraCore.loadAmiibo(path: path)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:283: return citraCore.isSearchingAmiibo()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:290: func openKeyboardAction(_ action: ((CitraKeyboardConfig) -> Void)? = nil) {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:291: CitraCore.openKeyboardAction = { config in
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:358: citraCore.allocateVulkanLibrary()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:361: citraCore.allocateMetalLayer(for: metalLayer, with: metalViewFrame.size, isSecondary: false)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:366: self.citraCore.insertCartridgeAndBoot(with: gameURL, advancedMode: advancedMode, jitSupport: LibretroCore.jitAvailable())
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:370: self.citraCore.orientationChange(with: UIDevice.currentOrientation, using: metalView)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:376: citraCore.deallocateVulkanLibrary()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:377: citraCore.deallocateMetalLayers()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:381: citraCore.stop()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:385: if citraCore.stopped() {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:388: if !citraCore.isPaused() {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:389: citraCore.pausePlay(false)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:394: citraCore.isPaused()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:398: if citraCore.stopped() {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:401: if citraCore.isPaused() {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:402: citraCore.pausePlay(true)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:407: return citraCore.saveStateCount
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:411: if let path = citraCore.saveStatePathForRunningGame(slot: slot) {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:417: let state = citraCore.saveState()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:423: return citraCore.loadState(slot)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:425: return citraCore.loadState()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:438: func gameInputToCoreInput(gameInput: ThreeDSGameInput) -> CitraVirtualControllerButtonType {
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:469: citraCore.thumbstickMoved(.circlePad, x: Float(thumbstickPosition.x), y: Float(thumbstickPosition.y))
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:474: citraCore.thumbstickMoved(.circlePad, x: Float(thumbstickPosition.x), y: Float(thumbstickPosition.y))
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:479: citraCore.thumbstickMoved(.cStick, x: Float(cstickPosition.x), y: Float(cstickPosition.y))
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:484: citraCore.thumbstickMoved(.cStick, x: Float(cstickPosition.x), y: Float(cstickPosition.y))
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:494: citraCore.touchBegan(at: touchPosition)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:495: citraCore.touchMoved(at: touchPosition)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:502: citraCore.virtualControllerButtonDown(type)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:513: citraCore.thumbstickMoved(.circlePad, x: Float(thumbstickPosition.x), y: Float(thumbstickPosition.y))
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:516: citraCore.thumbstickMoved(.circlePad, x: Float(thumbstickPosition.x), y: Float(thumbstickPosition.y))
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:519: citraCore.thumbstickMoved(.cStick, x: Float(cstickPosition.x), y: Float(cstickPosition.y))
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:522: citraCore.thumbstickMoved(.cStick, x: Float(cstickPosition.x), y: Float(cstickPosition.y))
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:525: citraCore.touchEnded()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:531: citraCore.virtualControllerButtonUp(type)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:543: self.citraCore.orientationChange(with: isAirPlay ? .landscapeLeft : UIDevice.currentOrientation, using: metalView)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:549: citraCore.reset()
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Cores\ThreeDS.swift:584: citraCore.updateSettings(advancedMode: isAdvancedMode)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Others\FilesImporter.swift:16: import Citra
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Others\FilesImporter.swift:466: let status = CitraCore.shared().importGame(at: url)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Others\FilesImporter.swift:467: let ciaInfo = CitraCore.shared().getCIAInfo(url: url, isSdmc: true)
+C:\M\Manic-EMU-ManicEMU-fbaeab7\ManicEmu\ManicEmu\Sources\Tools\Others\FilesImporter.swift:507: if let gameInfo = CitraCore.shared().information(for: url) {

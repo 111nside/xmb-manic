@@ -185,10 +185,10 @@ class Game: Object, ObjectUpdatable {
         
         if gameType == ._3ds,
            fileExtension.lowercased() == "app",
-           let ciaPath = CitraCore.shared().getCIAContentPath(identifier: identifierFor3DS, isSdmc: true) {
+           let ciaPath = CitraCore.shared().getCIAContentPath(withIdentifier: identifierFor3DS, isSdmc: true) {
             localUrl = URL(fileURLWithPath: ciaPath)
             if !FileManager.default.fileExists(atPath: localUrl.path),
-               let urlInNand = CitraCore.shared().getCIAContentPath(identifier: identifierFor3DS, isSdmc: false){
+               let urlInNand = CitraCore.shared().getCIAContentPath(withIdentifier: identifierFor3DS, isSdmc: false){
                 localUrl = URL(fileURLWithPath: urlInNand)
             }
             return localUrl
@@ -241,7 +241,7 @@ class Game: Object, ObjectUpdatable {
     var gameSaveUrl: URL {
         if gameType == ._3ds {
             //存档 sdmc/Nintendo 3DS/000...0/000...0/title/[game-TID-high]/[game-TID-low]/data/00000001/
-            if let titlePath = CitraCore.shared().getTitlePath(identifier: identifierFor3DS, isSdmc: true) {
+            if let titlePath = CitraCore.shared().getTitlePath(withIdentifier: identifierFor3DS, isSdmc: true) {
                 return URL(fileURLWithPath: titlePath.appendingPathComponent("data/00000001/"))
             }
         }

@@ -463,7 +463,7 @@ extension FilesImporter {
             if FileType.get3DSExtensions().contains([url.pathExtension.lowercased()]) {
                 if url.pathExtension.lowercased() == "cia" {
                     Log.debug("开始安装")
-                    let status = CitraCore.shared().importGame(at: url)
+                    let status = CitraCore.shared().importGame(atURL: url)
                     let ciaInfo = CitraCore.shared().getCIAInfo(url: url, isSdmc: true)
                     if let titlePath = ciaInfo.titlePath {
                         ciaTitleUrl = URL(fileURLWithPath: titlePath)
