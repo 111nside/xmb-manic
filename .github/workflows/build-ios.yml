@@ -230,6 +230,20 @@ jobs:
                   flags=re.MULTILINE
               )
 
+              # Classdump omits Objective-C nullability, causing singleton
+              # methods to import into Swift as optionals.
+              text = re.sub(
+                  r'\+\s*\(instancetype\)\s*shared\s*;',
+                  '+ (instancetype _Nonnull)shared;',
+                  text
+              )
+
+              text = re.sub(
+                  r'\+\s*\(id\)\s*shared\s*;',
+                  '+ (instancetype _Nonnull)shared;',
+                  text
+              )
+
               header.write_text(text)
 
           # Fix classdump's unknown block type used by CitraCore.
@@ -238,22 +252,28 @@ jobs:
           if core.exists():
               text = core.read_text(errors="ignore")
 
-              # Fix CitraCore.shared() returning Any? in Swift.
+              # Make CitraCore.shared() import as a non-optional CitraCore.
               text = re.sub(
                   r'\+\s*\(id\)\s*shared\s*;',
-                  '+ (instancetype)shared;',
+                  '+ (instancetype _Nonnull)shared;',
                   text
               )
 
               text = re.sub(
                   r'\+\s*\(id\s*_\s*Nullable\)\s*shared\s*;',
-                  '+ (instancetype)shared;',
+                  '+ (instancetype _Nonnull)shared;',
                   text
               )
 
               text = re.sub(
                   r'\+\s*\(id\s*_\s*Nonnull\)\s*shared\s*;',
-                  '+ (instancetype)shared;',
+                  '+ (instancetype _Nonnull)shared;',
+                  text
+              )
+
+              text = re.sub(
+                  r'\+\s*\(instancetype\)\s*shared\s*;',
+                  '+ (instancetype _Nonnull)shared;',
                   text
               )
 
@@ -269,7 +289,6 @@ jobs:
                   text = prefix + text
 
               core.write_text(text)
-
           print("Sanitized Citra headers")
           PY
           mkdir -p Cores/Citra.framework/Headers
