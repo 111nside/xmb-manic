@@ -464,7 +464,7 @@ extension FilesImporter {
                 if url.pathExtension.lowercased() == "cia" {
                     Log.debug("开始安装")
                     let status = CitraCore.shared().importGame(atURL: url)
-                    let ciaInfo = CitraCore.shared().getCIAInfo(url: url, isSdmc: true)
+                    let ciaInfo = CitraCore.shared().getCIAInfo(withURL: url, isSdmc: true)
                     if let titlePath = ciaInfo.titlePath {
                         ciaTitleUrl = URL(fileURLWithPath: titlePath)
                     }

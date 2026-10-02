@@ -242,12 +242,12 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
     private var isAdvancedMode: Bool = false
     
     func setSimBlowing(start: Bool) {
-        citraCore.setSimBlowing(start: start)
+        citraCore.setSimBlowing(start)
     }
 
     /// 0=portrait, 1=landscapeLeft, 2=upside down, 3=landscapeRight.
     func setMotionRotation(_ rotation: Int) {
-        citraCore.setMotionRotation(rotation)
+        citraCore.setMotionRotation(Int64(rotation))
     }
 
     func applyCurrentMotionRotation(
@@ -276,7 +276,7 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
     }
     
     func loadAmiibo(path: String) {
-        citraCore.loadAmiibo(path: path)
+        citraCore.loadAmiibo(withPath: path)
     }
     
     func isAmiiboSearching() -> Bool {
