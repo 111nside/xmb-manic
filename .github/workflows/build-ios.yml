@@ -20,6 +20,12 @@ jobs:
           lfs: false
           submodules: recursive
 
+      - name: Show commit being built
+        run: |
+          echo "Full SHA: $GITHUB_SHA"
+          echo "Short SHA: ${GITHUB_SHA::7}"
+          git log -1 --oneline
+
       - name: Ensure RswiftLibrary is linked
         run: |
           python3 - <<'PY'
