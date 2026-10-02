@@ -464,11 +464,12 @@ extension FilesImporter {
                 if url.pathExtension.lowercased() == "cia" {
                     Log.debug("开始安装")
                     let status = CitraCore.shared().importGame(atURL: url)
-                    let ciaInfo = CitraCore.shared().getCIAInfo(withURL: url, isSdmc: true)
-                    if let titlePath = ciaInfo.titlePath {
-                        ciaTitleUrl = URL(fileURLWithPath: titlePath)
-                    }
-                    guard let ciaPath = ciaInfo.contentPath else {
+                    if let ciaInfo = CitraCore.shared().getCIAInfo(withURL: url, isSdmc: true) as? CitraCIAInfo,
+   let titlePath = ciaInfo.titlePath {
+
+    ciaTitleUrl = URL(fileURLWithPath: titlePath)
+
+    guard let ciaPath = ciaInfo.contentPath else {
                         Log.debug("安装CIA出错，无法获取CIA的安装路径")
                         Self.removeCIA(ciaTitleUrl: ciaTitleUrl)
                         Self.discardRommPending(fileName: originalUrl.lastPathComponent)

@@ -732,14 +732,22 @@ private final class XMBGameCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override var isFocused: Bool {
-        didSet {
-            UIView.animate(withDuration: 0.12) {
-                self.contentView.backgroundColor = self.isFocused ? UIColor.white.withAlphaComponent(0.20) : UIColor.white.withAlphaComponent(0.055)
-                self.transform = self.isFocused ? CGAffineTransform(scaleX: 1.015, y: 1.015) : .identity
-            }
-        }
+override func didUpdateFocus(
+    in context: UIFocusUpdateContext,
+    with coordinator: UIFocusAnimationCoordinator
+) {
+    super.didUpdateFocus(in: context, with: coordinator)
+
+    coordinator.addCoordinatedAnimations {
+        self.contentView.backgroundColor = self.isFocused
+            ? UIColor.white.withAlphaComponent(0.20)
+            : UIColor.white.withAlphaComponent(0.055)
+
+        self.transform = self.isFocused
+            ? CGAffineTransform(scaleX: 1.015, y: 1.015)
+            : .identity
     }
+}
 
     override var isHighlighted: Bool {
         didSet { contentView.alpha = isHighlighted ? 0.65 : 1.0 }
