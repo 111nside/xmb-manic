@@ -463,13 +463,24 @@ extension FilesImporter {
             if FileType.get3DSExtensions().contains([url.pathExtension.lowercased()]) {
                 if url.pathExtension.lowercased() == "cia" {
                     Log.debug("开始安装")
-                    let status = CitraCore.shared().importGame(atURL: url)
-                    if let ciaInfo = CitraCore.shared().getCIAInfo(withURL: url, isSdmc: true) as? CitraCIAInfo,
-   let titlePath = ciaInfo.titlePath {
+let status = CitraCore.shared().importGame(atURL: url)
 
+guard let ciaInfo = CitraCore.shared().getCIAInfo(
+    withURL: url,
+    isSdmc: true
+) as? CitraCIAInfo else {
+    Log.debug("安装CIA出错，无法获取CIA信息")
+    Self.removeCIA(ciaTitleUrl: ciaTitleUrl)
+    Self.discardRommPending(fileName: originalUrl.lastPathComponent)
+    completion?(nil, nil, .badFile(fileName: url.lastPathComponent.deletingPathExtension))
+    return
+}
+
+if let titlePath = ciaInfo.titlePath {
     ciaTitleUrl = URL(fileURLWithPath: titlePath)
+}
 
-    guard let ciaPath = ciaInfo.contentPath else {
+guard let ciaPath = ciaInfo.contentPath else {
                         Log.debug("安装CIA出错，无法获取CIA的安装路径")
                         Self.removeCIA(ciaTitleUrl: ciaTitleUrl)
                         Self.discardRommPending(fileName: originalUrl.lastPathComponent)
