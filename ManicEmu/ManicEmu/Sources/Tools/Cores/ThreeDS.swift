@@ -192,7 +192,7 @@ struct ThreeDS: DeltaCoreProtocol {
             } else {
                 cheat.enabled = false
             }
-            manager.updateCheat(cheat, atIndex: Int64(index))
+            manager.updateCheat(cheat, at: Int64(index))
         }
         manager.saveCheats()
     }
