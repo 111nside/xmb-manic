@@ -361,6 +361,11 @@ jobs:
 
           typedef NS_ENUM(NSUInteger, CitraImportGameResult) {
               CitraImportGameResultSuccess = 0,
+              CitraImportGameResultErrorFailedToOpenFile = 1,
+              CitraImportGameResultErrorFileNotFound = 2,
+              CitraImportGameResultErrorAborted = 3,
+              CitraImportGameResultErrorInvalid = 4,
+              CitraImportGameResultErrorEncrypted = 5,
           };
           """)
 
