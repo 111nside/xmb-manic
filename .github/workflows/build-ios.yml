@@ -419,6 +419,9 @@ jobs:
               if "@class CitraSaveStateResult;" not in text:
                   text = "@class CitraSaveStateResult;\n" + text
 
+              if "@class CitraGameInformation;" not in text:
+                  text = "@class CitraGameInformation;\n" + text
+
               # Make shared() non-optional.
               text = re.sub(
                   r'\+\s*\(id\)\s*shared\s*;',
@@ -541,6 +544,11 @@ jobs:
 
               if "typedef void (^CDUnknownBlockType)" not in text:
                   text = prefix + text
+
+              text = text.replace(
+                  '- (id)informationForGameAtURL:(id)arg1;',
+                  '- (CitraGameInformation * _Nullable)informationForGameAtURL:(NSURL * _Nonnull)arg1 NS_SWIFT_NAME(information(for:));'
+              )
 
               core.write_text(text)
 
