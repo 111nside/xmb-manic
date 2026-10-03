@@ -178,7 +178,10 @@ struct ThreeDS: DeltaCoreProtocol {
     
     //For Citra
     static func setupCheats(identifier: UInt64, cheatsTxt: String, enableCheats: [String]) {
-        let manager = CitraCheatsManager(identifier: identifier)
+        guard let manager = CitraCheatsManager(identifier: identifier) else {
+            return
+        }
+
         let path = manager.cheatFilePath()
         try? cheatsTxt.writeWithCompletePath(to: URL(fileURLWithPath: path))
         manager.loadCheats()
@@ -289,7 +292,7 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
     
     func openKeyboardAction(_ action: ((CitraKeyboardConfig) -> Void)? = nil) {
         CitraCore.openKeyboardAction = { config in
-            guard let action else { return }
+            guard let action, let config else { return }
             if Thread.isMainThread {
                 action(config)
             } else {
@@ -358,7 +361,12 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
         citraCore.allocateVulkanLibrary()
         self.metalView = metalView
         let metalLayer = metalView.layer as! CAMetalLayer
-        citraCore.allocateMetalLayer(for: metalLayer, with: metalViewFrame.size, isSecondary: false)
+        citraCore.allocateMetalLayer(
+            metalLayer,
+            with: metalViewFrame.size,
+            isSecondary: false
+        )
+
         applyCurrentMotionRotation()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             Thread.setThreadPriority(1.0)
@@ -367,7 +375,10 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
             }
         }
         DispatchQueue.main.asyncAfter(delay: 3.25) {
-            self.citraCore.orientationChange(with: UIDevice.currentOrientation, using: metalView)
+            self.citraCore.orientationChange(
+                with: UIDevice.currentOrientation,
+                metalView: metalView
+            )
             self.enableControl = true
         }
     }
@@ -404,23 +415,26 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
     }
     
     var saveStateCount: Int {
-        return citraCore.saveStateCount
+        return Int(citraCore.saveStateCount)
     }
     
     func addSaveState(fileUrl: URL, slot: UInt32) {
-        if let path = citraCore.saveStatePathForRunningGame(slot: slot) {
+        if let path = citraCore.saveStatePathForRunningGame(withSlot: slot) {
             try? FileManager.safeCopyItem(at: fileUrl, to: URL(fileURLWithPath: path), shouldReplace: true)
         }
     }
     
     func saveState() -> (isSuccess: Bool, path: String) {
-        let state = citraCore.saveState()
+        guard let state = citraCore.saveState() else {
+            return (false, "")
+        }
+
         return (state.isSuccess, state.path)
     }
     
     @discardableResult func loadState(_ slot: UInt32? = nil) -> Bool {
         if let slot {
-            return citraCore.loadState(slot)
+            return citraCore.loadState(withSlot: slot)
         } else {
             return citraCore.loadState()
         }
@@ -540,7 +554,7 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
         updateConfig(buildLayoutConfig())
         DispatchQueue.main.asyncAfter(delay: 0.75) {
             if let metalView = self.metalView {
-                self.citraCore.orientationChange(with: isAirPlay ? .landscapeLeft : UIDevice.currentOrientation, using: metalView)
+                self.citraCore.orientationChange(with: isAirPlay ? .landscapeLeft : UIDevice.currentOrientation, metalView: metalView)
             }
         }
     }
@@ -581,7 +595,7 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
             UserDefaults.standard.set(value, forKey: "\(key)")
         }
         UserDefaults.standard.synchronize()
-        citraCore.updateSettings(advancedMode: isAdvancedMode)
+        citraCore.updateSettings(withAdvancedMode: isAdvancedMode)
     }
     
     private func buildLayoutConfig() -> [String: Any] {

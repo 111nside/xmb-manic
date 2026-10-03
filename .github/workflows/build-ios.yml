@@ -269,13 +269,7 @@ jobs:
               text = cheats.read_text(errors="ignore")
 
               text = re.sub(
-                  r'\+\s*\(CitraCheatsManager\s*\*\)\s*shared\s*;',
-                  '+ (CitraCheatsManager * _Nonnull)shared;',
-                  text
-              )
-
-              text = re.sub(
-                  r'\+\s*\(id\)\s*shared\s*;',
+                  r'\+\s*\([^)]*\)\s*shared\s*;',
                   '+ (instancetype _Nonnull)shared;',
                   text
               )
