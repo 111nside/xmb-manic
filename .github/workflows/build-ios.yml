@@ -258,7 +258,7 @@ jobs:
           if core.exists():
               text = core.read_text(errors="ignore")
 
-              # Make CitraCore.shared() import as a non-optional CitraCore.
+              # Make CitraCore.shared() import as non-optional.
               text = re.sub(
                   r'\+\s*\(id\)\s*shared\s*;',
                   '+ (instancetype _Nonnull)shared;',
@@ -283,11 +283,26 @@ jobs:
                   text
               )
 
+              text = text.replace(
+                  'typedef void (^CDUnknownBlockType)(CitraKeyboardConfig *config);',
+                  'typedef void (^CDUnknownBlockType)(CitraKeyboardConfig * _Nullable config);'
+              )
+
+              text = text.replace(
+                  '- (id)getCIAContentPathWithIdentifier:(unsigned long long)arg1 isSdmc:(_Bool)arg2;',
+                  '- (NSString * _Nullable)getCIAContentPathWithIdentifier:(unsigned long long)arg1 isSdmc:(_Bool)arg2;'
+              )
+
+              text = text.replace(
+                  '- (id)getTitlePathWithIdentifier:(unsigned long long)arg1 isSdmc:(_Bool)arg2;',
+                  '- (NSString * _Nullable)getTitlePathWithIdentifier:(unsigned long long)arg1 isSdmc:(_Bool)arg2;'
+              )
+
               prefix = '''
           #import <Foundation/Foundation.h>
           @class CitraKeyboardConfig;
 
-          typedef void (^CDUnknownBlockType)(CitraKeyboardConfig *config);
+          typedef void (^CDUnknownBlockType)(CitraKeyboardConfig * _Nullable config);
 
           '''
 
@@ -295,6 +310,7 @@ jobs:
                   text = prefix + text
 
               core.write_text(text)
+
           print("Sanitized Citra headers")
           PY
           mkdir -p Cores/Citra.framework/Headers
