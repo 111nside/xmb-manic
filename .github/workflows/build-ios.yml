@@ -1,3 +1,103 @@
+name: Build XMB Manic iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source (no LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          submodules: recursive
+
+      - name: Show commit being built
+        run: |
+          echo "Full SHA: $GITHUB_SHA"
+          echo "Short SHA: ${GITHUB_SHA::7}"
+          git log -1 --oneline
+
+      - name: Ensure RswiftLibrary is linked
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("ManicEmu/ManicEmu.xcodeproj/project.pbxproj")
+          text = p.read_text()
+
+          print("Checking for RswiftLibrary references...")
+
+          for line in text.splitlines():
+              if "Rswift" in line:
+                  print(line)
+          PY
+
+      - name: Patch ProHUD for Xcode 16
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("Dependencies/ProHUD/Sources/ProHUD/Core/Utils/AppContext.swift")
+          lines = p.read_text().splitlines()
+
+          out = []
+          for line in lines:
+              if "setNeedsUpdateOfPrefersInterfaceOrientationLocked()" in line:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(indent + "#if compiler(>=6.2)")
+                  out.append(line)
+                  out.append(indent + "#endif")
+              else:
+                  out.append(line)
+
+          p.write_text("\n".join(out) + "\n")
+          PY
+
+      - name: Patch SF Symbol templates for Xcode 16
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("ManicEmu/ManicEmu/Resources/Assets.xcassets")
+
+          changed = 0
+          for p in root.rglob("*.svg"):
+              s = p.read_text(errors="ignore")
+
+              new = s.replace("Template v.7.0", "Template v.6.0")
+              new = new.replace("Template format 7.0", "Template format 6.0")
+
+              if new != s:
+                  p.write_text(new)
+                  print("Patched:", p)
+                  changed += 1
+
+          print("Patched SVG files:", changed)
+          PY
+
+      - name: Hydrate emulator assets from official Manic v2.0.1 release
+        env:
+          MANIC_RELEASE_TAG: v2.0.1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash Scripts/hydrate_release_assets.sh
+
+      - name: Upload hydration diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Remaining-LFS-pointers
+          path: remaining-lfs-pointers.txt
+          if-no-files-found: ignore
+
       - name: Generate Citra headers
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -58,6 +158,7 @@
               raise SystemExit("No classdump ZIP asset found")
 
           url = asset["browser_download_url"]
+
           output = os.path.join(
               os.environ["RUNNER_TEMP"],
               "classdump.zip"
@@ -128,11 +229,13 @@
           for header in root.glob("*.h"):
               text = header.read_text(errors="ignore")
 
+              # Fix bogus superclass detected by classdump.
               text = text.replace(
                   ": udioComponentInstanceNew",
                   ": NSObject"
               )
 
+              # Remove bogus import.
               text = re.sub(
                   r'^\s*#import\s+"udioComponentInstanceNew\.h"\s*$',
                   '',
@@ -140,6 +243,7 @@
                   flags=re.MULTILINE
               )
 
+              # Remove invalid generated C++ destructor selector.
               text = re.sub(
                   r'^\s*-\s*\(void\)\.cxx_destruct;\s*$',
                   '',
@@ -147,6 +251,7 @@
                   flags=re.MULTILINE
               )
 
+              # Make shared singleton methods non-optional in Swift.
               text = re.sub(
                   r'\+\s*\(instancetype\)\s*shared\s*;',
                   '+ (instancetype _Nonnull)shared;',
@@ -160,6 +265,10 @@
               )
 
               header.write_text(text)
+
+          # ----------------------------------------------------------
+          # CitraCheatsManager
+          # ----------------------------------------------------------
 
           cheats = root / "CitraCheatsManager.h"
 
@@ -200,6 +309,10 @@
               )
 
               cheats.write_text(text)
+
+          # ----------------------------------------------------------
+          # Reconstruct enum types lost by classdump
+          # ----------------------------------------------------------
 
           types = root / "CitraTypes.h"
 
@@ -251,6 +364,10 @@
           };
           """)
 
+          # ----------------------------------------------------------
+          # CitraKeyboardConfig
+          # ----------------------------------------------------------
+
           keyboard = root / "CitraKeyboardConfig.h"
 
           if keyboard.exists():
@@ -279,6 +396,10 @@
 
               keyboard.write_text(text)
 
+          # ----------------------------------------------------------
+          # CitraCore
+          # ----------------------------------------------------------
+
           core = root / "CitraCore.h"
 
           if core.exists():
@@ -293,6 +414,7 @@
               if "@class CitraSaveStateResult;" not in text:
                   text = "@class CitraSaveStateResult;\n" + text
 
+              # Make shared() non-optional.
               text = re.sub(
                   r'\+\s*\(id\)\s*shared\s*;',
                   '+ (instancetype _Nonnull)shared;',
@@ -320,6 +442,7 @@
               if '#import "CitraTypes.h"' not in text:
                   text = '#import "CitraTypes.h"\n' + text
 
+              # Restore controller button argument type.
               text = re.sub(
                   r'-\s*\(void\)virtualControllerButtonDown:\(unsigned long long\)(\w+)\s*;',
                   r'- (void)virtualControllerButtonDown:(CitraVirtualControllerButtonType)\1;',
@@ -332,28 +455,33 @@
                   text
               )
 
+              # Restore thumbstick argument type.
               text = re.sub(
                   r'-\s*\(void\)thumbstickMoved:\(unsigned long long\)(\w+)\s+x:\(float\)(\w+)\s+y:\(float\)(\w+)\s*;',
                   r'- (void)thumbstickMoved:(CitraVirtualControllerThumbstickType)\1 x:(float)\2 y:(float)\3;',
                   text
               )
 
+              # Restore game-import result enum.
               text = re.sub(
                   r'-\s*\(unsigned long long\)importGameAtURL:\(id\)(\w+)\s*;',
                   r'- (CitraImportGameResult)importGameAtURL:(NSURL * _Nonnull)\1;',
                   text
               )
 
+              # Keyboard callback as writable class property.
               text = text.replace(
                   '+ (void)setOpenKeyboardAction:(CDUnknownBlockType)arg1;\n+ (CDUnknownBlockType)openKeyboardAction;',
                   '@property(class, nonatomic, copy, nullable) CDUnknownBlockType openKeyboardAction;'
               )
 
+              # Orientation type.
               text = text.replace(
                   '- (void)orientationChangeWithOrientation:(long long)arg1 metalView:(id)arg2;',
                   '- (void)orientationChangeWithOrientation:(UIInterfaceOrientation)arg1 metalView:(UIView * _Nonnull)arg2;'
               )
 
+              # Save-state return type.
               text = text.replace(
                   '- (id)saveState;',
                   '- (CitraSaveStateResult * _Nullable)saveState;'
@@ -364,26 +492,31 @@
                   '- (NSString * _Nullable)saveStatePathForRunningGameWithSlot:(unsigned int)arg1;'
               )
 
+              # Metal layer type.
               text = text.replace(
                   '- (void)allocateMetalLayer:(id)arg1 withSize:(struct CGSize)arg2 isSecondary:(_Bool)arg3;',
                   '- (void)allocateMetalLayer:(CALayer * _Nonnull)arg1 withSize:(CGSize)arg2 isSecondary:(_Bool)arg3;'
               )
 
+              # Cartridge URL.
               text = text.replace(
                   '- (void)insertCartridgeAndBootWithURL:(id)arg1 advancedMode:(_Bool)arg2 jitSupport:(_Bool)arg3;',
                   '- (void)insertCartridgeAndBootWithURL:(NSURL * _Nonnull)arg1 advancedMode:(_Bool)arg2 jitSupport:(_Bool)arg3;'
               )
 
+              # Keyboard callback nullability.
               text = text.replace(
                   'typedef void (^CDUnknownBlockType)(CitraKeyboardConfig *config);',
                   'typedef void (^CDUnknownBlockType)(CitraKeyboardConfig * _Nullable config);'
               )
 
+              # CIA path getter.
               text = text.replace(
                   '- (id)getCIAContentPathWithIdentifier:(unsigned long long)arg1 isSdmc:(_Bool)arg2;',
                   '- (NSString * _Nullable)getCIAContentPathWithIdentifier:(unsigned long long)arg1 isSdmc:(_Bool)arg2;'
               )
 
+              # Installed-title path getter.
               text = text.replace(
                   '- (id)getTitlePathWithIdentifier:(unsigned long long)arg1 isSdmc:(_Bool)arg2;',
                   '- (NSString * _Nullable)getTitlePathWithIdentifier:(unsigned long long)arg1 isSdmc:(_Bool)arg2;'
@@ -464,3 +597,67 @@
 
           echo "=== Citra strings of interest ==="
           strings "$BIN" | grep -Ei 'updateCheat|cheatFilePath|getCheats|buttonConfig|acceptedInput|circlePad|cStick|importGame' | head -300 || true
+
+      - name: Refuse to compile with unresolved LFS pointers
+        run: |
+          if [ -s remaining-lfs-pointers.txt ]; then
+            echo 'Some required upstream LFS assets were not present in the official release bundle.'
+            echo 'Download the Remaining-LFS-pointers artifact and send it back for the next patch.'
+            exit 2
+          fi
+
+      - name: Show Xcode version and schemes
+        working-directory: ManicEmu
+        run: |
+          xcodebuild -version
+          xcodebuild -project ManicEmu.xcodeproj -list
+
+      - name: Resolve Swift packages
+        working-directory: ManicEmu
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project ManicEmu.xcodeproj \
+            -scheme ManicEmuSideload \
+            -skipPackagePluginValidation
+
+      - name: Build unsigned iPhone app
+        working-directory: ManicEmu
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ManicEmu.xcodeproj \
+            -scheme ManicEmuSideload \
+            -configuration SideloadRelease \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM= \
+            build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Package unsigned IPA
+        if: success()
+        run: |
+          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -type d -name '*.app' | head -1)
+          test -n "$APP"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -qry ManicEMU-XMB-unsigned.ipa Payload
+
+      - name: Upload unsigned IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ManicEMU-XMB-unsigned-IPA
+          path: ${{ runner.temp }}/ManicEMU-XMB-unsigned.ipa
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Xcode-build-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
