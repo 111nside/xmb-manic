@@ -258,6 +258,16 @@ jobs:
           if core.exists():
               text = core.read_text(errors="ignore")
 
+              # Make sure the types used below are visible inside CitraCore.h.
+              if "#import <UIKit/UIKit.h>" not in text:
+                  text = "#import <UIKit/UIKit.h>\n" + text
+
+              if "#import <QuartzCore/QuartzCore.h>" not in text:
+                  text = "#import <QuartzCore/QuartzCore.h>\n" + text
+
+              if "@class CitraSaveStateResult;" not in text:
+                  text = "@class CitraSaveStateResult;\n" + text
+
               # Make CitraCore.shared() import as non-optional.
               text = re.sub(
                   r'\+\s*\(id\)\s*shared\s*;',
@@ -283,6 +293,40 @@ jobs:
                   text
               )
 
+              # Fix keyboard callback so Swift sees a writable class property.
+              text = text.replace(
+                  '+ (void)setOpenKeyboardAction:(CDUnknownBlockType)arg1;\n+ (CDUnknownBlockType)openKeyboardAction;',
+                  '@property(class, nonatomic, copy, nullable) CDUnknownBlockType openKeyboardAction;'
+              )
+
+              # Fix orientation type.
+              text = text.replace(
+                  '- (void)orientationChangeWithOrientation:(long long)arg1 metalView:(id)arg2;',
+                  '- (void)orientationChangeWithOrientation:(UIInterfaceOrientation)arg1 metalView:(UIView * _Nonnull)arg2;'
+              )
+
+              # Fix save-state return types.
+              text = text.replace(
+                  '- (id)saveState;',
+                  '- (CitraSaveStateResult * _Nullable)saveState;'
+              )
+
+              text = text.replace(
+                  '- (id)saveStatePathForRunningGameWithSlot:(unsigned int)arg1;',
+                  '- (NSString * _Nullable)saveStatePathForRunningGameWithSlot:(unsigned int)arg1;'
+              )
+
+              # Fix obvious URL/view parameter types.
+              text = text.replace(
+                  '- (void)allocateMetalLayer:(id)arg1 withSize:(struct CGSize)arg2 isSecondary:(_Bool)arg3;',
+                  '- (void)allocateMetalLayer:(CALayer * _Nonnull)arg1 withSize:(CGSize)arg2 isSecondary:(_Bool)arg3;'
+              )
+
+              text = text.replace(
+                  '- (void)insertCartridgeAndBootWithURL:(id)arg1 advancedMode:(_Bool)arg2 jitSupport:(_Bool)arg3;',
+                  '- (void)insertCartridgeAndBootWithURL:(NSURL * _Nonnull)arg1 advancedMode:(_Bool)arg2 jitSupport:(_Bool)arg3;'
+              )
+
               text = text.replace(
                   'typedef void (^CDUnknownBlockType)(CitraKeyboardConfig *config);',
                   'typedef void (^CDUnknownBlockType)(CitraKeyboardConfig * _Nullable config);'
@@ -300,7 +344,11 @@ jobs:
 
               prefix = '''
           #import <Foundation/Foundation.h>
+          #import <UIKit/UIKit.h>
+          #import <QuartzCore/QuartzCore.h>
+
           @class CitraKeyboardConfig;
+          @class CitraSaveStateResult;
 
           typedef void (^CDUnknownBlockType)(CitraKeyboardConfig * _Nullable config);
 
@@ -310,7 +358,6 @@ jobs:
                   text = prefix + text
 
               core.write_text(text)
-
           print("Sanitized Citra headers")
           PY
           mkdir -p Cores/Citra.framework/Headers
@@ -334,6 +381,9 @@ jobs:
           #import "CitraCheat.h"
           #import "CitraCheatsManager.h"
           #import "CitraCore.h"
+          #import <UIKit/UIKit.h>
+          #import <QuartzCore/QuartzCore.h>
+          @class CitraSaveStateResult;
           EOF
 
           cat > Cores/Citra.framework/Modules/module.modulemap <<'EOF'
