@@ -462,6 +462,46 @@ private enum XMBCoverMode: Int {
     }
 }
 
+/// Adds a deliberate empty band around the horizontal XMB rail.
+/// Games already passed by the focused item are shifted above the rail instead
+/// of visually travelling through/behind the selected console icon.
+private final class XMBGameColumnLayout: UICollectionViewFlowLayout {
+    var focusedItemIndex: Int = 0 {
+        didSet {
+            if oldValue != focusedItemIndex { invalidateLayout() }
+        }
+    }
+
+    var railGap: CGFloat = 100 {
+        didSet {
+            if abs(oldValue - railGap) > 0.5 { invalidateLayout() }
+        }
+    }
+
+    private func adjustedCopy(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
+        guard let copy = attributes.copy() as? UICollectionViewLayoutAttributes else {
+            return attributes
+        }
+        if copy.representedElementCategory == .cell,
+           copy.indexPath.item < focusedItemIndex {
+            copy.frame.origin.y -= railGap
+        }
+        return copy
+    }
+
+    override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        let expandedRect = rect.insetBy(dx: 0, dy: -railGap)
+        return super.layoutAttributesForElements(in: expandedRect)?
+            .map(adjustedCopy)
+            .filter { $0.frame.intersects(rect) }
+    }
+
+    override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        guard let attributes = super.layoutAttributesForItem(at: indexPath) else { return nil }
+        return adjustedCopy(attributes)
+    }
+}
+
 final class XMBHomeViewController: BaseViewController {
     private enum SectionKind: Equatable {
         case profile
@@ -505,6 +545,9 @@ final class XMBHomeViewController: BaseViewController {
     private var gameToken: NotificationToken?
     private var clockTimer: Timer?
     private var sectionCenterConstraint: Constraint?
+    private var pendingLibraryRefresh = false
+    private var isRefreshingLibrary = false
+    private var libraryRefreshWorkItem: DispatchWorkItem?
 
     private var coverMode: XMBCoverMode {
         get {
@@ -588,14 +631,18 @@ final class XMBHomeViewController: BaseViewController {
     private let gamesContentView = UIView()
     private let listContainerView = UIView()
 
-    private lazy var collectionView: UICollectionView = {
-        let layout = UICollectionViewFlowLayout()
+    private lazy var gameColumnLayout: XMBGameColumnLayout = {
+        let layout = XMBGameColumnLayout()
         layout.scrollDirection = .vertical
         layout.minimumLineSpacing = 5
-        // The collection itself spans the screen. Its runtime content insets position the
-        // first game under the selected console while still allowing older games to
-        // scroll above the console rail, like a classic XMB vertical column.
-        layout.sectionInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        layout.sectionInset = .zero
+        return layout
+    }()
+
+    private lazy var collectionView: UICollectionView = {
+        let layout = gameColumnLayout
+        // The collection spans the screen. The custom layout reserves a visual gap
+        // for the horizontal console rail as the focused game moves down the column.
 
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
@@ -760,6 +807,7 @@ final class XMBHomeViewController: BaseViewController {
     }
 
     deinit {
+        libraryRefreshWorkItem?.cancel()
         gameToken = nil
         clockTimer?.invalidate()
     }
@@ -798,6 +846,11 @@ final class XMBHomeViewController: BaseViewController {
         }
 
         refreshProfile()
+
+        if pendingLibraryRefresh {
+            pendingLibraryRefresh = false
+            scheduleLibraryRefresh()
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -920,7 +973,7 @@ final class XMBHomeViewController: BaseViewController {
         view.addSubview(actionContainerView)
         actionContainerView.isHidden = true
         actionContainerView.snp.makeConstraints { make in
-            make.top.equalTo(sectionScrollView.snp.bottom).offset(12)
+            make.top.equalTo(sectionScrollView.snp.bottom).offset(16)
             make.centerX.equalToSuperview()
             make.width.equalTo(400).priority(.high)
             make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(24)
@@ -1053,12 +1106,12 @@ final class XMBHomeViewController: BaseViewController {
         actionContainerView.backgroundColor = .clear
 
         actionTitleLabel.textColor = .white
-        actionTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
+        actionTitleLabel.font = .systemFont(ofSize: 20, weight: .bold)
         actionTitleLabel.textAlignment = .center
-        actionTitleLabel.numberOfLines = 2
+        actionTitleLabel.numberOfLines = 1
         actionTitleLabel.adjustsFontSizeToFitWidth = true
-        actionTitleLabel.minimumScaleFactor = 0.88
-        actionTitleLabel.lineBreakMode = .byWordWrapping
+        actionTitleLabel.minimumScaleFactor = 0.82
+        actionTitleLabel.lineBreakMode = .byTruncatingTail
         actionTitleLabel.layer.shadowColor = UIColor.black.cgColor
         actionTitleLabel.layer.shadowOpacity = 0.38
         actionTitleLabel.layer.shadowRadius = 2
@@ -1069,8 +1122,8 @@ final class XMBHomeViewController: BaseViewController {
         actionSubtitleLabel.textColor = UIColor.white.withAlphaComponent(0.68)
         actionSubtitleLabel.font = .systemFont(ofSize: 13, weight: .regular)
         actionSubtitleLabel.textAlignment = .center
-        actionSubtitleLabel.numberOfLines = 2
-        actionSubtitleLabel.lineBreakMode = .byWordWrapping
+        actionSubtitleLabel.numberOfLines = 1
+        actionSubtitleLabel.lineBreakMode = .byTruncatingTail
         actionSubtitleLabel.adjustsFontSizeToFitWidth = true
         actionSubtitleLabel.minimumScaleFactor = 0.86
         actionSubtitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -1086,25 +1139,25 @@ final class XMBHomeViewController: BaseViewController {
         // Put the bold white heading first and give it a real height. This avoids the
         // compressed/cropped title that could occur on landscape phones.
         actionTitleLabel.snp.makeConstraints { make in
-            make.top.equalToSuperview().offset(8)
+            make.top.equalToSuperview().offset(2)
             make.leading.trailing.equalToSuperview().inset(10)
-            make.height.greaterThanOrEqualTo(32)
+            make.height.equalTo(30)
         }
         actionSubtitleLabel.snp.makeConstraints { make in
-            make.top.equalTo(actionTitleLabel.snp.bottom).offset(3)
+            make.top.equalTo(actionTitleLabel.snp.bottom).offset(2)
             make.leading.trailing.equalToSuperview().inset(16)
-            make.height.greaterThanOrEqualTo(20)
+            make.height.equalTo(18)
         }
         actionSymbolView.snp.makeConstraints { make in
-            make.top.equalTo(actionSubtitleLabel.snp.bottom).offset(12)
+            make.top.equalTo(actionSubtitleLabel.snp.bottom).offset(8)
             make.centerX.equalToSuperview()
-            make.width.height.equalTo(44)
+            make.width.height.equalTo(38)
         }
         actionButton.snp.makeConstraints { make in
-            make.top.equalTo(actionSymbolView.snp.bottom).offset(13)
+            make.top.equalTo(actionSymbolView.snp.bottom).offset(9)
             make.centerX.equalToSuperview()
             make.width.equalTo(176)
-            make.height.equalTo(42)
+            make.height.equalTo(40)
             make.bottom.equalToSuperview().offset(-2)
         }
     }
@@ -1184,9 +1237,45 @@ final class XMBHomeViewController: BaseViewController {
     private func observeGames() {
         let results = Database.realm.objects(Game.self).where { !$0.isDeleted }
         gameToken = results.observe { [weak self] _ in
-            self?.rebuildSectionsAndContent()
+            self?.scheduleLibraryRefresh()
         }
         rebuildSectionsAndContent()
+    }
+
+    /// Realm can emit several changes while the legacy importer is still on screen.
+    /// Rebuilding XMB sections during that transition can invalidate focused cells/buttons.
+    /// Coalesce those updates and apply them only after the modal importer has closed.
+    private func scheduleLibraryRefresh() {
+        libraryRefreshWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.presentedViewController == nil else {
+                self.pendingLibraryRefresh = true
+                return
+            }
+            self.performLibraryRefresh()
+        }
+
+        libraryRefreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
+    }
+
+    private func performLibraryRefresh() {
+        guard !isRefreshingLibrary else {
+            pendingLibraryRefresh = true
+            return
+        }
+
+        isRefreshingLibrary = true
+        pendingLibraryRefresh = false
+        rebuildSectionsAndContent()
+        isRefreshingLibrary = false
+
+        if pendingLibraryRefresh {
+            pendingLibraryRefresh = false
+            scheduleLibraryRefresh()
+        }
     }
 
     private func rebuildSectionsAndContent() {
@@ -1385,9 +1474,10 @@ final class XMBHomeViewController: BaseViewController {
         view.bringSubviewToFront(sectionScrollView)
         view.bringSubviewToFront(dateLabel)
 
+        let initialIndex = games.isEmpty ? 0 : rememberedIndexForCurrentSection()
+        gameColumnLayout.focusedItemIndex = initialIndex
         collectionView.reloadData()
         updateGameColumnInsets()
-        let initialIndex = games.isEmpty ? nil : rememberedIndexForCurrentSection()
 
         let updates = {
             self.gamesContentView.alpha = showGames ? 1 : 0
@@ -1455,6 +1545,8 @@ final class XMBHomeViewController: BaseViewController {
 
         let clamped = min(max(index, 0), games.count - 1)
         let indexPath = IndexPath(item: clamped, section: 0)
+        gameColumnLayout.focusedItemIndex = clamped
+        collectionView.collectionViewLayout.invalidateLayout()
         collectionView.layoutIfNeeded()
         scrollGameToAnchor(index: clamped, animated: false)
         collectionView.layoutIfNeeded()
@@ -1473,7 +1565,8 @@ final class XMBHomeViewController: BaseViewController {
         // The first game sits a few points below it, but the collection itself continues
         // all the way to the top of the screen.
         let railRect = sectionScrollView.convert(sectionScrollView.bounds, to: collectionView)
-        let anchorY = max(0, railRect.maxY + 6)
+        let anchorY = max(0, railRect.maxY + 8)
+        gameColumnLayout.railGap = max(96, railRect.height + 10)
         let rowHeight: CGFloat = coverMode == .square ? 54 : 60
         let bottomInset = max(18, collectionView.bounds.height - anchorY - rowHeight)
 
@@ -1525,12 +1618,28 @@ final class XMBHomeViewController: BaseViewController {
             rememberedGameIndex[sections[selectedSectionIndex].identifier] = index
         }
 
+        gameColumnLayout.focusedItemIndex = index
+        UIView.animate(withDuration: 0.16) {
+            self.collectionView.collectionViewLayout.invalidateLayout()
+            self.collectionView.layoutIfNeeded()
+        }
         scrollGameToAnchor(index: index, animated: true)
+    }
+
+    private func updateFocusedGame(gameID: String) {
+        guard let index = games.firstIndex(where: { $0.id == gameID }) else { return }
+        updateFocusedGame(index: index)
     }
 
     private func activateGame(at index: Int) {
         guard games.indices.contains(index) else { return }
-        games[index].handleTapAction(forceQuick: true)
+        activateGame(gameID: games[index].id)
+    }
+
+    private func activateGame(gameID: String) {
+        guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+              !game.isDeleted else { return }
+        game.handleTapAction(forceQuick: true)
     }
 
     private func configureActionView(title: String, subtitle: String, symbol: String) {
@@ -1801,18 +1910,24 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: XMBGameRowCell.reuseIdentifier,
                                                        for: indexPath) as! XMBGameRowCell
 
+        guard games.indices.contains(indexPath.item) else {
+            cell.configurePlaceholder()
+            return cell
+        }
+
         let game = games[indexPath.item]
+        let gameID = game.id
         cell.configure(game: game, coverMode: coverMode)
         cell.isFocusable = true
         cell.enableFocusEffects = false
         cell.onFocusChange = { [weak self, weak cell] focused in
             cell?.setXMBFocused(focused)
             if focused {
-                self?.updateFocusedGame(index: indexPath.item)
+                self?.updateFocusedGame(gameID: gameID)
             }
         }
         cell.onFocusConfirm = { [weak self] in
-            self?.activateGame(at: indexPath.item)
+            self?.activateGame(gameID: gameID)
             return true
         }
 
@@ -1820,8 +1935,10 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        updateFocusedGame(index: indexPath.item)
-        activateGame(at: indexPath.item)
+        guard games.indices.contains(indexPath.item) else { return }
+        let gameID = games[indexPath.item].id
+        updateFocusedGame(gameID: gameID)
+        activateGame(gameID: gameID)
     }
 
     func collectionView(_ collectionView: UICollectionView,
@@ -2073,6 +2190,15 @@ private final class XMBGameRowCell: UICollectionViewCell {
                 : .identity
             self.transform = .identity
         }
+    }
+
+    func configurePlaceholder() {
+        onFocusChange = nil
+        onFocusConfirm = nil
+        coverView.image = nil
+        nameLabel.text = nil
+        detailLabel.text = nil
+        setXMBFocused(false)
     }
 
     func configure(game: Game, coverMode: XMBCoverMode) {
