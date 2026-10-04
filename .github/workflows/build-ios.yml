@@ -680,9 +680,9 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM= \
             IPHONEOS_DEPLOYMENT_TARGET=17.4 \
-            FRAMEWORK_SEARCH_PATHS="\$(inherited) $GITHUB_WORKSPACE/Cores" \
-            OTHER_LDFLAGS="\$(inherited) -framework ARMSX2Core" \
-            LD_RUNPATH_SEARCH_PATHS="\$(inherited) @executable_path/Frameworks" \
+            "FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]=\$(inherited) $GITHUB_WORKSPACE/Cores" \
+            "OTHER_LDFLAGS[sdk=iphoneos*]=\$(inherited) -framework ARMSX2Core" \
+            "LD_RUNPATH_SEARCH_PATHS[sdk=iphoneos*]=\$(inherited) @executable_path/Frameworks" \
             build | tee "$RUNNER_TEMP/xcodebuild.log"
 
       - name: Embed ARMSX2Core framework
