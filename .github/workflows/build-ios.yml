@@ -614,9 +614,18 @@ jobs:
       - name: Refuse to compile with unresolved LFS pointers
         run: |
           if [ -s remaining-lfs-pointers.txt ]; then
-            echo 'Some required upstream LFS assets were not present in the official release bundle.'
-            echo 'Download the Remaining-LFS-pointers artifact and send it back for the next patch.'
-            exit 2
+            # System.core is replaced after xcodebuild with the real archive from
+            # the official release, so unresolved pointers inside its source tree
+            # are allowed. Every other unresolved LFS object is still fatal.
+            grep -v '^System\.core/' remaining-lfs-pointers.txt > remaining-lfs-required.txt || true
+
+            if [ -s remaining-lfs-required.txt ]; then
+              echo 'Some required upstream LFS assets were not present in the official release bundle.'
+              cat remaining-lfs-required.txt
+              exit 2
+            fi
+
+            echo 'Only System.core LFS pointers remain; the final app resource will be restored from the official IPA.'
           fi
 
       - name: Show Xcode version and schemes
@@ -638,6 +647,7 @@ jobs:
         working-directory: ManicEmu
         run: |
           set -o pipefail
+          export MANIC_ALLOW_SYSTEM_CORE_LFS_POINTERS=1
           xcodebuild \
             -project ManicEmu.xcodeproj \
             -scheme ManicEmuSideload \
@@ -649,6 +659,96 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM= \
             build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Restore real System.core with controller skins
+        env:
+          MANIC_RELEASE_TAG: v2.0.1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          OFFICIAL_IPA="$RUNNER_TEMP/manic-official.ipa"
+          OFFICIAL_DIR="$RUNNER_TEMP/manic-official"
+
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          tag = os.environ["MANIC_RELEASE_TAG"]
+          token = os.environ.get("GITHUB_TOKEN")
+          api = f"https://api.github.com/repos/Manic-EMU/ManicEMU/releases/tags/{tag}"
+
+          headers = {
+              "User-Agent": "xmb-manic-actions",
+              "Accept": "application/vnd.github+json",
+          }
+          if token:
+              headers["Authorization"] = f"Bearer {token}"
+
+          request = urllib.request.Request(api, headers=headers)
+          with urllib.request.urlopen(request) as response:
+              release = json.load(response)
+
+          ipa = next(
+              (asset for asset in release.get("assets", [])
+               if asset["name"].lower().endswith(".ipa")),
+              None
+          )
+
+          if ipa is None:
+              raise SystemExit("Could not find an official IPA asset")
+
+          output = os.path.join(os.environ["RUNNER_TEMP"], "manic-official.ipa")
+          download_headers = {"User-Agent": "xmb-manic-actions"}
+          request = urllib.request.Request(ipa["browser_download_url"], headers=download_headers)
+
+          print("Downloading official IPA:", ipa["name"])
+          with urllib.request.urlopen(request) as response, open(output, "wb") as f:
+              while True:
+                  chunk = response.read(1024 * 1024)
+                  if not chunk:
+                      break
+                  f.write(chunk)
+
+          print("Official IPA saved:", output)
+          PY
+
+          rm -rf "$OFFICIAL_DIR"
+          mkdir -p "$OFFICIAL_DIR"
+          unzip -q "$OFFICIAL_IPA" -d "$OFFICIAL_DIR"
+
+          OFFICIAL_CORE=$(find "$OFFICIAL_DIR/Payload" -name 'System.core' -type f | head -1)
+
+          if [ -z "$OFFICIAL_CORE" ]; then
+            echo "Official IPA does not contain System.core"
+            find "$OFFICIAL_DIR/Payload" -maxdepth 3 -print
+            exit 1
+          fi
+
+          echo "Official System.core:"
+          ls -lh "$OFFICIAL_CORE"
+
+          echo "Checking controller skins inside official System.core..."
+          unzip -l "$OFFICIAL_CORE" | grep -E \
+            '3DS(_FLEX)?\.manicskin|PS1(_FLEX)?\.manicskin|PSP(_FLEX)?\.manicskin|N64(_FLEX)?\.manicskin|GBA(_FLEX)?\.manicskin'
+
+          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -type d -name '*.app' | head -1)
+
+          if [ -z "$APP" ]; then
+            echo "Built app not found"
+            exit 1
+          fi
+
+          rm -rf "$APP/System.core"
+          cp "$OFFICIAL_CORE" "$APP/System.core"
+
+          echo "Installed real System.core:"
+          ls -lh "$APP/System.core"
+
+          echo "Verifying installed controller skins..."
+          unzip -l "$APP/System.core" | grep -E \
+            '3DS(_FLEX)?\.manicskin|PS1(_FLEX)?\.manicskin|PSP(_FLEX)?\.manicskin'
 
       - name: Package unsigned IPA
         if: success()

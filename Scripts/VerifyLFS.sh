@@ -24,6 +24,14 @@ collect_lfs_issues() {
 
     while IFS= read -r file_path; do
         [[ -z "$file_path" ]] && continue
+
+        # CI can intentionally leave the source System.core tree as LFS pointers
+        # because build-ios.yml replaces the generated app-bundle System.core with
+        # the real archive from the official ManicEMU release after xcodebuild.
+        if [[ "${MANIC_ALLOW_SYSTEM_CORE_LFS_POINTERS:-0}" == "1" && "$file_path" == System.core/* ]]; then
+            continue
+        fi
+
         if [[ ! -e "$file_path" ]]; then
             missing_files+=("$file_path")
         elif is_lfs_pointer "$file_path"; then

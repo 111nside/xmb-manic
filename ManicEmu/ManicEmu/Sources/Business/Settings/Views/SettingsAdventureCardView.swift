@@ -60,9 +60,45 @@ class SettingsAdventureCardView: BaseView {
     
     private func setupViews() {
         nicknameRow.enablePressEffect = true
+        nicknameRow.isFocusable = true
+        nicknameRow.enableFocusEffects = false
+        nicknameRow.onFocusChange = { [weak self] focused in
+            UIView.animate(withDuration: 0.12) {
+                self?.nicknameRow.alpha = focused ? 1.0 : 0.82
+                self?.nicknameRow.transform = focused ? CGAffineTransform(scaleX: 1.015, y: 1.015) : .identity
+            }
+        }
+        nicknameRow.onFocusConfirm = { [weak self] in
+            self?.editNickname()
+            return true
+        }
+        nicknameRow.focusCommands = [
+            FocusCommand(key: .down, title: "Avatar", action: { [weak self] in
+                guard let self else { return }
+                FocusSystem.shared.focus(self.avatarView)
+            })
+        ]
         nicknameRow.addTapGesture { [weak self] _ in
             self?.editNickname()
         }
+
+        avatarView.isFocusable = true
+        avatarView.onFocusChange = { [weak self] focused in
+            UIView.animate(withDuration: 0.12) {
+                self?.avatarView.transform = focused ? CGAffineTransform(scaleX: 1.07, y: 1.07) : .identity
+                self?.avatarView.layerBorderColor = focused ? UIColor.white.withAlphaComponent(0.9) : R.Color.Border
+            }
+        }
+        avatarView.onFocusConfirm = { [weak self] in
+            self?.pickAvatar()
+            return true
+        }
+        avatarView.focusCommands = [
+            FocusCommand(key: .up, title: "Nickname", action: { [weak self] in
+                guard let self else { return }
+                FocusSystem.shared.focus(self.nicknameRow)
+            })
+        ]
         avatarView.addTapGesture { [weak self] _ in
             self?.pickAvatar()
         }
