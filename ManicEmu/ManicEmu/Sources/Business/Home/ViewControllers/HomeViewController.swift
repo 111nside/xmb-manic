@@ -502,6 +502,22 @@ private final class XMBGameColumnLayout: UICollectionViewFlowLayout {
     }
 }
 
+private struct XMBGameItem {
+    let id: String
+    let displayName: String
+    let gameType: GameType
+    let totalPlayDuration: Double
+
+    init?(game: Game) {
+        guard !game.isInvalidated else { return nil }
+        id = game.id
+        let resolvedName = game.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        displayName = resolvedName.isEmpty ? game.name : resolvedName
+        gameType = game.effectiveGameType
+        totalPlayDuration = game.totalPlayDuration.isFinite ? max(0, game.totalPlayDuration) : 0
+    }
+}
+
 final class XMBHomeViewController: BaseViewController {
     private enum SectionKind: Equatable {
         case profile
@@ -540,7 +556,11 @@ final class XMBHomeViewController: BaseViewController {
 
     private var sections: [XMBSection] = []
     private var selectedSectionIndex = 0
-    private var games: [Game] = []
+    // Never keep Realm-managed Game objects in the XMB collection. Importing can
+    // replace/invalidate Realm rows while UIKit is still holding cells/focus callbacks.
+    // A value snapshot keeps the home screen stable across imports and app relaunches.
+    private var libraryGames: [XMBGameItem] = []
+    private var games: [XMBGameItem] = []
     private var rememberedGameIndex: [String: Int] = [:]
     private var gameToken: NotificationToken?
     private var clockTimer: Timer?
@@ -846,6 +866,10 @@ final class XMBHomeViewController: BaseViewController {
         }
 
         refreshProfile()
+
+        // A full-screen Import/Settings/Manic screen can change the Realm library.
+        // Reload from a fresh detached snapshot only after returning to the XMB.
+        scheduleLibraryRefresh()
 
         if pendingLibraryRefresh {
             pendingLibraryRefresh = false
@@ -1235,22 +1259,21 @@ final class XMBHomeViewController: BaseViewController {
     }
 
     private func observeGames() {
-        let results = Database.realm.objects(Game.self).where { !$0.isDeleted }
-        gameToken = results.observe { [weak self] _ in
-            self?.scheduleLibraryRefresh()
-        }
-        rebuildSectionsAndContent()
+        // Do not hold a live Results notification here. The import pipeline performs
+        // multiple Realm writes/replacements in quick succession, which can invalidate
+        // objects that collection-view cells are still rendering. Instead, refresh a
+        // detached value snapshot when the XMB appears/returns from a modal screen.
+        gameToken = nil
+        scheduleLibraryRefresh()
     }
 
-    /// Realm can emit several changes while the legacy importer is still on screen.
-    /// Rebuilding XMB sections during that transition can invalidate focused cells/buttons.
-    /// Coalesce those updates and apply them only after the modal importer has closed.
+    /// Coalesce library refreshes and apply them only while the XMB itself is visible.
     private func scheduleLibraryRefresh() {
         libraryRefreshWorkItem?.cancel()
 
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard self.presentedViewController == nil else {
+            guard self.presentedViewController == nil, self.viewIfLoaded?.window != nil else {
                 self.pendingLibraryRefresh = true
                 return
             }
@@ -1258,7 +1281,7 @@ final class XMBHomeViewController: BaseViewController {
         }
 
         libraryRefreshWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: workItem)
     }
 
     private func performLibraryRefresh() {
@@ -1279,12 +1302,17 @@ final class XMBHomeViewController: BaseViewController {
     }
 
     private func rebuildSectionsAndContent() {
-        let allGames = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
+        // Copy only primitive/value data out of Realm. UIKit must never retain live Game
+        // rows because imports can invalidate or replace those rows underneath the XMB.
+        let realmResults = Database.realm.objects(Game.self).where { !$0.isDeleted }
+        let snapshot = realmResults.compactMap { XMBGameItem(game: $0) }
+        libraryGames = snapshot
+
         let existingIdentifier = sections.indices.contains(selectedSectionIndex)
             ? sections[selectedSectionIndex].identifier
             : UserDefaults.standard.string(forKey: Self.selectedSectionDefaultsKey)
 
-        let availableTypes = Set(allGames.map(\.gameType))
+        let availableTypes = Set(snapshot.map(\.gameType))
         var orderedTypes = System.allGameTypes.filter { availableTypes.contains($0) }
         let extraTypes = availableTypes
             .filter { !orderedTypes.contains($0) }
@@ -1414,7 +1442,7 @@ final class XMBHomeViewController: BaseViewController {
 
         switch section.kind {
         case .console(let gameType):
-            games = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
+            games = libraryGames
                 .filter { $0.gameType == gameType }
                 .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             showGames = true
@@ -1561,12 +1589,25 @@ final class XMBHomeViewController: BaseViewController {
     private func updateGameColumnInsets() {
         guard collectionView.bounds.height > 0 else { return }
 
-        // Convert the bottom of the horizontal console rail into collection coordinates.
-        // The first game sits a few points below it, but the collection itself continues
-        // all the way to the top of the screen.
-        let railRect = sectionScrollView.convert(sectionScrollView.bounds, to: collectionView)
-        let anchorY = max(0, railRect.maxY + 8)
-        gameColumnLayout.railGap = max(96, railRect.height + 10)
+        // Build a true exclusion zone around the horizontal console rail. The selected
+        // console button is scaled and allowed to draw outside the scroll view bounds, so
+        // using only sectionScrollView.bounds leaves too little clearance and lets a passed
+        // game appear to travel through the icon. Include the transformed selected button
+        // itself, then add breathing room above/below the entire visual rail.
+        var railRect = sectionScrollView.convert(sectionScrollView.bounds, to: collectionView)
+        if sectionButtons.indices.contains(selectedSectionIndex) {
+            let selectedButton = sectionButtons[selectedSectionIndex]
+            let selectedButtonRect = selectedButton.convert(selectedButton.bounds, to: collectionView)
+            railRect = railRect.union(selectedButtonRect)
+        }
+        railRect = railRect.insetBy(dx: -8, dy: -12)
+
+        // The focused game is anchored clearly below the console. Every game before the
+        // focused one receives a large enough layout offset that even its enlarged cover
+        // finishes above the top edge of the console rail instead of behind/inside it.
+        let anchorY = max(0, railRect.maxY + 20)
+        gameColumnLayout.railGap = max(128, railRect.height + 36)
+
         let rowHeight: CGFloat = coverMode == .square ? 54 : 60
         let bottomInset = max(18, collectionView.bounds.height - anchorY - rowHeight)
 
@@ -1638,6 +1679,7 @@ final class XMBHomeViewController: BaseViewController {
 
     private func activateGame(gameID: String) {
         guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+              !game.isInvalidated,
               !game.isDeleted else { return }
         game.handleTapAction(forceQuick: true)
     }
@@ -2201,14 +2243,19 @@ private final class XMBGameRowCell: UICollectionViewCell {
         setXMBFocused(false)
     }
 
-    func configure(game: Game, coverMode: XMBCoverMode) {
+    func configure(game: XMBGameItem, coverMode: XMBCoverMode) {
         nameLabel.text = game.displayName
 
         var detailParts = [game.gameType.localizedShortName]
-        if game.totalPlayDuration > 0 {
+        if game.totalPlayDuration > 0, game.totalPlayDuration <= Double(Int.max) {
             detailParts.append(Date.timeDuration(milliseconds: Int(game.totalPlayDuration)))
         }
         detailLabel.text = detailParts.joined(separator: "  •  ")
+
+        // Resolve the Realm row only for the synchronous cover request. The collection
+        // itself keeps only XMBGameItem values, so later import writes cannot invalidate
+        // the objects retained by cells/focus callbacks.
+        let liveGame = Database.realm.object(ofType: Game.self, forPrimaryKey: game.id)
 
         switch coverMode {
         case .original:
@@ -2220,8 +2267,12 @@ private final class XMBGameRowCell: UICollectionViewCell {
             }
             coverView.layer.cornerRadius = 4
             coverView.contentMode = .scaleAspectFit
-            coverView.setGameCover(game: game, size: CGSize(width: 76, height: 100)) { [weak coverView] _ in
-                coverView?.contentMode = .scaleAspectFit
+            if let liveGame, !liveGame.isInvalidated {
+                coverView.setGameCover(game: liveGame, size: CGSize(width: 76, height: 100)) { [weak coverView] _ in
+                    coverView?.contentMode = .scaleAspectFit
+                }
+            } else {
+                coverView.image = UIImage.placeHolder(preferenceSize: CGSize(width: 76, height: 100))
             }
 
         case .square:
@@ -2232,8 +2283,12 @@ private final class XMBGameRowCell: UICollectionViewCell {
             }
             coverView.layer.cornerRadius = 6
             coverView.contentMode = .scaleAspectFill
-            coverView.setGameCover(game: game, size: CGSize(width: 92, height: 92)) { [weak coverView] _ in
-                coverView?.contentMode = .scaleAspectFill
+            if let liveGame, !liveGame.isInvalidated {
+                coverView.setGameCover(game: liveGame, size: CGSize(width: 92, height: 92)) { [weak coverView] _ in
+                    coverView?.contentMode = .scaleAspectFill
+                }
+            } else {
+                coverView.image = UIImage.placeHolder(preferenceSize: CGSize(width: 92, height: 92))
             }
         }
     }
