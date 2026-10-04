@@ -12,18 +12,18 @@ import RealmSwift
 
 ///通过文件名后缀生成GameType
 extension GameType {
-    static var multiPlatformFileExtensions = ["chd", "iso", "bin", "cue", "m3u", "pbp", "ccd", "zip", "7z", "elf", "dol", "rvz", "wad", "prg"]
+    static var multiPlatformFileExtensions = ["chd", "iso", "bin", "cue", "m3u", "pbp", "ccd", "zip", "7z", "elf", "dol", "rvz", "wad", "prg", "cso", "zso", "img"]
     
     static func gameTypes(multiPlatformFileExtension: String) -> [GameType] {
         let ext = multiPlatformFileExtension.lowercased()
         guard multiPlatformFileExtensions.contains(ext) else { return [] }
         switch ext {
         case "chd":
-            return [.ps1, .psp, .mcd, .ss, .dc, .pce, .amiga]
+            return [.ps1, .ps2, .psp, .mcd, .ss, .dc, .pce, .amiga]
         case "iso":
-            return [.psp, .mcd, .ss, .dos, .ngc, .wii, .amiga]
+            return [.ps2, .psp, .mcd, .ss, .dos, .ngc, .wii, .amiga]
         case "bin":
-            return [.ps1, .md, .gg, .ms, ._32x, .dc, .a2600, .a5200, .a7800, .jaguar, .c64]
+            return [.ps2, .ps1, .md, .gg, .ms, ._32x, .dc, .a2600, .a5200, .a7800, .jaguar, .c64]
         case "cue":
             return [.ps1, .mcd, .ss, .dc, .dos, .pce, .amiga]
         case "m3u":
@@ -37,7 +37,13 @@ extension GameType {
         case "7z":
             return [.amiga]
         case "elf":
-            return [.psp, .ngc, .wii]
+            return [.ps2, .psp, .ngc, .wii]
+        case "cso":
+            return [.ps2, .psp]
+        case "zso":
+            return [.ps2]
+        case "img":
+            return [.ps2, .dos]
         case "dol":
             return [.ngc, .wii]
         case "rvz":

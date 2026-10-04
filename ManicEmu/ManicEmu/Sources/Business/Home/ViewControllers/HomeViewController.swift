@@ -484,12 +484,14 @@ private final class XMBGameColumnLayout: UICollectionViewFlowLayout {
         }
         if copy.representedElementCategory == .cell,
            copy.indexPath.item < focusedItemIndex {
-            // Passed games leave upward instead of remaining visible in/around the
-            // horizontal console rail. Their geometry still moves above the rail so
-            // focus navigation remains ordered, but visually they are fully gone.
+            // Keep already-passed games in the column rather than deleting them from
+            // the focus geometry. The immediate previous game is lifted across the
+            // console rail so its bottom edge rests just above the icons; older games
+            // naturally continue farther toward/off the top of the screen. This also
+            // leaves a real focus target for Up navigation.
             copy.frame.origin.y -= railGap
-            copy.alpha = 0
-            copy.zIndex = -100
+            copy.alpha = 1
+            copy.zIndex = -20
         } else if copy.representedElementCategory == .cell {
             copy.alpha = 1
             copy.zIndex = 0
@@ -1611,12 +1613,17 @@ final class XMBHomeViewController: BaseViewController {
         // clearance also accounts for the 1.08x focus scale on the cover artwork.
         let anchorY = railBottom + 30
 
-        // Passed items are translated well above the rail and made transparent by the
-        // custom layout. This prevents even a single frame of artwork from appearing
-        // inside a console icon while moving between games.
-        gameColumnLayout.railGap = max(170, railHeight + 92)
-
         let rowHeight: CGFloat = coverMode == .square ? 54 : 60
+
+        // Put the previous row immediately above the console rail instead of making it
+        // disappear. With the focused row anchored at `anchorY`, the unmodified previous
+        // row would overlap the rail. Translate every passed row by exactly the distance
+        // required for that previous row's bottom edge to stop just above `railTop`.
+        let rowStride = rowHeight + gameColumnLayout.minimumLineSpacing
+        let normalPreviousBottom = anchorY - rowStride + rowHeight
+        let desiredPreviousBottom = max(0, railTop - 5)
+        gameColumnLayout.railGap = max(0, normalPreviousBottom - desiredPreviousBottom)
+
         let bottomInset = max(18, collectionView.bounds.height - anchorY - rowHeight)
 
         let newInsets = UIEdgeInsets(top: anchorY, left: 0, bottom: bottomInset, right: 0)
@@ -1976,6 +1983,26 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
                 self?.updateFocusedGame(gameID: gameID)
             }
         }
+        // Explicit vertical focus commands make game navigation deterministic even
+        // when the previous row is mostly clipped above the console rail. Spatial focus
+        // alone can lose that target once it is nearly off-screen.
+        let itemIndex = indexPath.item
+        cell.focusCommands = [
+            FocusCommand(key: .up, title: "Previous Game", handler: { [weak self] in
+                guard let self else { return true }
+                if itemIndex > 0 {
+                    self.focusGame(at: itemIndex - 1)
+                }
+                return true
+            }),
+            FocusCommand(key: .down, title: "Next Game", handler: { [weak self] in
+                guard let self else { return true }
+                if itemIndex + 1 < self.games.count {
+                    self.focusGame(at: itemIndex + 1)
+                }
+                return true
+            })
+        ]
         cell.onFocusConfirm = { [weak self] in
             self?.activateGame(gameID: gameID)
             return true
@@ -2219,6 +2246,7 @@ private final class XMBGameRowCell: UICollectionViewCell {
         super.prepareForReuse()
         onFocusChange = nil
         onFocusConfirm = nil
+        focusCommands = []
         setXMBFocused(false)
         coverView.image = nil
     }
@@ -2245,6 +2273,7 @@ private final class XMBGameRowCell: UICollectionViewCell {
     func configurePlaceholder() {
         onFocusChange = nil
         onFocusConfirm = nil
+        focusCommands = []
         coverView.image = nil
         nameLabel.text = nil
         detailLabel.text = nil

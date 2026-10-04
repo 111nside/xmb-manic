@@ -170,6 +170,15 @@ class PlayViewController: GameViewController {
             EmulatorInteractionKit.startGame(type: .dukeX, id: game.id)
             return
         } else if game.gameType == .ps2 {
+            // Local PS2 images belong to the embedded ARMSX2 core. Keep the legacy
+            // external-app path for ARMSX2 library entries that have no local Manic ROM.
+            if game.isRomExtsts {
+                if ARMSX2EmbeddedCore.startGame(game) {
+                    return
+                }
+                UIView.makeToast(message: "ARMSX2 core is not linked in this build yet")
+                return
+            }
             EmulatorInteractionKit.startGame(type: .armsx2, id: game.id)
             return
         }

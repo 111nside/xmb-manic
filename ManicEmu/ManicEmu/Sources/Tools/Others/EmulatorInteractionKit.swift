@@ -9,6 +9,10 @@
 
 import IceCream
 
+#if canImport(ARMSX2Core)
+import ARMSX2Core
+#endif
+
 extension GameType {
     static let ns = GameType("public.aoshuang.game.ns")
     static let xbox360 = GameType("public.aoshuang.game.xbox360")
@@ -293,3 +297,147 @@ private struct ARMSX2Game: Decodable {
         )
     }
 }
+
+
+// MARK: - Embedded ARMSX2 bridge
+
+/// Source-side bridge for the embedded ARMSX2/PCSX2 build. This compiles to a no-op
+/// until the ARMSX2Core module is linked into ManicEMU, so the rest of the app can land
+/// first without making normal builds depend on the large PS2 core.
+enum ARMSX2EmbeddedCore {
+    static var isAvailable: Bool {
+#if canImport(ARMSX2Core)
+        return true
+#else
+        return false
+#endif
+    }
+
+    static var isJITAvailable: Bool {
+#if canImport(ARMSX2Core)
+        return ARMSX2Bridge.isJITAvailable()
+#else
+        return false
+#endif
+    }
+
+    static var availableBIOSNames: [String] {
+#if canImport(ARMSX2Core)
+        return ARMSX2Bridge.availableBIOSInfos()
+            .filter { $0.valid }
+            .map { $0.fileName }
+#else
+        return []
+#endif
+    }
+
+    static var defaultBIOSName: String? {
+#if canImport(ARMSX2Core)
+        let name = ARMSX2Bridge.defaultBIOSName()
+        return name.isEmpty ? nil : name
+#else
+        return nil
+#endif
+    }
+
+    @discardableResult
+    static func importBIOS(from sourceURL: URL) -> Bool {
+#if canImport(ARMSX2Core)
+        let destinationDirectory = URL(fileURLWithPath: ARMSX2Bridge.biosDirectory(), isDirectory: true)
+        let destination = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent)
+        do {
+            try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destination)
+            return ARMSX2Bridge.availableBIOSInfos().contains { $0.valid && $0.fileName == destination.lastPathComponent }
+        } catch {
+            return false
+        }
+#else
+        return false
+#endif
+    }
+
+    static func setDefaultBIOS(_ fileName: String) {
+#if canImport(ARMSX2Core)
+        ARMSX2Bridge.setDefaultBIOS(fileName)
+#endif
+    }
+
+    /// Returns true when ManicEMU took ownership of the launch.
+    @discardableResult
+    static func startGame(_ game: Game) -> Bool {
+#if canImport(ARMSX2Core)
+        guard game.gameType == .ps2,
+              game.isRomExtsts,
+              FileManager.default.fileExists(atPath: game.romUrl.path) else {
+            return false
+        }
+
+        let controller = ARMSX2EmbeddedGameViewController(game: game)
+        controller.modalPresentationStyle = .fullScreen
+        topViewController(appController: true)?.present(controller, animated: true)
+        return true
+#else
+        return false
+#endif
+    }
+}
+
+#if canImport(ARMSX2Core)
+/// Minimal native host for the ARMSX2 render surface. XMB remains the frontend; the
+/// upstream ARMSX2 SwiftUI library/menu is intentionally not presented.
+private final class ARMSX2EmbeddedGameViewController: UIViewController {
+    private let gameID: String
+    private var hasBooted = false
+
+    init(game: Game) {
+        self.gameID = game.id
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationCapturesStatusBarAppearance = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        let renderView = ARMSX2Bridge.gameRenderView()
+        renderView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(renderView)
+        NSLayoutConstraint.activate([
+            renderView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            renderView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            renderView.topAnchor.constraint(equalTo: view.topAnchor),
+            renderView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !hasBooted,
+              let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+              !game.isInvalidated,
+              game.isRomExtsts else { return }
+
+        hasBooted = true
+        ARMSX2Bridge.bootISO(game.romUrl.path)
+        ARMSX2Bridge.prepareGameRenderViewForCurrentRenderer()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            ARMSX2Bridge.requestVMBoot(loadLastSaveState: false)
+        }
+    }
+
+    deinit {
+        ARMSX2Bridge.requestVMStop()
+    }
+}
+#endif
