@@ -587,13 +587,15 @@ final class XMBHomeViewController: BaseViewController {
 
     private let gamesContentView = UIView()
     private let listContainerView = UIView()
-    private let positionRail = XMBPositionRailView()
 
     private lazy var collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
-        layout.minimumLineSpacing = 3
-        layout.sectionInset = UIEdgeInsets(top: 7, left: 0, bottom: 30, right: 0)
+        layout.minimumLineSpacing = 5
+        // The collection itself spans the screen. Its runtime content insets position the
+        // first game under the selected console while still allowing older games to
+        // scroll above the console rail, like a classic XMB vertical column.
+        layout.sectionInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
@@ -601,6 +603,8 @@ final class XMBHomeViewController: BaseViewController {
         collectionView.delegate = self
         collectionView.showsVerticalScrollIndicator = false
         collectionView.alwaysBounceVertical = true
+        collectionView.clipsToBounds = true
+        collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.register(XMBGameRowCell.self, forCellWithReuseIdentifier: XMBGameRowCell.reuseIdentifier)
         collectionView.isFocusable = true
         collectionView.enableFocusEffects = false
@@ -817,6 +821,14 @@ final class XMBHomeViewController: BaseViewController {
         if sections.indices.contains(selectedSectionIndex) {
             scrollSelectedSectionIntoView(animated: false)
         }
+
+        updateGameColumnInsets()
+
+        if sections.indices.contains(selectedSectionIndex),
+           case .console = sections[selectedSectionIndex].kind,
+           !games.isEmpty {
+            scrollGameToAnchor(index: rememberedIndexForCurrentSection(), animated: false)
+        }
     }
 
     private func setupXMB() {
@@ -862,16 +874,13 @@ final class XMBHomeViewController: BaseViewController {
         titleLabel.isHidden = true
         subtitleLabel.isHidden = true
 
+        // The game column intentionally spans the entire safe area instead of living in a
+        // cropped panel below the console rail. The first game begins beneath the selected
+        // console, but when the user moves down, previous games remain visible above the
+        // console row instead of disappearing at a panel boundary.
         view.addSubview(gamesContentView)
         gamesContentView.snp.makeConstraints { make in
-            make.top.equalTo(sectionScrollView.snp.bottom).offset(2)
-            make.centerX.equalToSuperview()
-            // Keep the list wide enough for the game name to sit to the LEFT while the
-            // cover itself stays exactly on the XMB center line under the selected console.
-            make.width.equalTo(560).priority(.high)
-            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(12)
-            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-12)
-            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-4)
+            make.edges.equalTo(view.safeAreaLayoutGuide)
         }
 
         gamesContentView.addSubview(listContainerView)
@@ -880,20 +889,14 @@ final class XMBHomeViewController: BaseViewController {
         }
 
         listContainerView.addSubview(collectionView)
-        listContainerView.addSubview(positionRail)
-
-        positionRail.snp.makeConstraints { make in
-            make.trailing.equalToSuperview().offset(-4)
-            make.top.bottom.equalToSuperview().inset(8)
-            make.width.equalTo(20)
-        }
-
-        // Let the collection own the full centered width. The position rail overlays the
-        // far-right edge instead of stealing width, so every cover is centered directly
-        // beneath the currently selected console icon.
         collectionView.snp.makeConstraints { make in
             make.edges.equalToSuperview()
         }
+
+        // Keep the horizontal console rail visually above games that scroll through it.
+        view.bringSubviewToFront(selectedSectionGlow)
+        view.bringSubviewToFront(sectionScrollView)
+        view.bringSubviewToFront(dateLabel)
 
         view.addSubview(profileContainerView)
         profileContainerView.isHidden = true
@@ -1047,53 +1050,58 @@ final class XMBHomeViewController: BaseViewController {
 
     private func setupActionView() {
         actionContainerView.clipsToBounds = false
+        actionContainerView.backgroundColor = .clear
+
+        actionTitleLabel.textColor = .white
+        actionTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
+        actionTitleLabel.textAlignment = .center
+        actionTitleLabel.numberOfLines = 2
+        actionTitleLabel.adjustsFontSizeToFitWidth = true
+        actionTitleLabel.minimumScaleFactor = 0.88
+        actionTitleLabel.lineBreakMode = .byWordWrapping
+        actionTitleLabel.layer.shadowColor = UIColor.black.cgColor
+        actionTitleLabel.layer.shadowOpacity = 0.38
+        actionTitleLabel.layer.shadowRadius = 2
+        actionTitleLabel.layer.shadowOffset = CGSize(width: 0, height: 1)
+        actionTitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        actionTitleLabel.setContentHuggingPriority(.required, for: .vertical)
+
+        actionSubtitleLabel.textColor = UIColor.white.withAlphaComponent(0.68)
+        actionSubtitleLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        actionSubtitleLabel.textAlignment = .center
+        actionSubtitleLabel.numberOfLines = 2
+        actionSubtitleLabel.lineBreakMode = .byWordWrapping
+        actionSubtitleLabel.adjustsFontSizeToFitWidth = true
+        actionSubtitleLabel.minimumScaleFactor = 0.86
+        actionSubtitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
 
         actionSymbolView.tintColor = UIColor.white.withAlphaComponent(0.94)
         actionSymbolView.contentMode = .scaleAspectFit
 
-        actionTitleLabel.textColor = .white
-        actionTitleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
-        actionTitleLabel.textAlignment = .center
-        actionTitleLabel.numberOfLines = 1
-        actionTitleLabel.adjustsFontSizeToFitWidth = true
-        actionTitleLabel.minimumScaleFactor = 0.80
-        actionTitleLabel.lineBreakMode = .byTruncatingTail
-        actionTitleLabel.layer.shadowColor = UIColor.black.cgColor
-        actionTitleLabel.layer.shadowOpacity = 0.30
-        actionTitleLabel.layer.shadowRadius = 2
-        actionTitleLabel.layer.shadowOffset = CGSize(width: 0, height: 1)
-        actionTitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
-
-        actionSubtitleLabel.textColor = UIColor.white.withAlphaComponent(0.64)
-        actionSubtitleLabel.font = .systemFont(ofSize: 12.5, weight: .regular)
-        actionSubtitleLabel.textAlignment = .center
-        actionSubtitleLabel.numberOfLines = 2
-        actionSubtitleLabel.adjustsFontSizeToFitWidth = true
-        actionSubtitleLabel.minimumScaleFactor = 0.82
-        actionSubtitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
-
-        actionContainerView.addSubview(actionSymbolView)
         actionContainerView.addSubview(actionTitleLabel)
         actionContainerView.addSubview(actionSubtitleLabel)
+        actionContainerView.addSubview(actionSymbolView)
         actionContainerView.addSubview(actionButton)
 
-        actionSymbolView.snp.makeConstraints { make in
-            make.top.equalToSuperview().offset(14)
-            make.centerX.equalToSuperview()
-            make.width.height.equalTo(50)
-        }
+        // Put the bold white heading first and give it a real height. This avoids the
+        // compressed/cropped title that could occur on landscape phones.
         actionTitleLabel.snp.makeConstraints { make in
-            make.top.equalTo(actionSymbolView.snp.bottom).offset(12)
-            make.leading.trailing.equalToSuperview().inset(12)
-            make.height.greaterThanOrEqualTo(26)
+            make.top.equalToSuperview().offset(8)
+            make.leading.trailing.equalToSuperview().inset(10)
+            make.height.greaterThanOrEqualTo(32)
         }
         actionSubtitleLabel.snp.makeConstraints { make in
-            make.top.equalTo(actionTitleLabel.snp.bottom).offset(4)
-            make.leading.trailing.equalToSuperview().inset(18)
-            make.height.greaterThanOrEqualTo(18)
+            make.top.equalTo(actionTitleLabel.snp.bottom).offset(3)
+            make.leading.trailing.equalToSuperview().inset(16)
+            make.height.greaterThanOrEqualTo(20)
+        }
+        actionSymbolView.snp.makeConstraints { make in
+            make.top.equalTo(actionSubtitleLabel.snp.bottom).offset(12)
+            make.centerX.equalToSuperview()
+            make.width.height.equalTo(44)
         }
         actionButton.snp.makeConstraints { make in
-            make.top.equalTo(actionSubtitleLabel.snp.bottom).offset(14)
+            make.top.equalTo(actionSymbolView.snp.bottom).offset(13)
             make.centerX.equalToSuperview()
             make.width.equalTo(176)
             make.height.equalTo(42)
@@ -1368,9 +1376,18 @@ final class XMBHomeViewController: BaseViewController {
         profileContainerView.isHidden = !showProfile
         actionContainerView.isHidden = !showAction
 
+        if showAction {
+            view.bringSubviewToFront(actionContainerView)
+        } else if showProfile {
+            view.bringSubviewToFront(profileContainerView)
+        }
+        view.bringSubviewToFront(selectedSectionGlow)
+        view.bringSubviewToFront(sectionScrollView)
+        view.bringSubviewToFront(dateLabel)
+
         collectionView.reloadData()
+        updateGameColumnInsets()
         let initialIndex = games.isEmpty ? nil : rememberedIndexForCurrentSection()
-        positionRail.update(index: initialIndex, count: games.count)
 
         let updates = {
             self.gamesContentView.alpha = showGames ? 1 : 0
@@ -1438,7 +1455,8 @@ final class XMBHomeViewController: BaseViewController {
 
         let clamped = min(max(index, 0), games.count - 1)
         let indexPath = IndexPath(item: clamped, section: 0)
-        collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
+        collectionView.layoutIfNeeded()
+        scrollGameToAnchor(index: clamped, animated: false)
         collectionView.layoutIfNeeded()
 
         if let cell = collectionView.cellForItem(at: indexPath) {
@@ -1446,6 +1464,40 @@ final class XMBHomeViewController: BaseViewController {
         } else {
             FocusSystem.shared.updateFocusIfNeeded()
         }
+    }
+
+    private func updateGameColumnInsets() {
+        guard collectionView.bounds.height > 0 else { return }
+
+        // Convert the bottom of the horizontal console rail into collection coordinates.
+        // The first game sits a few points below it, but the collection itself continues
+        // all the way to the top of the screen.
+        let railRect = sectionScrollView.convert(sectionScrollView.bounds, to: collectionView)
+        let anchorY = max(0, railRect.maxY + 6)
+        let rowHeight: CGFloat = coverMode == .square ? 54 : 60
+        let bottomInset = max(18, collectionView.bounds.height - anchorY - rowHeight)
+
+        let newInsets = UIEdgeInsets(top: anchorY, left: 0, bottom: bottomInset, right: 0)
+        if collectionView.contentInset != newInsets {
+            collectionView.contentInset = newInsets
+        }
+    }
+
+    private func scrollGameToAnchor(index: Int, animated: Bool) {
+        guard games.indices.contains(index) else { return }
+        updateGameColumnInsets()
+        collectionView.layoutIfNeeded()
+
+        let indexPath = IndexPath(item: index, section: 0)
+        guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
+
+        let anchorY = collectionView.contentInset.top
+        let targetY = attributes.frame.minY - anchorY
+        let minY = -collectionView.contentInset.top
+        let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + collectionView.contentInset.bottom)
+        let clampedY = min(max(targetY, minY), maxY)
+
+        collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
     }
 
     private func scrollSelectedSectionIntoView(animated: Bool = true) {
@@ -1473,7 +1525,7 @@ final class XMBHomeViewController: BaseViewController {
             rememberedGameIndex[sections[selectedSectionIndex].identifier] = index
         }
 
-        positionRail.update(index: index, count: games.count)
+        scrollGameToAnchor(index: index, animated: true)
     }
 
     private func activateGame(at index: Int) {
@@ -1953,9 +2005,9 @@ private final class XMBGameRowCell: UICollectionViewCell {
         coverView.backgroundColor = UIColor.white.withAlphaComponent(0.04)
 
         nameLabel.textColor = UIColor.white.withAlphaComponent(0.90)
-        nameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        nameLabel.font = .systemFont(ofSize: 15.5, weight: .semibold)
         nameLabel.lineBreakMode = .byTruncatingTail
-        nameLabel.textAlignment = .right
+        nameLabel.textAlignment = .left
         nameLabel.adjustsFontSizeToFitWidth = true
         nameLabel.minimumScaleFactor = 0.78
         nameLabel.layer.shadowColor = UIColor.black.cgColor
@@ -1966,7 +2018,7 @@ private final class XMBGameRowCell: UICollectionViewCell {
         detailLabel.textColor = UIColor.white.withAlphaComponent(0.54)
         detailLabel.font = .systemFont(ofSize: 10.5, weight: .regular)
         detailLabel.lineBreakMode = .byTruncatingTail
-        detailLabel.textAlignment = .right
+        detailLabel.textAlignment = .left
 
         contentView.addSubview(highlightView)
         contentView.addSubview(coverView)
@@ -1977,17 +2029,17 @@ private final class XMBGameRowCell: UICollectionViewCell {
             make.edges.equalToSuperview()
         }
 
-        // Classic-XMB placement: cover art sits on the same center line as the
-        // selected console above it; game text lives to the LEFT of the cover.
+        // Classic-XMB placement: the cover stays on the exact center line of the
+        // selected console above it, while the game name/details sit to its RIGHT.
         nameLabel.snp.makeConstraints { make in
-            make.leading.greaterThanOrEqualToSuperview().offset(10)
-            make.trailing.equalTo(coverView.snp.leading).offset(-14)
+            make.leading.equalTo(coverView.snp.trailing).offset(15)
+            make.trailing.lessThanOrEqualToSuperview().offset(-16)
             make.centerY.equalToSuperview().offset(-7)
         }
 
         detailLabel.snp.makeConstraints { make in
             make.leading.equalTo(nameLabel)
-            make.trailing.equalTo(nameLabel)
+            make.trailing.lessThanOrEqualToSuperview().offset(-16)
             make.top.equalTo(nameLabel.snp.bottom).offset(2)
         }
     }
@@ -2006,9 +2058,7 @@ private final class XMBGameRowCell: UICollectionViewCell {
 
     func setXMBFocused(_ focused: Bool) {
         UIView.animate(withDuration: 0.12) {
-            self.highlightView.backgroundColor = focused
-                ? UIColor.white.withAlphaComponent(0.055)
-                : .clear
+            self.highlightView.backgroundColor = .clear
             self.nameLabel.textColor = focused ? .white : UIColor.white.withAlphaComponent(0.88)
             self.detailLabel.textColor = focused
                 ? UIColor.white.withAlphaComponent(0.68)
@@ -2060,89 +2110,6 @@ private final class XMBGameRowCell: UICollectionViewCell {
                 coverView?.contentMode = .scaleAspectFill
             }
         }
-    }
-}
-
-// MARK: - Vertical position bar
-
-private final class XMBPositionRailView: UIView {
-    private let trackView = UIView()
-    private let thumbView = UIView()
-    private let countLabel = UILabel()
-
-    private var currentIndex: Int?
-    private var itemCount = 0
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-
-        isUserInteractionEnabled = false
-
-        trackView.backgroundColor = UIColor.white.withAlphaComponent(0.13)
-        trackView.layer.cornerRadius = 1
-
-        thumbView.backgroundColor = UIColor.white.withAlphaComponent(0.80)
-        thumbView.layer.cornerRadius = 2
-
-        countLabel.textColor = UIColor.white.withAlphaComponent(0.42)
-        countLabel.font = .monospacedDigitSystemFont(ofSize: 8, weight: .medium)
-        countLabel.textAlignment = .center
-        countLabel.numberOfLines = 2
-
-        addSubview(trackView)
-        addSubview(thumbView)
-        addSubview(countLabel)
-
-        trackView.snp.makeConstraints { make in
-            make.centerX.equalToSuperview()
-            make.top.equalToSuperview().offset(14)
-            make.bottom.equalTo(countLabel.snp.top).offset(-6)
-            make.width.equalTo(2)
-        }
-
-        countLabel.snp.makeConstraints { make in
-            make.leading.trailing.bottom.equalToSuperview()
-            make.height.equalTo(25)
-        }
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-
-        guard itemCount > 0,
-              let currentIndex,
-              trackView.bounds.height > 1 else {
-            thumbView.isHidden = true
-            return
-        }
-
-        thumbView.isHidden = false
-
-        let thumbHeight = max(16, min(42, trackView.bounds.height / CGFloat(max(itemCount, 1))))
-        let progress = itemCount <= 1 ? 0 : CGFloat(currentIndex) / CGFloat(itemCount - 1)
-        let travel = max(0, trackView.bounds.height - thumbHeight)
-        let originY = trackView.frame.minY + travel * progress
-
-        thumbView.frame = CGRect(x: (bounds.width - 4) / 2,
-                                 y: originY,
-                                 width: 4,
-                                 height: thumbHeight)
-    }
-
-    func update(index: Int?, count: Int) {
-        itemCount = count
-        if let index, count > 0 {
-            currentIndex = min(max(index, 0), count - 1)
-            countLabel.text = "\(currentIndex! + 1)\n\(count)"
-        } else {
-            currentIndex = nil
-            countLabel.text = count > 0 ? "—\n\(count)" : "—"
-        }
-        setNeedsLayout()
     }
 }
 

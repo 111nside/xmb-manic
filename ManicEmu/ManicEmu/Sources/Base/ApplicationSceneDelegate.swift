@@ -289,24 +289,38 @@ extension ApplicationSceneDelegate: UIDropInteractionDelegate {
     }
 }
 
-/// Minimal original console-style startup sequence for the XMB frontend.
-/// Deliberately avoids PlayStation logos/assets while keeping the quiet, dark startup pacing.
+/// Quiet console-style startup for the custom XMB frontend.
+/// Uses original ManicEMU branding and a restrained wave reveal rather than copying
+/// PlayStation logos, boot artwork, or audio.
 private final class XMBStartupViewController: UIViewController {
-    private let minimumDisplayDuration: TimeInterval = 1.80
+    private let minimumDisplayDuration: TimeInterval = 2.05
     private var appearedAt: CFTimeInterval = CACurrentMediaTime()
     private var didStartEntrance = false
     private var didStartExit = false
 
     private let backgroundGradient = CAGradientLayer()
-    private let centerBloom = CAGradientLayer()
-    private let emblemView = UIView()
-    private let barOne = UIView()
-    private let barTwo = UIView()
-    private let flashView = UIView()
+    private let waveLayers: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
+
+    private let brandLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.textColor = UIColor.white.withAlphaComponent(0.92)
+        label.textAlignment = .right
+        label.alpha = 0
+        label.numberOfLines = 1
+        label.attributedText = NSAttributedString(
+            string: "MANIC EMU",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 22, weight: .light),
+                .kern: 2.1,
+                .foregroundColor: UIColor.white.withAlphaComponent(0.92)
+            ]
+        )
+        return label
+    }()
 
     init(preparingResources: Bool) {
-        // Keep the argument so the existing startup call does not need special first-launch logic.
-        // The visual intentionally stays text-free even while resources are being prepared.
+        // Keep first-launch resource work independent from the visual presentation.
         _ = preparingResources
         super.init(nibName: nil, bundle: nil)
     }
@@ -321,8 +335,8 @@ private final class XMBStartupViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        setupLayers()
-        setupViews()
+        setupBackground()
+        setupBrand()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -333,72 +347,74 @@ private final class XMBStartupViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-
         backgroundGradient.frame = view.bounds
-        centerBloom.frame = view.bounds
-        flashView.frame = view.bounds
-
-        let side = min(max(view.bounds.width * 0.065, 62), 94)
-        emblemView.bounds = CGRect(x: 0, y: 0, width: side, height: side)
-        emblemView.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
-
-        let barLength = side * 0.72
-        let barThickness = max(8, side * 0.105)
-        for bar in [barOne, barTwo] {
-            bar.bounds = CGRect(x: 0, y: 0, width: barLength, height: barThickness)
-            bar.center = CGPoint(x: side / 2, y: side / 2)
-            bar.layer.cornerRadius = barThickness / 2
-        }
-        barOne.transform = CGAffineTransform(rotationAngle: .pi / 4)
-        barTwo.transform = CGAffineTransform(rotationAngle: -.pi / 4)
+        layoutWaves()
     }
 
-    private func setupLayers() {
+    private func setupBackground() {
         backgroundGradient.colors = [
             UIColor.black.cgColor,
-            UIColor(red: 0.002, green: 0.013, blue: 0.040, alpha: 1).cgColor,
+            UIColor(red: 0.003, green: 0.025, blue: 0.085, alpha: 1).cgColor,
+            UIColor(red: 0.004, green: 0.060, blue: 0.155, alpha: 1).cgColor,
             UIColor.black.cgColor
         ]
-        backgroundGradient.locations = [0, 0.52, 1]
-        backgroundGradient.startPoint = CGPoint(x: 0.5, y: 0)
-        backgroundGradient.endPoint = CGPoint(x: 0.5, y: 1)
+        backgroundGradient.locations = [0, 0.34, 0.68, 1]
+        backgroundGradient.startPoint = CGPoint(x: 0.05, y: 0)
+        backgroundGradient.endPoint = CGPoint(x: 0.95, y: 1)
         backgroundGradient.opacity = 0
         view.layer.addSublayer(backgroundGradient)
 
-        centerBloom.type = .radial
-        centerBloom.colors = [
-            UIColor(red: 0.28, green: 0.60, blue: 1.0, alpha: 0.16).cgColor,
-            UIColor(red: 0.05, green: 0.16, blue: 0.42, alpha: 0.06).cgColor,
-            UIColor.clear.cgColor
-        ]
-        centerBloom.locations = [0, 0.30, 1]
-        centerBloom.startPoint = CGPoint(x: 0.5, y: 0.5)
-        centerBloom.endPoint = CGPoint(x: 1.0, y: 1.0)
-        centerBloom.opacity = 0
-        view.layer.addSublayer(centerBloom)
+        for (index, wave) in waveLayers.enumerated() {
+            wave.fillColor = UIColor.clear.cgColor
+            wave.strokeColor = UIColor(
+                red: 0.34,
+                green: 0.64,
+                blue: 1.0,
+                alpha: 0.18 - CGFloat(index) * 0.025
+            ).cgColor
+            wave.lineWidth = 1.0 + CGFloat(index) * 0.32
+            wave.lineCap = .round
+            wave.lineJoin = .round
+            wave.opacity = 0
+            view.layer.addSublayer(wave)
+        }
     }
 
-    private func setupViews() {
-        emblemView.backgroundColor = .clear
-        emblemView.alpha = 0
-        emblemView.transform = CGAffineTransform(scaleX: 0.94, y: 0.94)
+    private func setupBrand() {
+        view.addSubview(brandLabel)
 
-        let markColor = UIColor(red: 0.86, green: 0.94, blue: 1.0, alpha: 1)
-        for bar in [barOne, barTwo] {
-            bar.backgroundColor = markColor
-            bar.layer.shadowColor = UIColor(red: 0.28, green: 0.62, blue: 1.0, alpha: 1).cgColor
-            bar.layer.shadowOpacity = 0.72
-            bar.layer.shadowRadius = 12
-            bar.layer.shadowOffset = .zero
-            emblemView.addSubview(bar)
+        NSLayoutConstraint.activate([
+            brandLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -42),
+            brandLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -2),
+            brandLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.centerXAnchor, constant: 24)
+        ])
+    }
+
+    private func layoutWaves() {
+        guard view.bounds.width > 0, view.bounds.height > 0 else { return }
+
+        let width = view.bounds.width + 180
+        let baseY = view.bounds.height * 0.62
+
+        for (index, wave) in waveLayers.enumerated() {
+            wave.frame = CGRect(x: -90, y: 0, width: width, height: view.bounds.height)
+
+            let offset = CGFloat(index) * 12
+            let amplitude = CGFloat(18 + index * 7)
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: 0, y: baseY + offset))
+            path.addCurve(
+                to: CGPoint(x: width * 0.48, y: baseY - amplitude + offset),
+                controlPoint1: CGPoint(x: width * 0.16, y: baseY - amplitude * 1.15 + offset),
+                controlPoint2: CGPoint(x: width * 0.31, y: baseY + amplitude * 0.72 + offset)
+            )
+            path.addCurve(
+                to: CGPoint(x: width, y: baseY + amplitude * 0.22 + offset),
+                controlPoint1: CGPoint(x: width * 0.66, y: baseY - amplitude * 1.05 + offset),
+                controlPoint2: CGPoint(x: width * 0.84, y: baseY + amplitude * 0.95 + offset)
+            )
+            wave.path = path.cgPath
         }
-
-        flashView.backgroundColor = UIColor(red: 0.68, green: 0.84, blue: 1.0, alpha: 1)
-        flashView.alpha = 0
-        flashView.isUserInteractionEnabled = false
-
-        view.addSubview(emblemView)
-        view.addSubview(flashView)
     }
 
     private func startEntranceIfNeeded() {
@@ -408,44 +424,38 @@ private final class XMBStartupViewController: UIViewController {
         let backgroundFade = CABasicAnimation(keyPath: "opacity")
         backgroundFade.fromValue = 0
         backgroundFade.toValue = 1
-        backgroundFade.duration = 0.70
+        backgroundFade.duration = 1.05
         backgroundFade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         backgroundGradient.opacity = 1
         backgroundGradient.add(backgroundFade, forKey: "backgroundFade")
 
-        let bloomFade = CABasicAnimation(keyPath: "opacity")
-        bloomFade.fromValue = 0
-        bloomFade.toValue = 0.72
-        bloomFade.duration = 0.85
-        bloomFade.beginTime = CACurrentMediaTime() + 0.18
-        bloomFade.fillMode = .backwards
-        bloomFade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        centerBloom.opacity = 0.72
-        centerBloom.add(bloomFade, forKey: "bloomFade")
+        for (index, wave) in waveLayers.enumerated() {
+            let reveal = CABasicAnimation(keyPath: "opacity")
+            reveal.fromValue = 0
+            reveal.toValue = 1
+            reveal.duration = 1.15
+            reveal.beginTime = CACurrentMediaTime() + 0.34 + Double(index) * 0.10
+            reveal.fillMode = .backwards
+            reveal.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            wave.opacity = 1
+            wave.add(reveal, forKey: "waveReveal")
+
+            let drift = CABasicAnimation(keyPath: "transform.translation.x")
+            drift.fromValue = CGFloat(-22 - index * 7)
+            drift.toValue = CGFloat(22 + index * 8)
+            drift.duration = 7.5 + Double(index) * 1.1
+            drift.autoreverses = true
+            drift.repeatCount = .infinity
+            drift.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            wave.add(drift, forKey: "waveDrift")
+        }
 
         UIView.animate(
-            withDuration: 0.68,
-            delay: 0.24,
-            options: [.curveEaseOut, .allowUserInteraction],
-            animations: {
-                self.emblemView.alpha = 1
-                self.emblemView.transform = .identity
-            }
-        )
-
-        // A single restrained luminance pulse keeps the startup from feeling static
-        // without adding rings, text, particles, or other busy animation.
-        UIView.animate(
-            withDuration: 0.16,
-            delay: 0.78,
+            withDuration: 0.90,
+            delay: 0.72,
             options: [.curveEaseInOut, .allowUserInteraction],
             animations: {
-                self.flashView.alpha = 0.055
-            },
-            completion: { _ in
-                UIView.animate(withDuration: 0.30) {
-                    self.flashView.alpha = 0
-                }
+                self.brandLabel.alpha = 1
             }
         )
     }
@@ -459,25 +469,17 @@ private final class XMBStartupViewController: UIViewController {
             self.didStartExit = true
 
             UIView.animate(
-                withDuration: 0.34,
+                withDuration: 0.42,
                 delay: 0,
                 options: [.curveEaseInOut],
                 animations: {
-                    self.emblemView.alpha = 0
-                    self.emblemView.transform = CGAffineTransform(scaleX: 1.025, y: 1.025)
-                    self.view.backgroundColor = .black
+                    self.brandLabel.alpha = 0
+                    self.view.alpha = 0
                 },
                 completion: { _ in
                     completion()
                 }
             )
-
-            let bloomOut = CABasicAnimation(keyPath: "opacity")
-            bloomOut.fromValue = self.centerBloom.presentation()?.opacity ?? self.centerBloom.opacity
-            bloomOut.toValue = 0
-            bloomOut.duration = 0.34
-            self.centerBloom.opacity = 0
-            self.centerBloom.add(bloomOut, forKey: "bloomOut")
         }
     }
 }
