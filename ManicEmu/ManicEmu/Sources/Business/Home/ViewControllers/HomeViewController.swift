@@ -524,9 +524,15 @@ final class XMBHomeViewController: BaseViewController {
 
     private let dateLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 14, weight: .medium)
-        label.textColor = UIColor.white.withAlphaComponent(0.80)
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        label.textColor = UIColor.white.withAlphaComponent(0.78)
         label.textAlignment = .right
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.85
+        label.layer.shadowColor = UIColor.black.cgColor
+        label.layer.shadowOpacity = 0.28
+        label.layer.shadowRadius = 2
+        label.layer.shadowOffset = CGSize(width: 0, height: 1)
         return label
     }()
 
@@ -858,14 +864,13 @@ final class XMBHomeViewController: BaseViewController {
 
         view.addSubview(gamesContentView)
         gamesContentView.snp.makeConstraints { make in
-            make.top.equalTo(sectionScrollView.snp.bottom).offset(4)
+            make.top.equalTo(sectionScrollView.snp.bottom).offset(2)
             make.centerX.equalToSuperview()
-            // The old version only used <= / >= constraints here, so Auto Layout was
-            // allowed to collapse the game column almost to zero width. Give it a real
-            // width while still allowing small devices to shrink it safely.
-            make.width.equalTo(360).priority(.high)
-            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(18)
-            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-18)
+            // Keep the list wide enough for the game name to sit to the LEFT while the
+            // cover itself stays exactly on the XMB center line under the selected console.
+            make.width.equalTo(560).priority(.high)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(12)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-12)
             make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-4)
         }
 
@@ -878,14 +883,16 @@ final class XMBHomeViewController: BaseViewController {
         listContainerView.addSubview(positionRail)
 
         positionRail.snp.makeConstraints { make in
-            make.trailing.equalToSuperview()
+            make.trailing.equalToSuperview().offset(-4)
             make.top.bottom.equalToSuperview().inset(8)
-            make.width.equalTo(24)
+            make.width.equalTo(20)
         }
 
+        // Let the collection own the full centered width. The position rail overlays the
+        // far-right edge instead of stealing width, so every cover is centered directly
+        // beneath the currently selected console icon.
         collectionView.snp.makeConstraints { make in
-            make.leading.top.bottom.equalToSuperview()
-            make.trailing.equalTo(positionRail.snp.leading).offset(-8)
+            make.edges.equalToSuperview()
         }
 
         view.addSubview(profileContainerView)
@@ -1039,17 +1046,31 @@ final class XMBHomeViewController: BaseViewController {
     }
 
     private func setupActionView() {
-        actionSymbolView.tintColor = UIColor.white.withAlphaComponent(0.92)
+        actionContainerView.clipsToBounds = false
+
+        actionSymbolView.tintColor = UIColor.white.withAlphaComponent(0.94)
         actionSymbolView.contentMode = .scaleAspectFit
 
         actionTitleLabel.textColor = .white
-        actionTitleLabel.font = .systemFont(ofSize: 21, weight: .semibold)
+        actionTitleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         actionTitleLabel.textAlignment = .center
+        actionTitleLabel.numberOfLines = 1
+        actionTitleLabel.adjustsFontSizeToFitWidth = true
+        actionTitleLabel.minimumScaleFactor = 0.80
+        actionTitleLabel.lineBreakMode = .byTruncatingTail
+        actionTitleLabel.layer.shadowColor = UIColor.black.cgColor
+        actionTitleLabel.layer.shadowOpacity = 0.30
+        actionTitleLabel.layer.shadowRadius = 2
+        actionTitleLabel.layer.shadowOffset = CGSize(width: 0, height: 1)
+        actionTitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
 
-        actionSubtitleLabel.textColor = UIColor.white.withAlphaComponent(0.60)
-        actionSubtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        actionSubtitleLabel.textColor = UIColor.white.withAlphaComponent(0.64)
+        actionSubtitleLabel.font = .systemFont(ofSize: 12.5, weight: .regular)
         actionSubtitleLabel.textAlignment = .center
         actionSubtitleLabel.numberOfLines = 2
+        actionSubtitleLabel.adjustsFontSizeToFitWidth = true
+        actionSubtitleLabel.minimumScaleFactor = 0.82
+        actionSubtitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
 
         actionContainerView.addSubview(actionSymbolView)
         actionContainerView.addSubview(actionTitleLabel)
@@ -1057,24 +1078,26 @@ final class XMBHomeViewController: BaseViewController {
         actionContainerView.addSubview(actionButton)
 
         actionSymbolView.snp.makeConstraints { make in
-            make.top.equalToSuperview().offset(8)
+            make.top.equalToSuperview().offset(14)
             make.centerX.equalToSuperview()
-            make.width.height.equalTo(56)
+            make.width.height.equalTo(50)
         }
         actionTitleLabel.snp.makeConstraints { make in
-            make.top.equalTo(actionSymbolView.snp.bottom).offset(10)
-            make.leading.trailing.equalToSuperview()
+            make.top.equalTo(actionSymbolView.snp.bottom).offset(12)
+            make.leading.trailing.equalToSuperview().inset(12)
+            make.height.greaterThanOrEqualTo(26)
         }
         actionSubtitleLabel.snp.makeConstraints { make in
-            make.top.equalTo(actionTitleLabel.snp.bottom).offset(5)
-            make.leading.trailing.equalToSuperview().inset(14)
+            make.top.equalTo(actionTitleLabel.snp.bottom).offset(4)
+            make.leading.trailing.equalToSuperview().inset(18)
+            make.height.greaterThanOrEqualTo(18)
         }
         actionButton.snp.makeConstraints { make in
             make.top.equalTo(actionSubtitleLabel.snp.bottom).offset(14)
             make.centerX.equalToSuperview()
-            make.width.equalTo(190)
-            make.height.equalTo(44)
-            make.bottom.equalToSuperview()
+            make.width.equalTo(176)
+            make.height.equalTo(42)
+            make.bottom.equalToSuperview().offset(-2)
         }
     }
 
@@ -1229,6 +1252,8 @@ final class XMBHomeViewController: BaseViewController {
             button.alpha = 0.64
             button.addTarget(self, action: #selector(sectionTapped(_:)), for: .touchUpInside)
             button.imageView?.contentMode = .scaleAspectFit
+            button.titleLabel?.shadowColor = UIColor.black.withAlphaComponent(0.40)
+            button.titleLabel?.shadowOffset = CGSize(width: 0, height: 1)
             button.snp.makeConstraints { make in
                 make.width.equalTo(86)
                 make.height.equalTo(80)
@@ -1266,8 +1291,17 @@ final class XMBHomeViewController: BaseViewController {
 
         for (index, button) in sectionButtons.enumerated() {
             let selected = index == selectedSectionIndex
-            button.configuration?.baseForegroundColor = selected ? .white : UIColor.white.withAlphaComponent(0.54)
-            button.alpha = selected ? 1.0 : 0.62
+            if var configuration = button.configuration {
+                configuration.baseForegroundColor = selected ? .white : UIColor.white.withAlphaComponent(0.50)
+                configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                    var outgoing = incoming
+                    outgoing.font = .systemFont(ofSize: selected ? 12 : 11,
+                                                weight: selected ? .semibold : .medium)
+                    return outgoing
+                }
+                button.configuration = configuration
+            }
+            button.alpha = selected ? 1.0 : 0.60
             button.transform = selected ? CGAffineTransform(scaleX: 1.14, y: 1.14) : .identity
             button.layer.shadowColor = selected ? UIColor.systemCyan.cgColor : UIColor.clear.cgColor
             button.layer.shadowOpacity = selected ? 0.55 : 0
@@ -1305,8 +1339,8 @@ final class XMBHomeViewController: BaseViewController {
             showProfile = false
             showAction = true
             subtitleLabel.text = "Add games to your library"
-            configureActionView(title: "Import games",
-                                subtitle: "Open ManicEMU's import screen",
+            configureActionView(title: "Import Games",
+                                subtitle: "Add games to your library",
                                 symbol: "square.and.arrow.down.fill")
 
         case .settings:
@@ -1316,7 +1350,7 @@ final class XMBHomeViewController: BaseViewController {
             showAction = true
             subtitleLabel.text = "Controllers, cores, networking and more"
             configureActionView(title: "Settings",
-                                subtitle: "Open ManicEMU settings",
+                                subtitle: "Controllers  •  Video  •  Audio  •  Cores",
                                 symbol: "gearshape.fill")
 
         case .classicHome:
@@ -1325,8 +1359,8 @@ final class XMBHomeViewController: BaseViewController {
             showProfile = false
             showAction = true
             subtitleLabel.text = "Original ManicEMU interface"
-            configureActionView(title: "Classic ManicEMU",
-                                subtitle: "Open the original frontend",
+            configureActionView(title: "ManicEMU",
+                                subtitle: "Open the original interface",
                                 symbol: "square.grid.2x2.fill")
         }
 
@@ -1532,6 +1566,46 @@ final class XMBHomeViewController: BaseViewController {
             avatarButton.setImage(safeSystemImage("person.crop.circle.fill"), for: .normal)
             avatarButton.imageView?.contentMode = .scaleAspectFit
         }
+        updateProfileRailAvatar()
+    }
+
+    private func profileRailAvatarImage() -> UIImage? {
+        guard let url = profileAvatarURL(),
+              let data = try? Data(contentsOf: url),
+              let image = UIImage(data: data),
+              image.size.width > 0,
+              image.size.height > 0 else { return nil }
+
+        let targetSize = CGSize(width: 44, height: 44)
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let rendered = renderer.image { _ in
+            let clipPath = UIBezierPath(ovalIn: CGRect(origin: .zero, size: targetSize))
+            clipPath.addClip()
+
+            let scale = max(targetSize.width / image.size.width,
+                            targetSize.height / image.size.height)
+            let drawSize = CGSize(width: image.size.width * scale,
+                                  height: image.size.height * scale)
+            let drawRect = CGRect(x: (targetSize.width - drawSize.width) / 2,
+                                  y: (targetSize.height - drawSize.height) / 2,
+                                  width: drawSize.width,
+                                  height: drawSize.height)
+            image.draw(in: drawRect)
+        }
+        return rendered.withRenderingMode(.alwaysOriginal)
+    }
+
+    private func updateProfileRailAvatar() {
+        guard let profileIndex = sections.firstIndex(where: {
+            if case .profile = $0.kind { return true }
+            return false
+        }), sectionButtons.indices.contains(profileIndex) else { return }
+
+        let button = sectionButtons[profileIndex]
+        if var configuration = button.configuration {
+            configuration.image = profileRailAvatarImage() ?? safeSystemImage("person.crop.circle.fill")
+            button.configuration = configuration
+        }
     }
 
     @objc private func changeAvatarPressed() {
@@ -1634,6 +1708,8 @@ final class XMBHomeViewController: BaseViewController {
 
     private func sectionImage(for section: XMBSection) -> UIImage? {
         switch section.kind {
+        case .profile:
+            return profileRailAvatarImage() ?? safeSystemImage(section.symbol)
         case .console(let gameType):
             return XMBSystemIconFactory.image(for: gameType)
         default:
@@ -1877,12 +1953,20 @@ private final class XMBGameRowCell: UICollectionViewCell {
         coverView.backgroundColor = UIColor.white.withAlphaComponent(0.04)
 
         nameLabel.textColor = UIColor.white.withAlphaComponent(0.90)
-        nameLabel.font = .systemFont(ofSize: 16, weight: .medium)
+        nameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.textAlignment = .right
+        nameLabel.adjustsFontSizeToFitWidth = true
+        nameLabel.minimumScaleFactor = 0.78
+        nameLabel.layer.shadowColor = UIColor.black.cgColor
+        nameLabel.layer.shadowOpacity = 0.28
+        nameLabel.layer.shadowRadius = 1.5
+        nameLabel.layer.shadowOffset = CGSize(width: 0, height: 1)
 
-        detailLabel.textColor = UIColor.white.withAlphaComponent(0.52)
-        detailLabel.font = .systemFont(ofSize: 10, weight: .regular)
+        detailLabel.textColor = UIColor.white.withAlphaComponent(0.54)
+        detailLabel.font = .systemFont(ofSize: 10.5, weight: .regular)
         detailLabel.lineBreakMode = .byTruncatingTail
+        detailLabel.textAlignment = .right
 
         contentView.addSubview(highlightView)
         contentView.addSubview(coverView)
@@ -1893,14 +1977,17 @@ private final class XMBGameRowCell: UICollectionViewCell {
             make.edges.equalToSuperview()
         }
 
+        // Classic-XMB placement: cover art sits on the same center line as the
+        // selected console above it; game text lives to the LEFT of the cover.
         nameLabel.snp.makeConstraints { make in
-            make.leading.equalTo(coverView.snp.trailing).offset(11)
-            make.trailing.equalToSuperview().offset(-8)
-            make.centerY.equalToSuperview().offset(-8)
+            make.leading.greaterThanOrEqualToSuperview().offset(10)
+            make.trailing.equalTo(coverView.snp.leading).offset(-14)
+            make.centerY.equalToSuperview().offset(-7)
         }
 
         detailLabel.snp.makeConstraints { make in
-            make.leading.trailing.equalTo(nameLabel)
+            make.leading.equalTo(nameLabel)
+            make.trailing.equalTo(nameLabel)
             make.top.equalTo(nameLabel.snp.bottom).offset(2)
         }
     }
@@ -1920,14 +2007,21 @@ private final class XMBGameRowCell: UICollectionViewCell {
     func setXMBFocused(_ focused: Bool) {
         UIView.animate(withDuration: 0.12) {
             self.highlightView.backgroundColor = focused
-                ? UIColor.white.withAlphaComponent(0.13)
+                ? UIColor.white.withAlphaComponent(0.055)
                 : .clear
-            self.nameLabel.textColor = focused ? .white : UIColor.white.withAlphaComponent(0.90)
+            self.nameLabel.textColor = focused ? .white : UIColor.white.withAlphaComponent(0.88)
+            self.detailLabel.textColor = focused
+                ? UIColor.white.withAlphaComponent(0.68)
+                : UIColor.white.withAlphaComponent(0.50)
             self.coverView.layer.borderWidth = focused ? 1.5 : 0
-            self.coverView.layer.borderColor = UIColor.white.withAlphaComponent(0.80).cgColor
-            self.transform = focused
-                ? CGAffineTransform(scaleX: 1.035, y: 1.035)
+            self.coverView.layer.borderColor = UIColor.white.withAlphaComponent(0.82).cgColor
+            self.coverView.layer.shadowColor = UIColor.systemCyan.cgColor
+            self.coverView.layer.shadowOpacity = focused ? 0.42 : 0
+            self.coverView.layer.shadowRadius = focused ? 7 : 0
+            self.coverView.transform = focused
+                ? CGAffineTransform(scaleX: 1.08, y: 1.08)
                 : .identity
+            self.transform = .identity
         }
     }
 
@@ -1943,7 +2037,7 @@ private final class XMBGameRowCell: UICollectionViewCell {
         switch coverMode {
         case .original:
             coverView.snp.remakeConstraints { make in
-                make.leading.equalToSuperview().offset(4)
+                make.centerX.equalToSuperview()
                 make.centerY.equalToSuperview()
                 make.width.equalTo(38)
                 make.height.equalTo(50)
@@ -1956,13 +2050,13 @@ private final class XMBGameRowCell: UICollectionViewCell {
 
         case .square:
             coverView.snp.remakeConstraints { make in
-                make.leading.equalToSuperview().offset(6)
+                make.centerX.equalToSuperview()
                 make.centerY.equalToSuperview()
-                make.width.height.equalTo(44)
+                make.width.height.equalTo(46)
             }
             coverView.layer.cornerRadius = 6
             coverView.contentMode = .scaleAspectFill
-            coverView.setGameCover(game: game, size: CGSize(width: 88, height: 88)) { [weak coverView] _ in
+            coverView.setGameCover(game: game, size: CGSize(width: 92, height: 92)) { [weak coverView] _ in
                 coverView?.contentMode = .scaleAspectFill
             }
         }
