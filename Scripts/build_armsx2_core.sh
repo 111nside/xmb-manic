@@ -50,8 +50,11 @@ xcodebuild \
   DEVELOPMENT_TEAM= \
   build | tee "$RUNNER_TEMP/armsx2-xcodebuild.log"
 
-FRAMEWORK=$(find "$BUILD/DerivedData/Build/Products" "$BUILD" -type d -name 'ARMSX2Core.framework' -print -quit)
-if [[ -z "$FRAMEWORK" ]]; then
+FRAMEWORK="$BUILD/Release-iphoneos/ARMSX2Core.framework"
+if [[ ! -d "$FRAMEWORK" ]]; then
+  FRAMEWORK=$(find "$BUILD" -type d -name 'ARMSX2Core.framework' -print -quit 2>/dev/null || true)
+fi
+if [[ -z "$FRAMEWORK" || ! -d "$FRAMEWORK" ]]; then
   echo "error: ARMSX2Core.framework was not produced" >&2
   find "$BUILD" -maxdepth 5 -type d -name '*.framework' -print || true
   exit 1
