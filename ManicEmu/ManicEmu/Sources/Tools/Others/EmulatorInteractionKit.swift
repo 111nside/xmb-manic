@@ -301,10 +301,15 @@ private struct ARMSX2Game: Decodable {
 
 // MARK: - Embedded ARMSX2 bridge
 
-/// Source-side bridge for the embedded ARMSX2/PCSX2 build. This compiles to a no-op
-/// until the ARMSX2Core module is linked into ManicEMU, so the rest of the app can land
-/// first without making normal builds depend on the large PS2 core.
 enum ARMSX2EmbeddedCore {
+    private static func prepare() -> Bool {
+#if canImport(ARMSX2Core)
+        return ARMSX2EmbeddedRuntime.prepare()
+#else
+        return false
+#endif
+    }
+
     static var isAvailable: Bool {
 #if canImport(ARMSX2Core)
         return true
@@ -315,6 +320,7 @@ enum ARMSX2EmbeddedCore {
 
     static var isJITAvailable: Bool {
 #if canImport(ARMSX2Core)
+        guard prepare() else { return false }
         return ARMSX2Bridge.isJITAvailable()
 #else
         return false
@@ -323,6 +329,7 @@ enum ARMSX2EmbeddedCore {
 
     static var availableBIOSNames: [String] {
 #if canImport(ARMSX2Core)
+        guard prepare() else { return [] }
         return ARMSX2Bridge.availableBIOSInfos()
             .filter { $0.valid }
             .map { $0.fileName }
@@ -333,6 +340,7 @@ enum ARMSX2EmbeddedCore {
 
     static var defaultBIOSName: String? {
 #if canImport(ARMSX2Core)
+        guard prepare() else { return nil }
         let name = ARMSX2Bridge.defaultBIOSName()
         return name.isEmpty ? nil : name
 #else
@@ -343,6 +351,7 @@ enum ARMSX2EmbeddedCore {
     @discardableResult
     static func importBIOS(from sourceURL: URL) -> Bool {
 #if canImport(ARMSX2Core)
+        guard prepare() else { return false }
         let destinationDirectory = URL(fileURLWithPath: ARMSX2Bridge.biosDirectory(), isDirectory: true)
         let destination = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent)
         do {
@@ -351,8 +360,15 @@ enum ARMSX2EmbeddedCore {
                 try FileManager.default.removeItem(at: destination)
             }
             try FileManager.default.copyItem(at: sourceURL, to: destination)
-            return ARMSX2Bridge.availableBIOSInfos().contains { $0.valid && $0.fileName == destination.lastPathComponent }
+
+            let valid = ARMSX2Bridge.availableBIOSInfos()
+                .contains { $0.valid && $0.fileName == destination.lastPathComponent }
+            if valid {
+                ARMSX2Bridge.setDefaultBIOS(destination.lastPathComponent)
+            }
+            return valid
         } catch {
+            Log.error("ARMSX2 BIOS import failed: \(error)")
             return false
         }
 #else
@@ -362,6 +378,7 @@ enum ARMSX2EmbeddedCore {
 
     static func setDefaultBIOS(_ fileName: String) {
 #if canImport(ARMSX2Core)
+        guard prepare() else { return }
         ARMSX2Bridge.setDefaultBIOS(fileName)
 #endif
     }
@@ -376,6 +393,16 @@ enum ARMSX2EmbeddedCore {
             return false
         }
 
+        guard prepare() else {
+            UIView.makeToast(message: "Could not initialize the embedded ARMSX2 core")
+            return true
+        }
+
+        guard ARMSX2Bridge.hasBIOS() else {
+            UIView.makeToast(message: "A PS2 BIOS is required before starting this game")
+            return true
+        }
+
         let controller = ARMSX2EmbeddedGameViewController(game: game)
         controller.modalPresentationStyle = .fullScreen
         topViewController(appController: true)?.present(controller, animated: true)
@@ -387,11 +414,12 @@ enum ARMSX2EmbeddedCore {
 }
 
 #if canImport(ARMSX2Core)
-/// Minimal native host for the ARMSX2 render surface. XMB remains the frontend; the
-/// upstream ARMSX2 SwiftUI library/menu is intentionally not presented.
+/// Minimal native host for the ARMSX2 render surface. XMB remains the frontend;
+/// ARMSX2's standalone SwiftUI library/menu is not presented.
 private final class ARMSX2EmbeddedGameViewController: UIViewController {
     private let gameID: String
     private var hasBooted = false
+    private weak var renderView: UIView?
 
     init(game: Game) {
         self.gameID = game.id
@@ -410,9 +438,18 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .black
 
+        guard ARMSX2EmbeddedRuntime.prepare() else {
+            UIView.makeToast(message: "Could not initialize the embedded ARMSX2 core")
+            dismiss(animated: true)
+            return
+        }
+
         let renderView = ARMSX2Bridge.gameRenderView()
+        renderView.removeFromSuperview()
         renderView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(renderView)
+        self.renderView = renderView
+
         NSLayoutConstraint.activate([
             renderView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             renderView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -429,15 +466,22 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
               game.isRomExtsts else { return }
 
         hasBooted = true
-        ARMSX2Bridge.bootISO(game.romUrl.path)
-        ARMSX2Bridge.prepareGameRenderViewForCurrentRenderer()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            ARMSX2Bridge.requestVMBoot(loadLastSaveState: false)
+        if !ARMSX2EmbeddedRuntime.bootISO(atPath: game.romUrl.path) {
+            hasBooted = false
+            UIView.makeToast(message: "ARMSX2 could not start this PS2 game")
+            dismiss(animated: true)
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            ARMSX2EmbeddedRuntime.stop()
         }
     }
 
     deinit {
-        ARMSX2Bridge.requestVMStop()
+        ARMSX2EmbeddedRuntime.stop()
     }
 }
 #endif
