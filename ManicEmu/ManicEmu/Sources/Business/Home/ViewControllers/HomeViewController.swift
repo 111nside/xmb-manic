@@ -484,7 +484,15 @@ private final class XMBGameColumnLayout: UICollectionViewFlowLayout {
         }
         if copy.representedElementCategory == .cell,
            copy.indexPath.item < focusedItemIndex {
+            // Passed games leave upward instead of remaining visible in/around the
+            // horizontal console rail. Their geometry still moves above the rail so
+            // focus navigation remains ordered, but visually they are fully gone.
             copy.frame.origin.y -= railGap
+            copy.alpha = 0
+            copy.zIndex = -100
+        } else if copy.representedElementCategory == .cell {
+            copy.alpha = 1
+            copy.zIndex = 0
         }
         return copy
     }
@@ -1589,24 +1597,24 @@ final class XMBHomeViewController: BaseViewController {
     private func updateGameColumnInsets() {
         guard collectionView.bounds.height > 0 else { return }
 
-        // Build a true exclusion zone around the horizontal console rail. The selected
-        // console button is scaled and allowed to draw outside the scroll view bounds, so
-        // using only sectionScrollView.bounds leaves too little clearance and lets a passed
-        // game appear to travel through the icon. Include the transformed selected button
-        // itself, then add breathing room above/below the entire visual rail.
-        var railRect = sectionScrollView.convert(sectionScrollView.bounds, to: collectionView)
-        if sectionButtons.indices.contains(selectedSectionIndex) {
-            let selectedButton = sectionButtons[selectedSectionIndex]
-            let selectedButtonRect = selectedButton.convert(selectedButton.bounds, to: collectionView)
-            railRect = railRect.union(selectedButtonRect)
-        }
-        railRect = railRect.insetBy(dx: -8, dy: -12)
+        // sectionScrollView and gamesContentView are both ultimately laid out against the
+        // root view. Use that stable screen-space geometry instead of converting directly
+        // into UICollectionView coordinates: a UIScrollView's bounds origin changes while
+        // it scrolls, which previously made this anchor drift into the selected console.
+        view.layoutIfNeeded()
+        let safeTop = view.safeAreaInsets.top
+        let railTop = max(0, sectionScrollView.frame.minY - safeTop)
+        let railBottom = max(railTop, sectionScrollView.frame.maxY - safeTop)
+        let railHeight = max(0, railBottom - railTop)
 
-        // The focused game is anchored clearly below the console. Every game before the
-        // focused one receives a large enough layout offset that even its enlarged cover
-        // finishes above the top edge of the console rail instead of behind/inside it.
-        let anchorY = max(0, railRect.maxY + 20)
-        gameColumnLayout.railGap = max(128, railRect.height + 36)
+        // Keep the focused cover unmistakably below the console label/icon. The extra
+        // clearance also accounts for the 1.08x focus scale on the cover artwork.
+        let anchorY = railBottom + 30
+
+        // Passed items are translated well above the rail and made transparent by the
+        // custom layout. This prevents even a single frame of artwork from appearing
+        // inside a console icon while moving between games.
+        gameColumnLayout.railGap = max(170, railHeight + 92)
 
         let rowHeight: CGFloat = coverMode == .square ? 54 : 60
         let bottomInset = max(18, collectionView.bounds.height - anchorY - rowHeight)
