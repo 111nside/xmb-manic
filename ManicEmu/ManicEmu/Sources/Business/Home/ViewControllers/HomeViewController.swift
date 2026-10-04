@@ -1305,7 +1305,7 @@ final class XMBHomeViewController: BaseViewController {
         // Copy only primitive/value data out of Realm. UIKit must never retain live Game
         // rows because imports can invalidate or replace those rows underneath the XMB.
         let realmResults = Database.realm.objects(Game.self).where { !$0.isDeleted }
-        let snapshot = realmResults.compactMap { XMBGameItem(game: $0) }
+        let snapshot = Array(realmResults.compactMap { XMBGameItem(game: $0) })
         libraryGames = snapshot
 
         let existingIdentifier = sections.indices.contains(selectedSectionIndex)
