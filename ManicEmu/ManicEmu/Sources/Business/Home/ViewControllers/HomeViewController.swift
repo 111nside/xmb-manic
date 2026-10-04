@@ -800,8 +800,9 @@ final class XMBHomeViewController: BaseViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        // The XMB rail sits near the visual center on every aspect ratio.
-        sectionCenterConstraint?.update(offset: -view.bounds.height * 0.10)
+        // Keep the XMB rail slightly above center so the selected system can reveal
+        // a useful vertical game column beneath it, matching the classic XMB layout.
+        sectionCenterConstraint?.update(offset: -view.bounds.height * 0.12)
 
         let sideInset = max(0, (sectionScrollView.bounds.width - 86) / 2)
         sectionScrollView.contentInset.left = sideInset
@@ -849,29 +850,23 @@ final class XMBHomeViewController: BaseViewController {
             make.height.equalTo(sectionScrollView.frameLayoutGuide)
         }
 
-        view.addSubview(titleLabel)
-        view.addSubview(subtitleLabel)
-
-        titleLabel.snp.makeConstraints { make in
-            make.top.equalTo(sectionScrollView.snp.bottom).offset(2)
-            make.centerX.equalToSuperview()
-            make.width.lessThanOrEqualTo(view.safeAreaLayoutGuide).multipliedBy(0.8)
-        }
-
-        subtitleLabel.snp.makeConstraints { make in
-            make.top.equalTo(titleLabel.snp.bottom).offset(1)
-            make.centerX.equalToSuperview()
-            make.width.lessThanOrEqualTo(view.safeAreaLayoutGuide).multipliedBy(0.84)
-        }
+        // The selected system is already labelled in the horizontal rail, so avoid a
+        // duplicate title/subtitle between the rail and its games. Keeping these labels
+        // hidden also leaves substantially more vertical room on iPhone landscape.
+        titleLabel.isHidden = true
+        subtitleLabel.isHidden = true
 
         view.addSubview(gamesContentView)
         gamesContentView.snp.makeConstraints { make in
-            make.top.equalTo(subtitleLabel.snp.bottom).offset(4)
+            make.top.equalTo(sectionScrollView.snp.bottom).offset(4)
             make.centerX.equalToSuperview()
-            make.width.lessThanOrEqualTo(460)
-            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(12)
-            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-12)
-            make.bottom.equalTo(view.safeAreaLayoutGuide)
+            // The old version only used <= / >= constraints here, so Auto Layout was
+            // allowed to collapse the game column almost to zero width. Give it a real
+            // width while still allowing small devices to shrink it safely.
+            make.width.equalTo(360).priority(.high)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(18)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-18)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-4)
         }
 
         gamesContentView.addSubview(listContainerView)
@@ -896,9 +891,9 @@ final class XMBHomeViewController: BaseViewController {
         view.addSubview(profileContainerView)
         profileContainerView.isHidden = true
         profileContainerView.snp.makeConstraints { make in
-            make.top.equalTo(subtitleLabel.snp.bottom).offset(8)
+            make.top.equalTo(sectionScrollView.snp.bottom).offset(8)
             make.centerX.equalToSuperview()
-            make.width.lessThanOrEqualTo(620)
+            make.width.equalTo(560).priority(.high)
             make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(18)
             make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-18)
             make.bottom.equalTo(view.safeAreaLayoutGuide)
@@ -915,9 +910,9 @@ final class XMBHomeViewController: BaseViewController {
         view.addSubview(actionContainerView)
         actionContainerView.isHidden = true
         actionContainerView.snp.makeConstraints { make in
-            make.top.equalTo(subtitleLabel.snp.bottom).offset(16)
+            make.top.equalTo(sectionScrollView.snp.bottom).offset(12)
             make.centerX.equalToSuperview()
-            make.width.lessThanOrEqualTo(420)
+            make.width.equalTo(400).priority(.high)
             make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(24)
             make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
             make.bottom.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-18)
@@ -1217,7 +1212,7 @@ final class XMBHomeViewController: BaseViewController {
 
         for (index, section) in sections.enumerated() {
             var configuration = UIButton.Configuration.plain()
-            configuration.image = safeSystemImage(section.symbol)
+            configuration.image = sectionImage(for: section)
             configuration.imagePlacement = .top
             configuration.imagePadding = 6
             configuration.title = section.title
@@ -1344,16 +1339,12 @@ final class XMBHomeViewController: BaseViewController {
         positionRail.update(index: initialIndex, count: games.count)
 
         let updates = {
-            self.titleLabel.alpha = 1
-            self.subtitleLabel.alpha = 1
             self.gamesContentView.alpha = showGames ? 1 : 0
             self.profileContainerView.alpha = showProfile ? 1 : 0
             self.actionContainerView.alpha = showAction ? 1 : 0
         }
 
         if animated {
-            titleLabel.alpha = 0.40
-            subtitleLabel.alpha = 0.40
             UIView.animate(withDuration: 0.18, animations: updates)
         } else {
             updates()
@@ -1641,6 +1632,15 @@ final class XMBHomeViewController: BaseViewController {
             ?? UIImage(systemName: "circle.fill")
     }
 
+    private func sectionImage(for section: XMBSection) -> UIImage? {
+        switch section.kind {
+        case .console(let gameType):
+            return XMBSystemIconFactory.image(for: gameType)
+        default:
+            return safeSystemImage(section.symbol)
+        }
+    }
+
     private func symbol(for gameType: GameType) -> String {
         let shortName = gameType.localizedShortName.uppercased()
 
@@ -1699,7 +1699,7 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
     func collectionView(_ collectionView: UICollectionView,
                         layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let rowHeight: CGFloat = coverMode == .square ? 60 : 70
+        let rowHeight: CGFloat = coverMode == .square ? 52 : 58
         return CGSize(width: collectionView.bounds.width, height: rowHeight)
     }
 }
@@ -1719,6 +1719,138 @@ extension XMBHomeViewController: PHPickerViewControllerDelegate {
                 self.loadProfileAvatar()
             }
         }
+    }
+}
+
+// MARK: - Consistent console icons
+
+private enum XMBSystemIconFactory {
+    private enum Family {
+        case verticalHandheld
+        case horizontalHandheld
+        case dualScreen
+        case homeConsole
+        case cartridgeConsole
+        case arcade
+        case computer
+    }
+
+    static func image(for gameType: GameType) -> UIImage {
+        let name = gameType.localizedShortName.uppercased()
+        let family = family(for: name)
+        let size = CGSize(width: 46, height: 34)
+        let renderer = UIGraphicsImageRenderer(size: size)
+
+        let image = renderer.image { context in
+            let cg = context.cgContext
+            cg.setStrokeColor(UIColor.white.cgColor)
+            cg.setFillColor(UIColor.white.cgColor)
+            cg.setLineWidth(1.8)
+            cg.setLineCap(.round)
+            cg.setLineJoin(.round)
+
+            switch family {
+            case .verticalHandheld:
+                let body = UIBezierPath(roundedRect: CGRect(x: 14, y: 1, width: 18, height: 31), cornerRadius: 4)
+                body.stroke()
+                UIBezierPath(roundedRect: CGRect(x: 17, y: 5, width: 12, height: 10), cornerRadius: 1.5).stroke()
+                drawDPad(in: cg, center: CGPoint(x: 19, y: 22), scale: 0.75)
+                cg.fillEllipse(in: CGRect(x: 26, y: 20, width: 3.2, height: 3.2))
+                cg.fillEllipse(in: CGRect(x: 29, y: 23, width: 3.2, height: 3.2))
+
+            case .horizontalHandheld:
+                let body = UIBezierPath(roundedRect: CGRect(x: 2, y: 7, width: 42, height: 22), cornerRadius: 7)
+                body.stroke()
+                UIBezierPath(roundedRect: CGRect(x: 13, y: 10, width: 20, height: 16), cornerRadius: 2).stroke()
+                drawDPad(in: cg, center: CGPoint(x: 8.5, y: 18), scale: 0.85)
+                cg.fillEllipse(in: CGRect(x: 36, y: 15, width: 3.2, height: 3.2))
+                cg.fillEllipse(in: CGRect(x: 39.2, y: 19, width: 3.2, height: 3.2))
+
+            case .dualScreen:
+                let top = UIBezierPath(roundedRect: CGRect(x: 10, y: 2, width: 26, height: 13), cornerRadius: 2.5)
+                let bottom = UIBezierPath(roundedRect: CGRect(x: 10, y: 18, width: 26, height: 13), cornerRadius: 2.5)
+                top.stroke()
+                bottom.stroke()
+                cg.move(to: CGPoint(x: 18, y: 16.5))
+                cg.addLine(to: CGPoint(x: 28, y: 16.5))
+                cg.strokePath()
+                drawDPad(in: cg, center: CGPoint(x: 15, y: 24.5), scale: 0.65)
+                cg.fillEllipse(in: CGRect(x: 30, y: 23, width: 2.8, height: 2.8))
+
+            case .homeConsole:
+                let console = UIBezierPath(roundedRect: CGRect(x: 4, y: 8, width: 30, height: 18), cornerRadius: 4)
+                console.stroke()
+                cg.strokeEllipse(in: CGRect(x: 9, y: 12, width: 10, height: 10))
+                cg.move(to: CGPoint(x: 24, y: 13))
+                cg.addLine(to: CGPoint(x: 30, y: 13))
+                cg.strokePath()
+                cg.fillEllipse(in: CGRect(x: 27, y: 19, width: 3, height: 3))
+                let controller = UIBezierPath(roundedRect: CGRect(x: 34, y: 17, width: 10, height: 8), cornerRadius: 4)
+                controller.stroke()
+
+            case .cartridgeConsole:
+                let base = UIBezierPath(roundedRect: CGRect(x: 3, y: 11, width: 40, height: 18), cornerRadius: 5)
+                base.stroke()
+                let cart = UIBezierPath(roundedRect: CGRect(x: 15, y: 2, width: 16, height: 14), cornerRadius: 2)
+                cart.stroke()
+                cg.move(to: CGPoint(x: 19, y: 6))
+                cg.addLine(to: CGPoint(x: 27, y: 6))
+                cg.strokePath()
+                cg.fillEllipse(in: CGRect(x: 35, y: 18, width: 3, height: 3))
+
+            case .arcade:
+                let cabinet = UIBezierPath(roundedRect: CGRect(x: 10, y: 2, width: 26, height: 31), cornerRadius: 3)
+                cabinet.stroke()
+                UIBezierPath(roundedRect: CGRect(x: 14, y: 6, width: 18, height: 11), cornerRadius: 2).stroke()
+                cg.move(to: CGPoint(x: 18, y: 23))
+                cg.addLine(to: CGPoint(x: 18, y: 19))
+                cg.strokePath()
+                cg.fillEllipse(in: CGRect(x: 16.5, y: 18, width: 3, height: 3))
+                cg.fillEllipse(in: CGRect(x: 25, y: 21, width: 3, height: 3))
+
+            case .computer:
+                UIBezierPath(roundedRect: CGRect(x: 5, y: 4, width: 36, height: 23), cornerRadius: 3).stroke()
+                cg.move(to: CGPoint(x: 23, y: 27))
+                cg.addLine(to: CGPoint(x: 23, y: 31))
+                cg.strokePath()
+                cg.move(to: CGPoint(x: 15, y: 31))
+                cg.addLine(to: CGPoint(x: 31, y: 31))
+                cg.strokePath()
+            }
+        }
+
+        return image.withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func family(for name: String) -> Family {
+        if ["GB", "GBC"].contains(name) {
+            return .verticalHandheld
+        }
+        if ["NDS", "DS", "3DS"].contains(name) {
+            return .dualScreen
+        }
+        if ["GBA", "PSP", "LYNX", "NGP", "NGPC", "WSC", "WS", "J2ME", "SYMBIAN"].contains(name) {
+            return .horizontalHandheld
+        }
+        if ["PS1", "PS2", "DC", "SS", "SATURN", "MCD", "NGC", "WII"].contains(name) {
+            return .homeConsole
+        }
+        if ["ARCADE", "MAME"].contains(name) {
+            return .arcade
+        }
+        if ["DOS", "WIN95", "WIN98", "C64", "AMIGA", "FLASH"].contains(name) {
+            return .computer
+        }
+        return .cartridgeConsole
+    }
+
+    private static func drawDPad(in context: CGContext, center: CGPoint, scale: CGFloat) {
+        let thickness = 2.2 * scale
+        let length = 7.0 * scale
+        let horizontal = CGRect(x: center.x - length / 2, y: center.y - thickness / 2, width: length, height: thickness)
+        let vertical = CGRect(x: center.x - thickness / 2, y: center.y - length / 2, width: thickness, height: length)
+        context.fill(horizontal)
+        context.fill(vertical)
     }
 }
 
@@ -1813,12 +1945,12 @@ private final class XMBGameRowCell: UICollectionViewCell {
             coverView.snp.remakeConstraints { make in
                 make.leading.equalToSuperview().offset(4)
                 make.centerY.equalToSuperview()
-                make.width.equalTo(50)
-                make.height.equalTo(64)
+                make.width.equalTo(38)
+                make.height.equalTo(50)
             }
             coverView.layer.cornerRadius = 4
             coverView.contentMode = .scaleAspectFit
-            coverView.setGameCover(game: game, size: CGSize(width: 100, height: 128)) { [weak coverView] _ in
+            coverView.setGameCover(game: game, size: CGSize(width: 76, height: 100)) { [weak coverView] _ in
                 coverView?.contentMode = .scaleAspectFit
             }
 
@@ -1826,11 +1958,11 @@ private final class XMBGameRowCell: UICollectionViewCell {
             coverView.snp.remakeConstraints { make in
                 make.leading.equalToSuperview().offset(6)
                 make.centerY.equalToSuperview()
-                make.width.height.equalTo(50)
+                make.width.height.equalTo(44)
             }
             coverView.layer.cornerRadius = 6
             coverView.contentMode = .scaleAspectFill
-            coverView.setGameCover(game: game, size: CGSize(width: 100, height: 100)) { [weak coverView] _ in
+            coverView.setGameCover(game: game, size: CGSize(width: 88, height: 88)) { [weak coverView] _ in
                 coverView?.contentMode = .scaleAspectFill
             }
         }
@@ -2011,7 +2143,6 @@ private final class XMBModalHostViewController: UIViewController {
 
 private final class XMBWaveBackgroundView: UIView {
     private let gradientLayer = CAGradientLayer()
-    private let glowLayer = CAGradientLayer()
     private let waveLayers: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
 
     override init(frame: CGRect) {
@@ -2027,17 +2158,8 @@ private final class XMBWaveBackgroundView: UIView {
         gradientLayer.endPoint = CGPoint(x: 0.95, y: 1)
         layer.addSublayer(gradientLayer)
 
-        glowLayer.colors = [
-            UIColor.systemCyan.withAlphaComponent(0.0).cgColor,
-            UIColor.systemCyan.withAlphaComponent(0.18).cgColor,
-            UIColor.systemBlue.withAlphaComponent(0.0).cgColor
-        ]
-        glowLayer.startPoint = CGPoint(x: 0, y: 0.5)
-        glowLayer.endPoint = CGPoint(x: 1, y: 0.5)
-        layer.addSublayer(glowLayer)
-
         for (index, wave) in waveLayers.enumerated() {
-            let alpha = max(0.035, 0.105 - CGFloat(index) * 0.018)
+            let alpha = max(0.045, 0.125 - CGFloat(index) * 0.020)
             wave.fillColor = UIColor.systemBlue.withAlphaComponent(alpha).cgColor
             wave.strokeColor = UIColor.white.withAlphaComponent(alpha * 1.35).cgColor
             wave.lineWidth = CGFloat(0.7 + Double(index) * 0.35)
@@ -2062,11 +2184,6 @@ private final class XMBWaveBackgroundView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = bounds
-
-        glowLayer.frame = CGRect(x: -bounds.width * 0.15,
-                                 y: bounds.height * 0.24,
-                                 width: bounds.width * 1.30,
-                                 height: bounds.height * 0.52)
 
         let centerY = bounds.height * 0.50
         let waveWidth = bounds.width + 260
