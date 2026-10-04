@@ -2,8 +2,9 @@ name: Build XMB Manic iOS
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
-    branches: [main, master]
+    branches: [main, master, armsx2-native-integration]
 
 permissions:
   contents: read
@@ -11,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 150
 
     steps:
       - name: Checkout source (no LFS)
@@ -19,6 +20,15 @@ jobs:
         with:
           lfs: false
           submodules: recursive
+
+      - name: Checkout pinned ARMSX2 source
+        uses: actions/checkout@v4
+        with:
+          repository: ARMSX2/ARMSX2
+          ref: 67be95a2a6e689cfb11b3649bd58271aa6369a08
+          path: ThirdParty/ARMSX2
+          submodules: recursive
+          lfs: false
 
       - name: Show commit being built
         run: |
@@ -628,6 +638,18 @@ jobs:
             echo 'Only System.core LFS pointers remain; the final app resource will be restored from the official IPA.'
           fi
 
+      - name: Build embedded ARMSX2 PS2 core
+        run: |
+          set -euo pipefail
+          chmod +x Scripts/build_armsx2_core.sh
+          Scripts/build_armsx2_core.sh ThirdParty/ARMSX2
+
+          test -d Cores/ARMSX2Core.framework
+          test -f Cores/ARMSX2Core.framework/ARMSX2Core
+
+          echo "ARMSX2Core dependencies:"
+          otool -L Cores/ARMSX2Core.framework/ARMSX2Core || true
+
       - name: Show Xcode version and schemes
         working-directory: ManicEmu
         run: |
@@ -658,7 +680,30 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM= \
+            IPHONEOS_DEPLOYMENT_TARGET=17.4 \
+            FRAMEWORK_SEARCH_PATHS="\$(inherited) $GITHUB_WORKSPACE/Cores" \
+            OTHER_LDFLAGS="\$(inherited) -framework ARMSX2Core" \
+            LD_RUNPATH_SEARCH_PATHS="\$(inherited) @executable_path/Frameworks" \
             build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Embed ARMSX2Core framework
+        run: |
+          set -euo pipefail
+          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -type d -name '*.app' | head -1)
+          test -n "$APP"
+          test -d "$GITHUB_WORKSPACE/Cores/ARMSX2Core.framework"
+
+          mkdir -p "$APP/Frameworks"
+          rm -rf "$APP/Frameworks/ARMSX2Core.framework"
+          ditto "$GITHUB_WORKSPACE/Cores/ARMSX2Core.framework" "$APP/Frameworks/ARMSX2Core.framework"
+
+          MANIC_BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          echo "Manic executable linkage:"
+          otool -L "$MANIC_BIN" | grep -E 'ARMSX2Core|@rpath' || true
+
+          echo "Bundled ARMSX2 framework:"
+          du -sh "$APP/Frameworks/ARMSX2Core.framework"
+          otool -L "$APP/Frameworks/ARMSX2Core.framework/ARMSX2Core" || true
 
       - name: Restore real System.core with controller skins
         env:
@@ -773,4 +818,12 @@ jobs:
         with:
           name: Xcode-build-log
           path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload ARMSX2 build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARMSX2-Xcode-build-log
+          path: ${{ runner.temp }}/armsx2-xcodebuild.log
           if-no-files-found: ignore
