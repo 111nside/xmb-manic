@@ -31,7 +31,7 @@ def main() -> None:
     text = text.replace("ARMSX2iOS", "ARMSX2Core")
     text = replace_once(text, "\t\tIOS/AppDelegate.mm\n", "", "remove UIApplicationMain/AppDelegate from embedded target")
     text = replace_once(text, "\tadd_executable(ARMSX2Core ${IOS_RUNTIME_SOURCES} ARMSX2Bridge.mm ${SWIFT_SOURCES})", "\tadd_library(ARMSX2Core SHARED ${IOS_RUNTIME_SOURCES} ARMSX2Bridge.mm ARMSX2EmbeddedRuntime.mm ARMSX2Bridge.h ARMSX2EmbeddedRuntime.h ARMSX2Core.h)", "create framework library target")
-    text = replace_once(text, "\tset_source_files_properties(ARMSX2Bridge.mm PROPERTIES COMPILE_FLAGS \"-fobjc-arc\")", "\tset_source_files_properties(ARMSX2Bridge.mm ARMSX2EmbeddedRuntime.mm PROPERTIES COMPILE_FLAGS \"-fobjc-arc\")", "enable ARC for embedded bridge/runtime")
+    text = replace_once(text, "\tset_source_files_properties(ARMSX2Bridge.mm PROPERTIES COMPILE_FLAGS \"-fobjc-arc\")", "\tset_source_files_properties(ARMSX2Bridge.mm ARMSX2EmbeddedRuntime.mm PROPERTIES COMPILE_FLAGS \"-fobjc-arc -fvisibility=default\")", "enable ARC and export embedded bridge/runtime")
     text = replace_once(text, "\t\tMACOSX_BUNDLE TRUE\n", "\t\tMACOSX_BUNDLE FALSE\n", "disable application bundle")
 
     anchor = "\t\t\tXCODE_ATTRIBUTE_MTL_ENABLE_DEBUG_INFO \"$<IF:$<CONFIG:Debug>,INCLUDE_SOURCE,>\"\n\t\t)\n"
