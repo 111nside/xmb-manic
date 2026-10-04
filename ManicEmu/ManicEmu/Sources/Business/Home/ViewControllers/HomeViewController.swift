@@ -14,6 +14,8 @@ import ColorfulX
 import UniformTypeIdentifiers
 import BlurUIKit
 import RealmSwift
+import PhotosUI
+import SnapKit
 
 class HomeViewController: BaseViewController {
     
@@ -448,10 +450,21 @@ extension HomeViewController: PageContentViewDelegate {
 // MARK: - XMB-inspired home (Manic XMB fork)
 // Original HomeViewController is intentionally retained above as a fallback.
 
+private enum XMBCoverMode: Int {
+    case original = 0
+    case square = 1
+
+    var title: String {
+        switch self {
+        case .original: return "Original"
+        case .square: return "Square"
+        }
+    }
+}
+
 final class XMBHomeViewController: BaseViewController {
     private enum SectionKind: Equatable {
         case profile
-        case recent
         case console(GameType)
         case importGames
         case settings
@@ -467,8 +480,6 @@ final class XMBHomeViewController: BaseViewController {
             switch kind {
             case .profile:
                 return "profile"
-            case .recent:
-                return "recent"
             case .console(let gameType):
                 return "console:\(gameType.localizedShortName)"
             case .importGames:
@@ -481,19 +492,33 @@ final class XMBHomeViewController: BaseViewController {
         }
     }
 
-    private enum XMBItem {
-        case game(Game)
-        case action(title: String, subtitle: String, symbol: String, handler: () -> Void)
-    }
-
     private static let selectedSectionDefaultsKey = "ManicXMB.selectedSection"
+    private static let coverModeDefaultsKey = "ManicXMB.coverMode"
+    private static let showHintsDefaultsKey = "ManicXMB.showControllerHints"
+    private static let profileNameDefaultsKey = "ManicXMB.profileName"
+    private static let profileStatusDefaultsKey = "ManicXMB.profileStatus"
 
     private var sections: [XMBSection] = []
     private var selectedSectionIndex = 0
-    private var items: [XMBItem] = []
-    private var rememberedItemIndex: [String: Int] = [:]
+    private var games: [Game] = []
+    private var rememberedGameIndex: [String: Int] = [:]
     private var gameToken: NotificationToken?
     private var clockTimer: Timer?
+    private var sectionCenterConstraint: Constraint?
+
+    private var coverMode: XMBCoverMode {
+        get {
+            XMBCoverMode(rawValue: UserDefaults.standard.integer(forKey: Self.coverModeDefaultsKey)) ?? .original
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: Self.coverModeDefaultsKey)
+        }
+    }
+
+    private var showControllerHints: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.showHintsDefaultsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.showHintsDefaultsKey) }
+    }
 
     private let backgroundView = XMBWaveBackgroundView()
 
@@ -510,6 +535,7 @@ final class XMBHomeViewController: BaseViewController {
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
         scrollView.clipsToBounds = false
+        scrollView.decelerationRate = .fast
         return scrollView
     }()
 
@@ -518,37 +544,50 @@ final class XMBHomeViewController: BaseViewController {
         stack.axis = .horizontal
         stack.alignment = .center
         stack.distribution = .fill
-        stack.spacing = 18
+        stack.spacing = 20
         return stack
     }()
 
     private var sectionButtons: [UIButton] = []
 
+    private let selectedSectionGlow: UIView = {
+        let view = UIView()
+        view.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.12)
+        view.layer.cornerRadius = 34
+        view.layer.shadowColor = UIColor.systemCyan.cgColor
+        view.layer.shadowOpacity = 0.55
+        view.layer.shadowRadius = 24
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+
     private let titleLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 26, weight: .semibold)
+        label.font = .systemFont(ofSize: 19, weight: .semibold)
         label.textColor = .white
+        label.textAlignment = .center
+        label.numberOfLines = 1
         return label
     }()
 
     private let subtitleLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 13, weight: .regular)
-        label.textColor = UIColor.white.withAlphaComponent(0.62)
+        label.font = .systemFont(ofSize: 12, weight: .regular)
+        label.textColor = UIColor.white.withAlphaComponent(0.58)
+        label.textAlignment = .center
+        label.numberOfLines = 1
         return label
     }()
 
     private let gamesContentView = UIView()
     private let listContainerView = UIView()
-    private let gameHorizontalStack = UIStackView()
     private let positionRail = XMBPositionRailView()
-    private let detailView = XMBGameDetailView()
 
     private lazy var collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
-        layout.minimumLineSpacing = 4
-        layout.sectionInset = UIEdgeInsets(top: 12, left: 0, bottom: 28, right: 0)
+        layout.minimumLineSpacing = 3
+        layout.sectionInset = UIEdgeInsets(top: 7, left: 0, bottom: 30, right: 0)
 
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
@@ -556,11 +595,7 @@ final class XMBHomeViewController: BaseViewController {
         collectionView.delegate = self
         collectionView.showsVerticalScrollIndicator = false
         collectionView.alwaysBounceVertical = true
-        collectionView.register(XMBRowCell.self, forCellWithReuseIdentifier: XMBRowCell.reuseIdentifier)
-
-        // Manic's FocusKit does not use UIKit's default focus engine. Marking the
-        // collection as a FocusKit container is what makes DualSense D-pad/stick
-        // navigation reach its cells.
+        collectionView.register(XMBGameRowCell.self, forCellWithReuseIdentifier: XMBGameRowCell.reuseIdentifier)
         collectionView.isFocusable = true
         collectionView.enableFocusEffects = false
         return collectionView
@@ -572,51 +607,133 @@ final class XMBHomeViewController: BaseViewController {
         scrollView.alwaysBounceVertical = true
         return scrollView
     }()
-    private let profileContentView = UIView()
-    private let adventureCardView = SettingsAdventureCardView()
 
-    private let profileHeadingLabel: UILabel = {
+    private let profileContentView = UIView()
+
+    private lazy var avatarButton: UIButton = {
+        let button = UIButton(type: .custom)
+        button.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        button.layer.cornerRadius = 48
+        button.clipsToBounds = true
+        button.imageView?.contentMode = .scaleAspectFill
+        button.tintColor = .white
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.addTarget(self, action: #selector(changeAvatarPressed), for: .touchUpInside)
+        button.onFocusChange = { [weak button] focused in
+            UIView.animate(withDuration: 0.12) {
+                button?.transform = focused ? CGAffineTransform(scaleX: 1.07, y: 1.07) : .identity
+                button?.layer.borderWidth = focused ? 2 : 0
+                button?.layer.borderColor = UIColor.white.withAlphaComponent(0.85).cgColor
+            }
+        }
+        button.onFocusConfirm = { [weak self] in
+            self?.changeAvatarPressed()
+            return true
+        }
+        return button
+    }()
+
+    private let profileNameLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 20, weight: .semibold)
+        label.font = .systemFont(ofSize: 24, weight: .semibold)
         label.textColor = .white
-        label.text = "Player profile"
+        label.numberOfLines = 1
+        return label
+    }()
+
+    private let profileStatusLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 13, weight: .regular)
+        label.textColor = UIColor.white.withAlphaComponent(0.62)
+        label.numberOfLines = 2
         return label
     }()
 
     private let profileStatsLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 14, weight: .regular)
-        label.textColor = UIColor.white.withAlphaComponent(0.70)
+        label.font = .systemFont(ofSize: 14, weight: .medium)
+        label.textColor = UIColor.white.withAlphaComponent(0.82)
         label.numberOfLines = 0
         return label
     }()
 
     private let retroStatusLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 14, weight: .medium)
-        label.textColor = UIColor.white.withAlphaComponent(0.78)
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.textColor = UIColor.white.withAlphaComponent(0.76)
         label.numberOfLines = 2
         return label
     }()
 
-    private lazy var retroButton: UIButton = {
-        let button = makeProfileButton(title: "RetroAchievements", symbol: "trophy.fill")
-        button.addTarget(self, action: #selector(openRetroAchievements), for: .touchUpInside)
-        return button
+    private lazy var editNameButton = makeProfileButton(title: "Edit display name", symbol: "pencil") { [weak self] in
+        self?.editProfileName()
+    }
+
+    private lazy var editStatusButton = makeProfileButton(title: "Edit profile status", symbol: "text.bubble") { [weak self] in
+        self?.editProfileStatus()
+    }
+
+    private lazy var changeAvatarButton = makeProfileButton(title: "Change avatar", symbol: "photo") { [weak self] in
+        self?.changeAvatarPressed()
+    }
+
+    private lazy var retroButton = makeProfileButton(title: "RetroAchievements", symbol: "trophy.fill") { [weak self] in
+        self?.openRetroAchievements()
+    }
+
+    private lazy var historyButton = makeProfileButton(title: "Play history", symbol: "clock.arrow.circlepath") { [weak self] in
+        self?.openPlayHistory()
+    }
+
+    private lazy var coverModeControl: UISegmentedControl = {
+        let control = UISegmentedControl(items: [XMBCoverMode.original.title, XMBCoverMode.square.title])
+        control.selectedSegmentIndex = coverMode.rawValue
+        control.selectedSegmentTintColor = UIColor.white.withAlphaComponent(0.22)
+        control.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
+        control.setTitleTextAttributes([.foregroundColor: UIColor.white.withAlphaComponent(0.60)], for: .normal)
+        control.addTarget(self, action: #selector(coverModeChanged(_:)), for: .valueChanged)
+        control.isFocusable = true
+        control.enableFocusEffects = false
+        control.onFocusConfirm = { [weak self, weak control] in
+            guard let self, let control else { return true }
+            let next = control.selectedSegmentIndex == 0 ? 1 : 0
+            control.selectedSegmentIndex = next
+            self.coverModeChanged(control)
+            return true
+        }
+        return control
     }()
 
-    private lazy var historyButton: UIButton = {
-        let button = makeProfileButton(title: "Play history", symbol: "clock.arrow.circlepath")
-        button.addTarget(self, action: #selector(openPlayHistory), for: .touchUpInside)
-        return button
+    private lazy var hintsSwitch: UISwitch = {
+        let toggle = UISwitch()
+        toggle.isOn = showControllerHints
+        toggle.addTarget(self, action: #selector(hintsChanged(_:)), for: .valueChanged)
+        toggle.isFocusable = true
+        toggle.enableFocusEffects = false
+        toggle.onFocusConfirm = { [weak self, weak toggle] in
+            guard let self, let toggle else { return true }
+            toggle.setOn(!toggle.isOn, animated: true)
+            self.hintsChanged(toggle)
+            return true
+        }
+        return toggle
     }()
+
+    private let actionContainerView = UIView()
+    private let actionSymbolView = UIImageView()
+    private let actionTitleLabel = UILabel()
+    private let actionSubtitleLabel = UILabel()
+    private lazy var actionButton = makeActionButton()
 
     private let controlsHintLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.textColor = UIColor.white.withAlphaComponent(0.50)
-        label.text = "Left / Right: systems   •   Up / Down: games   •   Cross: open   •   Circle: back"
-        label.numberOfLines = 2
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = UIColor.white.withAlphaComponent(0.48)
+        label.textAlignment = .center
+        label.text = "◀ ▶  systems     ▲ ▼  games     ✕  open     ○  back     L1 / R1  systems"
+        label.numberOfLines = 1
+        label.isHidden = true
         return label
     }()
 
@@ -625,6 +742,7 @@ final class XMBHomeViewController: BaseViewController {
         setupXMB()
         observeGames()
         updateClock()
+        applyControllerHintVisibility()
 
         clockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.updateClock()
@@ -639,8 +757,6 @@ final class XMBHomeViewController: BaseViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
-        // Games switch this sink to gameplay. Always restore system navigation
-        // when the user returns to the XMB.
         ExternalInputDispatch.sink = .focusKit
 
         activateFocusRoot { [weak self] context in
@@ -683,13 +799,21 @@ final class XMBHomeViewController: BaseViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Keep a large game-information panel on iPad / landscape-sized layouts,
-        // but let the vertical list use the whole width on phones.
-        detailView.isHidden = view.bounds.width < 760
+
+        // The XMB rail sits near the visual center on every aspect ratio.
+        sectionCenterConstraint?.update(offset: -view.bounds.height * 0.10)
+
+        let sideInset = max(0, (sectionScrollView.bounds.width - 86) / 2)
+        sectionScrollView.contentInset.left = sideInset
+        sectionScrollView.contentInset.right = sideInset
+
+        if sections.indices.contains(selectedSectionIndex) {
+            scrollSelectedSectionIntoView(animated: false)
+        }
     }
 
     private func setupXMB() {
-        view.backgroundColor = UIColor(red: 0.01, green: 0.055, blue: 0.15, alpha: 1)
+        view.backgroundColor = UIColor(red: 0.008, green: 0.045, blue: 0.13, alpha: 1)
 
         view.addSubview(backgroundView)
         backgroundView.snp.makeConstraints { make in
@@ -702,11 +826,21 @@ final class XMBHomeViewController: BaseViewController {
             make.trailing.equalTo(view.safeAreaLayoutGuide).offset(-20)
         }
 
+        view.addSubview(selectedSectionGlow)
+        selectedSectionGlow.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.width.height.equalTo(68)
+        }
+
         view.addSubview(sectionScrollView)
         sectionScrollView.snp.makeConstraints { make in
-            make.top.equalTo(view.safeAreaLayoutGuide).offset(32)
+            sectionCenterConstraint = make.centerY.equalToSuperview().offset(-40).constraint
             make.leading.trailing.equalTo(view.safeAreaLayoutGuide)
-            make.height.equalTo(86)
+            make.height.equalTo(92)
+        }
+
+        selectedSectionGlow.snp.makeConstraints { make in
+            make.centerY.equalTo(sectionScrollView).offset(-8)
         }
 
         sectionScrollView.addSubview(sectionStack)
@@ -719,71 +853,55 @@ final class XMBHomeViewController: BaseViewController {
         view.addSubview(subtitleLabel)
 
         titleLabel.snp.makeConstraints { make in
-            make.top.equalTo(sectionScrollView.snp.bottom).offset(8)
-            make.leading.equalTo(view.safeAreaLayoutGuide).offset(34)
-            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
+            make.top.equalTo(sectionScrollView.snp.bottom).offset(2)
+            make.centerX.equalToSuperview()
+            make.width.lessThanOrEqualTo(view.safeAreaLayoutGuide).multipliedBy(0.8)
         }
 
         subtitleLabel.snp.makeConstraints { make in
-            make.top.equalTo(titleLabel.snp.bottom).offset(3)
-            make.leading.equalTo(titleLabel)
-            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
-        }
-
-        view.addSubview(controlsHintLabel)
-        controlsHintLabel.snp.makeConstraints { make in
-            make.leading.equalTo(view.safeAreaLayoutGuide).offset(28)
-            make.trailing.equalTo(view.safeAreaLayoutGuide).offset(-28)
-            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-8)
-            make.height.greaterThanOrEqualTo(20)
+            make.top.equalTo(titleLabel.snp.bottom).offset(1)
+            make.centerX.equalToSuperview()
+            make.width.lessThanOrEqualTo(view.safeAreaLayoutGuide).multipliedBy(0.84)
         }
 
         view.addSubview(gamesContentView)
         gamesContentView.snp.makeConstraints { make in
-            make.top.equalTo(subtitleLabel.snp.bottom).offset(12)
-            make.leading.trailing.equalTo(view.safeAreaLayoutGuide)
-            make.bottom.equalTo(controlsHintLabel.snp.top).offset(-6)
+            make.top.equalTo(subtitleLabel.snp.bottom).offset(4)
+            make.centerX.equalToSuperview()
+            make.width.lessThanOrEqualTo(460)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(12)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-12)
+            make.bottom.equalTo(view.safeAreaLayoutGuide)
         }
 
-        gameHorizontalStack.axis = .horizontal
-        gameHorizontalStack.alignment = .fill
-        gameHorizontalStack.distribution = .fill
-        gameHorizontalStack.spacing = 18
-        gameHorizontalStack.addArrangedSubview(listContainerView)
-        gameHorizontalStack.addArrangedSubview(detailView)
-
-        gamesContentView.addSubview(gameHorizontalStack)
-        gameHorizontalStack.snp.makeConstraints { make in
-            make.top.bottom.equalToSuperview()
-            make.leading.equalToSuperview().offset(20)
-            make.trailing.equalToSuperview().offset(-22)
+        gamesContentView.addSubview(listContainerView)
+        listContainerView.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
         }
 
-        detailView.snp.makeConstraints { make in
-            make.width.equalTo(300).priority(.high)
-        }
-
-        listContainerView.addSubview(positionRail)
         listContainerView.addSubview(collectionView)
+        listContainerView.addSubview(positionRail)
 
         positionRail.snp.makeConstraints { make in
-            make.leading.equalToSuperview()
-            make.top.bottom.equalToSuperview().inset(10)
-            make.width.equalTo(26)
+            make.trailing.equalToSuperview()
+            make.top.bottom.equalToSuperview().inset(8)
+            make.width.equalTo(24)
         }
 
         collectionView.snp.makeConstraints { make in
-            make.leading.equalTo(positionRail.snp.trailing).offset(12)
-            make.top.trailing.bottom.equalToSuperview()
+            make.leading.top.bottom.equalToSuperview()
+            make.trailing.equalTo(positionRail.snp.leading).offset(-8)
         }
 
         view.addSubview(profileContainerView)
         profileContainerView.isHidden = true
         profileContainerView.snp.makeConstraints { make in
-            make.top.equalTo(subtitleLabel.snp.bottom).offset(14)
-            make.leading.equalTo(view.safeAreaLayoutGuide).offset(28)
-            make.trailing.equalTo(view.safeAreaLayoutGuide).offset(-28)
-            make.bottom.equalTo(controlsHintLabel.snp.top).offset(-8)
+            make.top.equalTo(subtitleLabel.snp.bottom).offset(8)
+            make.centerX.equalToSuperview()
+            make.width.lessThanOrEqualTo(620)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(18)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-18)
+            make.bottom.equalTo(view.safeAreaLayoutGuide)
         }
 
         profileContainerView.addSubview(profileContentView)
@@ -792,79 +910,248 @@ final class XMBHomeViewController: BaseViewController {
             make.width.equalTo(profileContainerView.frameLayoutGuide)
         }
 
-        setupProfileView()
+        setupProfileManager()
+
+        view.addSubview(actionContainerView)
+        actionContainerView.isHidden = true
+        actionContainerView.snp.makeConstraints { make in
+            make.top.equalTo(subtitleLabel.snp.bottom).offset(16)
+            make.centerX.equalToSuperview()
+            make.width.lessThanOrEqualTo(420)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(24)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
+            make.bottom.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-18)
+        }
+        setupActionView()
+
+        view.addSubview(controlsHintLabel)
+        controlsHintLabel.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(20)
+            make.trailing.equalTo(view.safeAreaLayoutGuide).offset(-20)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-6)
+            make.height.equalTo(20)
+        }
     }
 
-    private func setupProfileView() {
-        adventureCardView.overrideUserInterfaceStyle = .dark
+    private func setupProfileManager() {
+        let header = UIView()
+        let preferenceCard = makeProfileCard()
+        let achievementsCard = makeProfileCard()
 
-        let actionStack = UIStackView(arrangedSubviews: [retroButton, historyButton])
-        actionStack.axis = .vertical
-        actionStack.alignment = .fill
-        actionStack.distribution = .fillEqually
-        actionStack.spacing = 10
+        profileContentView.addSubview(header)
+        profileContentView.addSubview(preferenceCard)
+        profileContentView.addSubview(achievementsCard)
 
-        profileContentView.addSubview(profileHeadingLabel)
-        profileContentView.addSubview(adventureCardView)
-        profileContentView.addSubview(profileStatsLabel)
-        profileContentView.addSubview(retroStatusLabel)
-        profileContentView.addSubview(actionStack)
-
-        profileHeadingLabel.snp.makeConstraints { make in
-            make.top.leading.equalToSuperview()
-            make.trailing.lessThanOrEqualToSuperview()
+        header.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview()
+            make.height.greaterThanOrEqualTo(122)
         }
 
-        adventureCardView.snp.makeConstraints { make in
-            make.top.equalTo(profileHeadingLabel.snp.bottom).offset(12)
-            make.leading.equalToSuperview()
-            make.trailing.equalToSuperview()
-            make.height.equalTo(190)
+        header.addSubview(avatarButton)
+        header.addSubview(profileNameLabel)
+        header.addSubview(profileStatusLabel)
+
+        avatarButton.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(6)
+            make.top.equalToSuperview().offset(8)
+            make.width.height.equalTo(96)
         }
 
+        profileNameLabel.snp.makeConstraints { make in
+            make.leading.equalTo(avatarButton.snp.trailing).offset(18)
+            make.trailing.equalToSuperview().offset(-8)
+            make.top.equalTo(avatarButton).offset(10)
+        }
+
+        profileStatusLabel.snp.makeConstraints { make in
+            make.leading.trailing.equalTo(profileNameLabel)
+            make.top.equalTo(profileNameLabel.snp.bottom).offset(5)
+        }
+
+        let editStack = UIStackView(arrangedSubviews: [editNameButton, editStatusButton, changeAvatarButton])
+        editStack.axis = .horizontal
+        editStack.alignment = .fill
+        editStack.distribution = .fillEqually
+        editStack.spacing = 8
+        header.addSubview(editStack)
+        editStack.snp.makeConstraints { make in
+            make.leading.equalTo(profileNameLabel)
+            make.trailing.equalToSuperview().offset(-8)
+            make.top.greaterThanOrEqualTo(profileStatusLabel.snp.bottom).offset(8)
+            make.bottom.equalToSuperview().offset(-4)
+            make.height.equalTo(38)
+        }
+
+        preferenceCard.addSubview(profileStatsLabel)
         profileStatsLabel.snp.makeConstraints { make in
-            make.top.equalTo(adventureCardView.snp.bottom).offset(14)
-            make.leading.trailing.equalToSuperview()
+            make.top.leading.trailing.equalToSuperview().inset(14)
         }
 
+        let coverTitle = makeSmallProfileLabel("Game cover shape")
+        preferenceCard.addSubview(coverTitle)
+        preferenceCard.addSubview(coverModeControl)
+        coverTitle.snp.makeConstraints { make in
+            make.top.equalTo(profileStatsLabel.snp.bottom).offset(18)
+            make.leading.equalToSuperview().offset(14)
+        }
+        coverModeControl.snp.makeConstraints { make in
+            make.centerY.equalTo(coverTitle)
+            make.trailing.equalToSuperview().offset(-14)
+            make.width.equalTo(190)
+        }
+
+        let hintsTitle = makeSmallProfileLabel("Show controller instructions")
+        preferenceCard.addSubview(hintsTitle)
+        preferenceCard.addSubview(hintsSwitch)
+        hintsTitle.snp.makeConstraints { make in
+            make.top.equalTo(coverTitle.snp.bottom).offset(22)
+            make.leading.equalTo(coverTitle)
+            make.bottom.equalToSuperview().offset(-16)
+        }
+        hintsSwitch.snp.makeConstraints { make in
+            make.centerY.equalTo(hintsTitle)
+            make.trailing.equalToSuperview().offset(-14)
+        }
+
+        achievementsCard.addSubview(retroStatusLabel)
         retroStatusLabel.snp.makeConstraints { make in
-            make.top.equalTo(profileStatsLabel.snp.bottom).offset(12)
+            make.top.leading.trailing.equalToSuperview().inset(14)
+        }
+
+        let raActions = UIStackView(arrangedSubviews: [retroButton, historyButton])
+        raActions.axis = .horizontal
+        raActions.alignment = .fill
+        raActions.distribution = .fillEqually
+        raActions.spacing = 8
+        achievementsCard.addSubview(raActions)
+        raActions.snp.makeConstraints { make in
+            make.top.equalTo(retroStatusLabel.snp.bottom).offset(12)
+            make.leading.trailing.equalToSuperview().inset(14)
+            make.bottom.equalToSuperview().offset(-14)
+            make.height.equalTo(42)
+        }
+
+        preferenceCard.snp.makeConstraints { make in
+            make.top.equalTo(header.snp.bottom).offset(12)
             make.leading.trailing.equalToSuperview()
         }
 
-        actionStack.snp.makeConstraints { make in
-            make.top.equalTo(retroStatusLabel.snp.bottom).offset(12)
-            make.leading.equalToSuperview()
-            make.width.lessThanOrEqualTo(360)
-            make.trailing.lessThanOrEqualToSuperview()
-            make.bottom.equalToSuperview().offset(-18)
-            make.height.equalTo(108)
+        achievementsCard.snp.makeConstraints { make in
+            make.top.equalTo(preferenceCard.snp.bottom).offset(12)
+            make.leading.trailing.equalToSuperview()
+            make.bottom.equalToSuperview().offset(-20)
         }
     }
 
-    private func makeProfileButton(title: String, symbol: String) -> UIButton {
+    private func setupActionView() {
+        actionSymbolView.tintColor = UIColor.white.withAlphaComponent(0.92)
+        actionSymbolView.contentMode = .scaleAspectFit
+
+        actionTitleLabel.textColor = .white
+        actionTitleLabel.font = .systemFont(ofSize: 21, weight: .semibold)
+        actionTitleLabel.textAlignment = .center
+
+        actionSubtitleLabel.textColor = UIColor.white.withAlphaComponent(0.60)
+        actionSubtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        actionSubtitleLabel.textAlignment = .center
+        actionSubtitleLabel.numberOfLines = 2
+
+        actionContainerView.addSubview(actionSymbolView)
+        actionContainerView.addSubview(actionTitleLabel)
+        actionContainerView.addSubview(actionSubtitleLabel)
+        actionContainerView.addSubview(actionButton)
+
+        actionSymbolView.snp.makeConstraints { make in
+            make.top.equalToSuperview().offset(8)
+            make.centerX.equalToSuperview()
+            make.width.height.equalTo(56)
+        }
+        actionTitleLabel.snp.makeConstraints { make in
+            make.top.equalTo(actionSymbolView.snp.bottom).offset(10)
+            make.leading.trailing.equalToSuperview()
+        }
+        actionSubtitleLabel.snp.makeConstraints { make in
+            make.top.equalTo(actionTitleLabel.snp.bottom).offset(5)
+            make.leading.trailing.equalToSuperview().inset(14)
+        }
+        actionButton.snp.makeConstraints { make in
+            make.top.equalTo(actionSubtitleLabel.snp.bottom).offset(14)
+            make.centerX.equalToSuperview()
+            make.width.equalTo(190)
+            make.height.equalTo(44)
+            make.bottom.equalToSuperview()
+        }
+    }
+
+    private func makeProfileCard() -> UIView {
+        let view = UIView()
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.14)
+        view.layer.cornerRadius = 14
+        view.layer.borderWidth = 1
+        view.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
+        return view
+    }
+
+    private func makeSmallProfileLabel(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.textColor = UIColor.white.withAlphaComponent(0.76)
+        return label
+    }
+
+    private func makeProfileButton(title: String, symbol: String, action: @escaping () -> Void) -> UIButton {
         var configuration = UIButton.Configuration.gray()
         configuration.title = title
-        configuration.image = UIImage(systemName: symbol)
-        configuration.imagePadding = 10
+        configuration.image = safeSystemImage(symbol)
+        configuration.imagePadding = 7
         configuration.baseForegroundColor = .white
-        configuration.background.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        configuration.background.backgroundColor = UIColor.white.withAlphaComponent(0.09)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 9, bottom: 6, trailing: 9)
 
         let button = UIButton(configuration: configuration)
-        button.contentHorizontalAlignment = .leading
+        button.titleLabel?.font = .systemFont(ofSize: 11, weight: .medium)
         button.isFocusable = true
         button.enableFocusEffects = false
         button.onFocusChange = { [weak button] focused in
             UIView.animate(withDuration: 0.12) {
                 if var configuration = button?.configuration {
                     configuration.background.backgroundColor = focused
-                        ? UIColor.white.withAlphaComponent(0.24)
-                        : UIColor.white.withAlphaComponent(0.10)
+                        ? UIColor.white.withAlphaComponent(0.22)
+                        : UIColor.white.withAlphaComponent(0.09)
                     button?.configuration = configuration
                 }
-                button?.transform = focused ? CGAffineTransform(scaleX: 1.015, y: 1.015) : .identity
+                button?.transform = focused ? CGAffineTransform(scaleX: 1.02, y: 1.02) : .identity
             }
         }
+        button.onFocusConfirm = {
+            action()
+            return true
+        }
+        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        return button
+    }
+
+    private func makeActionButton() -> UIButton {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Open"
+        configuration.baseForegroundColor = .white
+        configuration.baseBackgroundColor = UIColor.systemBlue.withAlphaComponent(0.78)
+        configuration.cornerStyle = .capsule
+
+        let button = UIButton(configuration: configuration)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusChange = { [weak button] focused in
+            UIView.animate(withDuration: 0.12) {
+                button?.transform = focused ? CGAffineTransform(scaleX: 1.06, y: 1.06) : .identity
+            }
+        }
+        button.onFocusConfirm = { [weak self] in
+            self?.activateActionSection()
+            return true
+        }
+        button.addTarget(self, action: #selector(actionButtonPressed), for: .touchUpInside)
         return button
     }
 
@@ -889,9 +1176,8 @@ final class XMBHomeViewController: BaseViewController {
             .sorted { $0.localizedShortName.localizedCaseInsensitiveCompare($1.localizedShortName) == .orderedAscending }
         orderedTypes.append(contentsOf: extraTypes)
 
-        var rebuilt: [XMBSection] = [
-            XMBSection(kind: .profile, title: "Profile", symbol: "person.crop.circle.fill"),
-            XMBSection(kind: .recent, title: "Recent", symbol: "clock.fill")
+        var rebuilt = [
+            XMBSection(kind: .profile, title: "Profile", symbol: "person.crop.circle.fill")
         ]
 
         rebuilt.append(contentsOf: orderedTypes.map { gameType in
@@ -918,7 +1204,7 @@ final class XMBHomeViewController: BaseViewController {
         }) {
             selectedSectionIndex = firstConsole
         } else {
-            selectedSectionIndex = min(1, max(0, sections.count - 1))
+            selectedSectionIndex = 0
         }
 
         updateSelectedSection(animated: false, restoreFocus: false)
@@ -931,11 +1217,12 @@ final class XMBHomeViewController: BaseViewController {
 
         for (index, section) in sections.enumerated() {
             var configuration = UIButton.Configuration.plain()
-            configuration.image = UIImage(systemName: section.symbol)
+            configuration.image = safeSystemImage(section.symbol)
             configuration.imagePlacement = .top
-            configuration.imagePadding = 5
+            configuration.imagePadding = 6
             configuration.title = section.title
-            configuration.baseForegroundColor = UIColor.white.withAlphaComponent(0.55)
+            configuration.baseForegroundColor = UIColor.white.withAlphaComponent(0.54)
+            configuration.contentInsets = .zero
             configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
                 var outgoing = incoming
                 outgoing.font = .systemFont(ofSize: 11, weight: .medium)
@@ -944,10 +1231,12 @@ final class XMBHomeViewController: BaseViewController {
 
             let button = UIButton(configuration: configuration)
             button.tag = index
-            button.alpha = 0.70
+            button.alpha = 0.64
             button.addTarget(self, action: #selector(sectionTapped(_:)), for: .touchUpInside)
+            button.imageView?.contentMode = .scaleAspectFit
             button.snp.makeConstraints { make in
-                make.width.equalTo(74)
+                make.width.equalTo(86)
+                make.height.equalTo(80)
             }
 
             sectionButtons.append(button)
@@ -957,6 +1246,7 @@ final class XMBHomeViewController: BaseViewController {
 
     @objc private func sectionTapped(_ sender: UIButton) {
         guard sections.indices.contains(sender.tag) else { return }
+        rememberCurrentGameIndex()
         selectedSectionIndex = sender.tag
         updateSelectedSection(animated: true, restoreFocus: false)
     }
@@ -964,7 +1254,7 @@ final class XMBHomeViewController: BaseViewController {
     private func moveSection(by offset: Int) {
         guard !sections.isEmpty else { return }
 
-        rememberCurrentItemIndex()
+        rememberCurrentGameIndex()
 
         let newIndex = min(max(selectedSectionIndex + offset, 0), sections.count - 1)
         guard newIndex != selectedSectionIndex else { return }
@@ -981,54 +1271,89 @@ final class XMBHomeViewController: BaseViewController {
 
         for (index, button) in sectionButtons.enumerated() {
             let selected = index == selectedSectionIndex
-            button.configuration?.baseForegroundColor = selected ? .white : UIColor.white.withAlphaComponent(0.55)
-            button.alpha = selected ? 1.0 : 0.66
-            button.transform = selected ? CGAffineTransform(scaleX: 1.13, y: 1.13) : .identity
+            button.configuration?.baseForegroundColor = selected ? .white : UIColor.white.withAlphaComponent(0.54)
+            button.alpha = selected ? 1.0 : 0.62
+            button.transform = selected ? CGAffineTransform(scaleX: 1.14, y: 1.14) : .identity
+            button.layer.shadowColor = selected ? UIColor.systemCyan.cgColor : UIColor.clear.cgColor
+            button.layer.shadowOpacity = selected ? 0.55 : 0
+            button.layer.shadowRadius = selected ? 12 : 0
         }
 
-        scrollSelectedSectionIntoView()
-
+        scrollSelectedSectionIntoView(animated: animated)
         titleLabel.text = section.title
-        rebuildItems(for: section)
 
-        let showProfile = section.kind == .profile
-        profileContainerView.isHidden = !showProfile
-        gamesContentView.isHidden = showProfile
+        let showGames: Bool
+        let showProfile: Bool
+        let showAction: Bool
 
-        if showProfile {
-            subtitleLabel.text = "Your playtime, avatar, profile and RetroAchievements"
+        switch section.kind {
+        case .console(let gameType):
+            games = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
+                .filter { $0.gameType == gameType }
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+            showGames = true
+            showProfile = false
+            showAction = false
+            subtitleLabel.text = games.isEmpty ? "No games in this system" : "\(games.count) game\(games.count == 1 ? "" : "s")"
+
+        case .profile:
+            games = []
+            showGames = false
+            showProfile = true
+            showAction = false
+            subtitleLabel.text = "Custom XMB profile"
             refreshProfile()
-        } else {
-            switch section.kind {
-            case .recent:
-                subtitleLabel.text = items.isEmpty ? "No recently played games" : "\(items.count) recently played"
-            case .console:
-                subtitleLabel.text = items.isEmpty ? "No games in this system" : "\(items.count) game\(items.count == 1 ? "" : "s")"
-            case .importGames:
-                subtitleLabel.text = "Add games to your library"
-            case .settings:
-                subtitleLabel.text = "Open ManicEMU settings"
-            case .classicHome:
-                subtitleLabel.text = "Open the original ManicEMU interface"
-            case .profile:
-                break
-            }
+
+        case .importGames:
+            games = []
+            showGames = false
+            showProfile = false
+            showAction = true
+            subtitleLabel.text = "Add games to your library"
+            configureActionView(title: "Import games",
+                                subtitle: "Open ManicEMU's import screen",
+                                symbol: "square.and.arrow.down.fill")
+
+        case .settings:
+            games = []
+            showGames = false
+            showProfile = false
+            showAction = true
+            subtitleLabel.text = "Controllers, cores, networking and more"
+            configureActionView(title: "Settings",
+                                subtitle: "Open ManicEMU settings",
+                                symbol: "gearshape.fill")
+
+        case .classicHome:
+            games = []
+            showGames = false
+            showProfile = false
+            showAction = true
+            subtitleLabel.text = "Original ManicEMU interface"
+            configureActionView(title: "Classic ManicEMU",
+                                subtitle: "Open the original frontend",
+                                symbol: "square.grid.2x2.fill")
         }
+
+        gamesContentView.isHidden = !showGames
+        profileContainerView.isHidden = !showProfile
+        actionContainerView.isHidden = !showAction
 
         collectionView.reloadData()
-        positionRail.update(index: items.isEmpty ? nil : 0, count: items.count)
-        updateDetailForCurrentSection()
+        let initialIndex = games.isEmpty ? nil : rememberedIndexForCurrentSection()
+        positionRail.update(index: initialIndex, count: games.count)
 
         let updates = {
             self.titleLabel.alpha = 1
             self.subtitleLabel.alpha = 1
-            self.gamesContentView.alpha = showProfile ? 0 : 1
+            self.gamesContentView.alpha = showGames ? 1 : 0
             self.profileContainerView.alpha = showProfile ? 1 : 0
+            self.actionContainerView.alpha = showAction ? 1 : 0
         }
 
         if animated {
-            titleLabel.alpha = 0.35
-            subtitleLabel.alpha = 0.35
+            titleLabel.alpha = 0.40
+            subtitleLabel.alpha = 0.40
             UIView.animate(withDuration: 0.18, animations: updates)
         } else {
             updates()
@@ -1037,102 +1362,56 @@ final class XMBHomeViewController: BaseViewController {
         if restoreFocus, FocusSystem.shared.hasExternalInput {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if showProfile {
-                    FocusSystem.shared.focus(self.retroButton)
-                } else {
-                    let preferredIndex = self.rememberedIndexForCurrentSection()
-                    self.focusItem(at: preferredIndex)
+                if showGames {
+                    self.focusGame(at: self.rememberedIndexForCurrentSection())
+                } else if showProfile {
+                    FocusSystem.shared.focus(self.avatarButton)
+                } else if showAction {
+                    FocusSystem.shared.focus(self.actionButton)
                 }
             }
         }
     }
 
-    private func rebuildItems(for section: XMBSection) {
-        let results = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
-
-        switch section.kind {
-        case .profile:
-            items = []
-
-        case .recent:
-            items = results
-                .filter { $0.latestPlayDate != nil }
-                .sorted { ($0.latestPlayDate ?? .distantPast) > ($1.latestPlayDate ?? .distantPast) }
-                .map { .game($0) }
-
-        case .console(let gameType):
-            items = results
-                .filter { $0.gameType == gameType }
-                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-                .map { .game($0) }
-
-        case .importGames:
-            items = [
-                .action(title: "Import games",
-                        subtitle: "Open ManicEMU's import screen",
-                        symbol: "square.and.arrow.down.fill",
-                        handler: { [weak self] in
-                            self?.presentManicScreen(BaseNavigationController(rootViewController: ImportViewController()))
-                        })
-            ]
-
-        case .settings:
-            items = [
-                .action(title: "Settings",
-                        subtitle: "Controllers, cores, skins, networking and more",
-                        symbol: "gearshape.fill",
-                        handler: { [weak self] in
-                            self?.presentManicScreen(BaseNavigationController(rootViewController: SettingsViewController()))
-                        })
-            ]
-
-        case .classicHome:
-            items = [
-                .action(title: "Classic ManicEMU",
-                        subtitle: "Open the original ManicEMU home screen",
-                        symbol: "square.grid.2x2.fill",
-                        handler: { [weak self] in
-                            self?.presentManicScreen(HomeViewController())
-                        })
-            ]
-        }
-    }
-
-    private func rememberCurrentItemIndex() {
-        guard sections.indices.contains(selectedSectionIndex),
-              !items.isEmpty else { return }
-
+    private func rememberCurrentGameIndex() {
+        guard sections.indices.contains(selectedSectionIndex), !games.isEmpty else { return }
         let sectionID = sections[selectedSectionIndex].identifier
+
         if let focused = FocusSystem.shared.currentFocusedView,
            let cell = focused as? UICollectionViewCell,
            let indexPath = collectionView.indexPath(for: cell) {
-            rememberedItemIndex[sectionID] = indexPath.item
+            rememberedGameIndex[sectionID] = indexPath.item
         } else if let selected = collectionView.indexPathsForSelectedItems?.first {
-            rememberedItemIndex[sectionID] = selected.item
+            rememberedGameIndex[sectionID] = selected.item
         }
     }
 
     private func rememberedIndexForCurrentSection() -> Int {
-        guard sections.indices.contains(selectedSectionIndex), !items.isEmpty else { return 0 }
-        let remembered = rememberedItemIndex[sections[selectedSectionIndex].identifier] ?? 0
-        return min(max(remembered, 0), items.count - 1)
+        guard sections.indices.contains(selectedSectionIndex), !games.isEmpty else { return 0 }
+        let remembered = rememberedGameIndex[sections[selectedSectionIndex].identifier] ?? 0
+        return min(max(remembered, 0), games.count - 1)
     }
 
     private func preferredXMBFocusView() -> UIView? {
         guard sections.indices.contains(selectedSectionIndex) else { return collectionView }
-        if sections[selectedSectionIndex].kind == .profile {
-            return retroButton
+
+        switch sections[selectedSectionIndex].kind {
+        case .console:
+            return collectionView
+        case .profile:
+            return avatarButton
+        case .importGames, .settings, .classicHome:
+            return actionButton
         }
-        return collectionView
     }
 
-    private func focusItem(at index: Int) {
-        guard !items.isEmpty else {
+    private func focusGame(at index: Int) {
+        guard !games.isEmpty else {
             FocusSystem.shared.updateFocusIfNeeded()
             return
         }
 
-        let clamped = min(max(index, 0), items.count - 1)
+        let clamped = min(max(index, 0), games.count - 1)
         let indexPath = IndexPath(item: clamped, section: 0)
         collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
         collectionView.layoutIfNeeded()
@@ -1144,53 +1423,62 @@ final class XMBHomeViewController: BaseViewController {
         }
     }
 
-    private func scrollSelectedSectionIntoView() {
-        guard sectionButtons.indices.contains(selectedSectionIndex) else { return }
-        sectionScrollView.layoutIfNeeded()
+    private func scrollSelectedSectionIntoView(animated: Bool = true) {
+        guard sectionButtons.indices.contains(selectedSectionIndex), sectionScrollView.bounds.width > 0 else { return }
 
+        sectionScrollView.layoutIfNeeded()
         let button = sectionButtons[selectedSectionIndex]
-        var rect = button.convert(button.bounds, to: sectionScrollView)
-        rect = rect.insetBy(dx: -34, dy: 0)
-        sectionScrollView.scrollRectToVisible(rect, animated: true)
+        let visibleRect = button.convert(button.bounds, to: sectionScrollView)
+        let delta = visibleRect.midX - sectionScrollView.bounds.midX
+        var target = sectionScrollView.contentOffset
+        target.x += delta
+
+        let minX = -sectionScrollView.adjustedContentInset.left
+        let maxX = max(minX,
+                       sectionScrollView.contentSize.width - sectionScrollView.bounds.width + sectionScrollView.adjustedContentInset.right)
+        target.x = min(max(target.x, minX), maxX)
+
+        sectionScrollView.setContentOffset(target, animated: animated)
     }
 
-    private func updateFocusedItem(index: Int) {
-        guard items.indices.contains(index) else { return }
+    private func updateFocusedGame(index: Int) {
+        guard games.indices.contains(index) else { return }
 
         if sections.indices.contains(selectedSectionIndex) {
-            rememberedItemIndex[sections[selectedSectionIndex].identifier] = index
+            rememberedGameIndex[sections[selectedSectionIndex].identifier] = index
         }
 
-        positionRail.update(index: index, count: items.count)
+        positionRail.update(index: index, count: games.count)
+    }
 
-        switch items[index] {
-        case .game(let game):
-            detailView.configure(game: game)
-        case .action(let title, let subtitle, let symbol, _):
-            detailView.configureAction(title: title, subtitle: subtitle, symbol: symbol)
+    private func activateGame(at index: Int) {
+        guard games.indices.contains(index) else { return }
+        games[index].handleTapAction(forceQuick: true)
+    }
+
+    private func configureActionView(title: String, subtitle: String, symbol: String) {
+        actionTitleLabel.text = title
+        actionSubtitleLabel.text = subtitle
+        actionSymbolView.image = safeSystemImage(symbol)
+    }
+
+    private func activateActionSection() {
+        guard sections.indices.contains(selectedSectionIndex) else { return }
+
+        switch sections[selectedSectionIndex].kind {
+        case .importGames:
+            presentManicScreen(BaseNavigationController(rootViewController: ImportViewController()))
+        case .settings:
+            presentManicScreen(BaseNavigationController(rootViewController: SettingsViewController()))
+        case .classicHome:
+            presentManicScreen(HomeViewController())
+        case .profile, .console:
+            break
         }
     }
 
-    private func updateDetailForCurrentSection() {
-        guard !items.isEmpty else {
-            detailView.configureEmpty(title: titleLabel.text ?? "")
-            return
-        }
-
-        let index = rememberedIndexForCurrentSection()
-        updateFocusedItem(index: index)
-    }
-
-    private func activateItem(at index: Int) {
-        guard items.indices.contains(index) else { return }
-
-        switch items[index] {
-        case .game(let game):
-            game.handleTapAction(forceQuick: true)
-
-        case .action(_, _, _, let handler):
-            handler()
-        }
+    @objc private func actionButtonPressed() {
+        activateActionSection()
     }
 
     private func presentManicScreen(_ contentViewController: UIViewController) {
@@ -1200,21 +1488,30 @@ final class XMBHomeViewController: BaseViewController {
     }
 
     private func refreshProfile() {
-        let games = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
-        let totalDuration = games.reduce(0.0) { $0 + $1.totalPlayDuration }
+        let defaults = UserDefaults.standard
+        let displayName = defaults.string(forKey: Self.profileNameDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let status = defaults.string(forKey: Self.profileStatusDefaultsKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        profileNameLabel.text = (displayName?.isEmpty == false) ? displayName : "Player"
+        profileStatusLabel.text = (status?.isEmpty == false) ? status : "Ready to play"
+        loadProfileAvatar()
+
+        let allGames = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
+        let totalDuration = allGames.reduce(0.0) { $0 + $1.totalPlayDuration }
+        let playedGames = allGames.filter { $0.totalPlayDuration > 0 }.count
         let totalText = totalDuration > 0
             ? Date.timeDuration(milliseconds: Int(totalDuration))
             : R.string.localizable.readyGameInfoNeverPlayed()
 
-        let mostPlayed = games
+        let mostPlayed = allGames
             .filter { $0.totalPlayDuration > 0 }
             .max(by: { $0.totalPlayDuration < $1.totalPlayDuration })
 
         if let mostPlayed {
             let mostPlayedTime = Date.timeDuration(milliseconds: Int(mostPlayed.totalPlayDuration))
-            profileStatsLabel.text = "Total playtime: \(totalText)\nMost played: \(mostPlayed.displayName) • \(mostPlayedTime)"
+            profileStatsLabel.text = "Total playtime  \(totalText)\nGames played  \(playedGames) / \(allGames.count)\nMost played  \(mostPlayed.displayName) • \(mostPlayedTime)"
         } else {
-            profileStatsLabel.text = "Total playtime: \(totalText)\nMost played: —"
+            profileStatsLabel.text = "Total playtime  \(totalText)\nGames played  \(playedGames) / \(allGames.count)\nMost played  —"
         }
 
         if let user = AchievementsUser.getUser() {
@@ -1222,6 +1519,106 @@ final class XMBHomeViewController: BaseViewController {
         } else {
             retroStatusLabel.text = "RetroAchievements not connected"
         }
+
+        coverModeControl.selectedSegmentIndex = coverMode.rawValue
+        hintsSwitch.isOn = showControllerHints
+    }
+
+    private func profileAvatarURL() -> URL? {
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let directory = documents.appendingPathComponent("XMBProfile", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("avatar.png")
+    }
+
+    private func loadProfileAvatar() {
+        if let url = profileAvatarURL(),
+           let data = try? Data(contentsOf: url),
+           let image = UIImage(data: data) {
+            avatarButton.setImage(image, for: .normal)
+            avatarButton.imageView?.contentMode = .scaleAspectFill
+        } else {
+            avatarButton.setImage(safeSystemImage("person.crop.circle.fill"), for: .normal)
+            avatarButton.imageView?.contentMode = .scaleAspectFit
+        }
+    }
+
+    @objc private func changeAvatarPressed() {
+        let alert = UIAlertController(title: "Profile avatar", message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "Choose Photo", style: .default) { [weak self] _ in
+            self?.presentAvatarPicker()
+        })
+        alert.addAction(UIAlertAction(title: "Reset Avatar", style: .destructive) { [weak self] _ in
+            guard let self else { return }
+            if let url = self.profileAvatarURL() {
+                try? FileManager.default.removeItem(at: url)
+            }
+            self.loadProfileAvatar()
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = avatarButton
+            popover.sourceRect = avatarButton.bounds
+        }
+        present(alert, animated: true)
+    }
+
+    private func presentAvatarPicker() {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func editProfileName() {
+        let alert = UIAlertController(title: "Display name", message: "This name is only used by the XMB profile.", preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.text = UserDefaults.standard.string(forKey: Self.profileNameDefaultsKey) ?? "Player"
+            textField.placeholder = "Player"
+            textField.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
+            let value = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            UserDefaults.standard.set(value.isEmpty ? "Player" : String(value.prefix(32)), forKey: Self.profileNameDefaultsKey)
+            self?.refreshProfile()
+        })
+        present(alert, animated: true)
+    }
+
+    private func editProfileStatus() {
+        let alert = UIAlertController(title: "Profile status", message: "Add a short line to your XMB profile.", preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.text = UserDefaults.standard.string(forKey: Self.profileStatusDefaultsKey) ?? "Ready to play"
+            textField.placeholder = "Ready to play"
+            textField.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
+            let value = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            UserDefaults.standard.set(value.isEmpty ? "Ready to play" : String(value.prefix(70)), forKey: Self.profileStatusDefaultsKey)
+            self?.refreshProfile()
+        })
+        present(alert, animated: true)
+    }
+
+    @objc private func coverModeChanged(_ sender: UISegmentedControl) {
+        coverMode = XMBCoverMode(rawValue: sender.selectedSegmentIndex) ?? .original
+        collectionView.reloadData()
+    }
+
+    @objc private func hintsChanged(_ sender: UISwitch) {
+        showControllerHints = sender.isOn
+        applyControllerHintVisibility()
+    }
+
+    private func applyControllerHintVisibility() {
+        controlsHintLabel.isHidden = !showControllerHints
+        collectionView.contentInset.bottom = showControllerHints ? 30 : 0
+        profileContainerView.contentInset.bottom = showControllerHints ? 26 : 0
     }
 
     @objc private func openRetroAchievements() {
@@ -1238,17 +1635,29 @@ final class XMBHomeViewController: BaseViewController {
         dateLabel.text = formatter.string(from: Date())
     }
 
+    private func safeSystemImage(_ preferredName: String) -> UIImage? {
+        UIImage(systemName: preferredName)
+            ?? UIImage(systemName: "gamecontroller.fill")
+            ?? UIImage(systemName: "circle.fill")
+    }
+
     private func symbol(for gameType: GameType) -> String {
         let shortName = gameType.localizedShortName.uppercased()
 
-        if ["GB", "GBC", "GBA", "NDS", "3DS", "PSP", "LYNX", "NGP", "WSC"].contains(shortName) {
+        if ["GB", "GBC", "GBA", "NDS", "DS", "3DS", "PSP", "LYNX", "NGP", "WSC", "J2ME", "SYMBIAN"].contains(shortName) {
             return "rectangle.portrait.fill"
         }
-        if ["ARCADE", "2600", "5200", "7800"].contains(shortName) {
-            return "arcade.stick.console.fill"
+        if ["PS1", "DC", "SS", "SATURN", "MCD", "NGC", "WII"].contains(shortName) {
+            return "opticaldisc.fill"
         }
         if ["DOS", "C64", "AMIGA", "FLASH"].contains(shortName) {
             return "desktopcomputer"
+        }
+        if ["ARCADE"].contains(shortName) {
+            return "circle.grid.cross.fill"
+        }
+        if ["2600", "5200", "7800", "NES", "SNES", "N64", "MD", "MS", "SG-1000", "PCE", "JAGUAR", "VB", "PM"].contains(shortName) {
+            return "gamecontroller.fill"
         }
         return "gamecontroller.fill"
     }
@@ -1256,31 +1665,26 @@ final class XMBHomeViewController: BaseViewController {
 
 extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        items.count
+        games.count
     }
 
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: XMBRowCell.reuseIdentifier,
-                                                       for: indexPath) as! XMBRowCell
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: XMBGameRowCell.reuseIdentifier,
+                                                       for: indexPath) as! XMBGameRowCell
 
-        switch items[indexPath.item] {
-        case .game(let game):
-            cell.configure(game: game)
-        case .action(let title, let subtitle, let symbol, _):
-            cell.configureAction(title: title, subtitle: subtitle, symbol: symbol)
-        }
-
+        let game = games[indexPath.item]
+        cell.configure(game: game, coverMode: coverMode)
         cell.isFocusable = true
         cell.enableFocusEffects = false
         cell.onFocusChange = { [weak self, weak cell] focused in
             cell?.setXMBFocused(focused)
             if focused {
-                self?.updateFocusedItem(index: indexPath.item)
+                self?.updateFocusedGame(index: indexPath.item)
             }
         }
         cell.onFocusConfirm = { [weak self] in
-            self?.activateItem(at: indexPath.item)
+            self?.activateGame(at: indexPath.item)
             return true
         }
 
@@ -1288,84 +1692,84 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        updateFocusedItem(index: indexPath.item)
-        activateItem(at: indexPath.item)
+        updateFocusedGame(index: indexPath.item)
+        activateGame(at: indexPath.item)
     }
 
     func collectionView(_ collectionView: UICollectionView,
                         layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
-        CGSize(width: collectionView.bounds.width, height: UIDevice.isPad ? 72 : 64)
+        let rowHeight: CGFloat = coverMode == .square ? 60 : 70
+        return CGSize(width: collectionView.bounds.width, height: rowHeight)
     }
 }
 
-// MARK: - XMB row
+extension XMBHomeViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider,
+              provider.canLoadObject(ofClass: UIImage.self) else { return }
 
-private final class XMBRowCell: UICollectionViewCell {
-    static let reuseIdentifier = "XMBRowCell"
+        provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+            guard let self, let image = object as? UIImage else { return }
+            DispatchQueue.main.async {
+                if let url = self.profileAvatarURL(), let data = image.pngData() {
+                    try? data.write(to: url, options: .atomic)
+                }
+                self.loadProfileAvatar()
+            }
+        }
+    }
+}
+
+// MARK: - XMB game row
+
+private final class XMBGameRowCell: UICollectionViewCell {
+    static let reuseIdentifier = "XMBGameRowCell"
 
     private let highlightView = UIView()
-    private let iconView = UIImageView()
+    private let coverView = UIImageView()
     private let nameLabel = UILabel()
     private let detailLabel = UILabel()
-    private let accessoryView = UIImageView(image: UIImage(systemName: "chevron.right"))
 
     override init(frame: CGRect) {
         super.init(frame: frame)
 
         contentView.clipsToBounds = false
 
-        highlightView.backgroundColor = UIColor.white.withAlphaComponent(0.0)
+        highlightView.backgroundColor = .clear
         highlightView.layer.cornerRadius = 8
 
-        iconView.clipsToBounds = true
-        iconView.layer.cornerRadius = 6
-        iconView.contentMode = .scaleAspectFill
-        iconView.tintColor = UIColor.white.withAlphaComponent(0.90)
+        coverView.clipsToBounds = true
+        coverView.layer.cornerRadius = 5
+        coverView.backgroundColor = UIColor.white.withAlphaComponent(0.04)
 
-        nameLabel.textColor = .white
-        nameLabel.font = .systemFont(ofSize: 17, weight: .medium)
+        nameLabel.textColor = UIColor.white.withAlphaComponent(0.90)
+        nameLabel.font = .systemFont(ofSize: 16, weight: .medium)
         nameLabel.lineBreakMode = .byTruncatingTail
 
-        detailLabel.textColor = UIColor.white.withAlphaComponent(0.55)
-        detailLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        detailLabel.textColor = UIColor.white.withAlphaComponent(0.52)
+        detailLabel.font = .systemFont(ofSize: 10, weight: .regular)
         detailLabel.lineBreakMode = .byTruncatingTail
 
-        accessoryView.tintColor = UIColor.white.withAlphaComponent(0.28)
-        accessoryView.contentMode = .scaleAspectFit
-
         contentView.addSubview(highlightView)
-        contentView.addSubview(iconView)
+        contentView.addSubview(coverView)
         contentView.addSubview(nameLabel)
         contentView.addSubview(detailLabel)
-        contentView.addSubview(accessoryView)
 
         highlightView.snp.makeConstraints { make in
             make.edges.equalToSuperview()
         }
 
-        iconView.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(8)
-            make.top.bottom.equalToSuperview().inset(7)
-            make.width.equalTo(iconView.snp.height)
-        }
-
         nameLabel.snp.makeConstraints { make in
-            make.leading.equalTo(iconView.snp.trailing).offset(13)
-            make.trailing.lessThanOrEqualTo(accessoryView.snp.leading).offset(-12)
-            make.centerY.equalToSuperview().offset(-9)
+            make.leading.equalTo(coverView.snp.trailing).offset(11)
+            make.trailing.equalToSuperview().offset(-8)
+            make.centerY.equalToSuperview().offset(-8)
         }
 
         detailLabel.snp.makeConstraints { make in
-            make.leading.equalTo(nameLabel)
-            make.trailing.lessThanOrEqualTo(accessoryView.snp.leading).offset(-12)
-            make.top.equalTo(nameLabel.snp.bottom).offset(3)
-        }
-
-        accessoryView.snp.makeConstraints { make in
-            make.trailing.equalToSuperview().offset(-12)
-            make.centerY.equalToSuperview()
-            make.width.height.equalTo(12)
+            make.leading.trailing.equalTo(nameLabel)
+            make.top.equalTo(nameLabel.snp.bottom).offset(2)
         }
     }
 
@@ -1378,23 +1782,24 @@ private final class XMBRowCell: UICollectionViewCell {
         onFocusChange = nil
         onFocusConfirm = nil
         setXMBFocused(false)
-        iconView.image = nil
+        coverView.image = nil
     }
 
     func setXMBFocused(_ focused: Bool) {
         UIView.animate(withDuration: 0.12) {
             self.highlightView.backgroundColor = focused
-                ? UIColor.white.withAlphaComponent(0.18)
-                : UIColor.white.withAlphaComponent(0.0)
-            self.nameLabel.textColor = focused ? .white : UIColor.white.withAlphaComponent(0.88)
-            self.accessoryView.alpha = focused ? 1.0 : 0.40
+                ? UIColor.white.withAlphaComponent(0.13)
+                : .clear
+            self.nameLabel.textColor = focused ? .white : UIColor.white.withAlphaComponent(0.90)
+            self.coverView.layer.borderWidth = focused ? 1.5 : 0
+            self.coverView.layer.borderColor = UIColor.white.withAlphaComponent(0.80).cgColor
             self.transform = focused
-                ? CGAffineTransform(scaleX: 1.018, y: 1.018)
+                ? CGAffineTransform(scaleX: 1.035, y: 1.035)
                 : .identity
         }
     }
 
-    func configure(game: Game) {
+    func configure(game: Game, coverMode: XMBCoverMode) {
         nameLabel.text = game.displayName
 
         var detailParts = [game.gameType.localizedShortName]
@@ -1403,19 +1808,32 @@ private final class XMBRowCell: UICollectionViewCell {
         }
         detailLabel.text = detailParts.joined(separator: "  •  ")
 
-        iconView.contentMode = .scaleAspectFill
-        iconView.setGameCover(game: game, size: CGSize(width: 80, height: 80))
-        accessoryView.image = UIImage(systemName: "chevron.right")
-    }
+        switch coverMode {
+        case .original:
+            coverView.snp.remakeConstraints { make in
+                make.leading.equalToSuperview().offset(4)
+                make.centerY.equalToSuperview()
+                make.width.equalTo(50)
+                make.height.equalTo(64)
+            }
+            coverView.layer.cornerRadius = 4
+            coverView.contentMode = .scaleAspectFit
+            coverView.setGameCover(game: game, size: CGSize(width: 100, height: 128)) { [weak coverView] _ in
+                coverView?.contentMode = .scaleAspectFit
+            }
 
-    func configureAction(title: String, subtitle: String, symbol: String) {
-        nameLabel.text = title
-        detailLabel.text = subtitle
-
-        iconView.contentMode = .scaleAspectFit
-        iconView.image = UIImage(systemName: symbol)
-        iconView.tintColor = .white
-        accessoryView.image = UIImage(systemName: "chevron.right")
+        case .square:
+            coverView.snp.remakeConstraints { make in
+                make.leading.equalToSuperview().offset(6)
+                make.centerY.equalToSuperview()
+                make.width.height.equalTo(50)
+            }
+            coverView.layer.cornerRadius = 6
+            coverView.contentMode = .scaleAspectFill
+            coverView.setGameCover(game: game, size: CGSize(width: 100, height: 100)) { [weak coverView] _ in
+                coverView?.contentMode = .scaleAspectFill
+            }
+        }
     }
 }
 
@@ -1434,14 +1852,14 @@ private final class XMBPositionRailView: UIView {
 
         isUserInteractionEnabled = false
 
-        trackView.backgroundColor = UIColor.white.withAlphaComponent(0.14)
+        trackView.backgroundColor = UIColor.white.withAlphaComponent(0.13)
         trackView.layer.cornerRadius = 1
 
-        thumbView.backgroundColor = UIColor.white.withAlphaComponent(0.82)
+        thumbView.backgroundColor = UIColor.white.withAlphaComponent(0.80)
         thumbView.layer.cornerRadius = 2
 
-        countLabel.textColor = UIColor.white.withAlphaComponent(0.52)
-        countLabel.font = .monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        countLabel.textColor = UIColor.white.withAlphaComponent(0.42)
+        countLabel.font = .monospacedDigitSystemFont(ofSize: 8, weight: .medium)
         countLabel.textAlignment = .center
         countLabel.numberOfLines = 2
 
@@ -1451,14 +1869,14 @@ private final class XMBPositionRailView: UIView {
 
         trackView.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.top.equalToSuperview().offset(18)
-            make.bottom.equalTo(countLabel.snp.top).offset(-8)
+            make.top.equalToSuperview().offset(14)
+            make.bottom.equalTo(countLabel.snp.top).offset(-6)
             make.width.equalTo(2)
         }
 
         countLabel.snp.makeConstraints { make in
             make.leading.trailing.bottom.equalToSuperview()
-            make.height.equalTo(28)
+            make.height.equalTo(25)
         }
     }
 
@@ -1478,7 +1896,7 @@ private final class XMBPositionRailView: UIView {
 
         thumbView.isHidden = false
 
-        let thumbHeight = max(18, min(44, trackView.bounds.height / CGFloat(max(itemCount, 1))))
+        let thumbHeight = max(16, min(42, trackView.bounds.height / CGFloat(max(itemCount, 1))))
         let progress = itemCount <= 1 ? 0 : CGFloat(currentIndex) / CGFloat(itemCount - 1)
         let travel = max(0, trackView.bounds.height - thumbHeight)
         let originY = trackView.frame.minY + travel * progress
@@ -1502,135 +1920,7 @@ private final class XMBPositionRailView: UIView {
     }
 }
 
-// MARK: - Selected-game detail
-
-private final class XMBGameDetailView: UIView {
-    private let coverView = UIImageView()
-    private let titleLabel = UILabel()
-    private let platformLabel = UILabel()
-    private let playtimeLabel = UILabel()
-    private let lastPlayedLabel = UILabel()
-    private let actionIconView = UIImageView()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-
-        backgroundColor = UIColor.black.withAlphaComponent(0.10)
-        layer.cornerRadius = 18
-
-        coverView.contentMode = .scaleAspectFill
-        coverView.clipsToBounds = true
-        coverView.layer.cornerRadius = 12
-        coverView.backgroundColor = UIColor.white.withAlphaComponent(0.06)
-
-        titleLabel.textColor = .white
-        titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
-        titleLabel.numberOfLines = 2
-
-        platformLabel.textColor = UIColor.white.withAlphaComponent(0.62)
-        platformLabel.font = .systemFont(ofSize: 13, weight: .medium)
-
-        playtimeLabel.textColor = UIColor.white.withAlphaComponent(0.74)
-        playtimeLabel.font = .systemFont(ofSize: 13, weight: .regular)
-
-        lastPlayedLabel.textColor = UIColor.white.withAlphaComponent(0.52)
-        lastPlayedLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        lastPlayedLabel.numberOfLines = 2
-
-        actionIconView.tintColor = UIColor.white.withAlphaComponent(0.88)
-        actionIconView.contentMode = .scaleAspectFit
-        actionIconView.isHidden = true
-
-        addSubview(coverView)
-        addSubview(actionIconView)
-        addSubview(titleLabel)
-        addSubview(platformLabel)
-        addSubview(playtimeLabel)
-        addSubview(lastPlayedLabel)
-
-        coverView.snp.makeConstraints { make in
-            make.top.leading.trailing.equalToSuperview().inset(18)
-            make.height.equalTo(coverView.snp.width).multipliedBy(0.72)
-        }
-
-        actionIconView.snp.makeConstraints { make in
-            make.center.equalTo(coverView)
-            make.width.height.equalTo(72)
-        }
-
-        titleLabel.snp.makeConstraints { make in
-            make.top.equalTo(coverView.snp.bottom).offset(16)
-            make.leading.trailing.equalToSuperview().inset(18)
-        }
-
-        platformLabel.snp.makeConstraints { make in
-            make.top.equalTo(titleLabel.snp.bottom).offset(7)
-            make.leading.trailing.equalTo(titleLabel)
-        }
-
-        playtimeLabel.snp.makeConstraints { make in
-            make.top.equalTo(platformLabel.snp.bottom).offset(12)
-            make.leading.trailing.equalTo(titleLabel)
-        }
-
-        lastPlayedLabel.snp.makeConstraints { make in
-            make.top.equalTo(playtimeLabel.snp.bottom).offset(5)
-            make.leading.trailing.equalTo(titleLabel)
-            make.bottom.lessThanOrEqualToSuperview().offset(-18)
-        }
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(game: Game) {
-        actionIconView.isHidden = true
-        coverView.image = nil
-        coverView.setGameCover(game: game, size: CGSize(width: 320, height: 230))
-
-        titleLabel.text = game.displayName
-        platformLabel.text = game.gameType.localizedShortName
-
-        if game.totalPlayDuration > 0 {
-            playtimeLabel.text = "Playtime  \(Date.timeDuration(milliseconds: Int(game.totalPlayDuration)))"
-        } else {
-            playtimeLabel.text = "Not played yet"
-        }
-
-        if let latestPlayDate = game.latestPlayDate {
-            lastPlayedLabel.text = "Last played \(latestPlayDate.timeAgo())"
-        } else {
-            lastPlayedLabel.text = nil
-        }
-    }
-
-    func configureAction(title: String, subtitle: String, symbol: String) {
-        coverView.image = nil
-        coverView.backgroundColor = UIColor.white.withAlphaComponent(0.055)
-        actionIconView.image = UIImage(systemName: symbol)
-        actionIconView.isHidden = false
-
-        titleLabel.text = title
-        platformLabel.text = subtitle
-        playtimeLabel.text = "Press Cross to open"
-        lastPlayedLabel.text = nil
-    }
-
-    func configureEmpty(title: String) {
-        coverView.image = nil
-        coverView.backgroundColor = UIColor.white.withAlphaComponent(0.035)
-        actionIconView.image = UIImage(systemName: "gamecontroller")
-        actionIconView.isHidden = false
-
-        titleLabel.text = title
-        platformLabel.text = "Nothing to display"
-        playtimeLabel.text = nil
-        lastPlayedLabel.text = nil
-    }
-}
-
-// MARK: - XMB profile / Manic screen host
+// MARK: - Easier exit from original Manic screens
 
 private final class XMBModalHostViewController: UIViewController {
     private let contentViewController: UIViewController
@@ -1689,9 +1979,6 @@ private final class XMBModalHostViewController: UIViewController {
         super.viewDidAppear(animated)
         ExternalInputDispatch.sink = .focusKit
 
-        // Push after child controllers have appeared so this host is the focus
-        // root. It still sees every focusable control inside the embedded Manic
-        // screen, while Circle always has a reliable way back to the XMB.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.view.window != nil else { return }
             self.pushOverlayFocusContext { [weak self] context in
@@ -1725,16 +2012,16 @@ private final class XMBModalHostViewController: UIViewController {
 private final class XMBWaveBackgroundView: UIView {
     private let gradientLayer = CAGradientLayer()
     private let glowLayer = CAGradientLayer()
-    private let waveLayers: [CAShapeLayer] = (0..<3).map { _ in CAShapeLayer() }
+    private let waveLayers: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
 
         gradientLayer.colors = [
-            UIColor(red: 0.01, green: 0.055, blue: 0.16, alpha: 1).cgColor,
-            UIColor(red: 0.015, green: 0.17, blue: 0.38, alpha: 1).cgColor,
-            UIColor(red: 0.02, green: 0.08, blue: 0.22, alpha: 1).cgColor
+            UIColor(red: 0.005, green: 0.035, blue: 0.12, alpha: 1).cgColor,
+            UIColor(red: 0.008, green: 0.12, blue: 0.31, alpha: 1).cgColor,
+            UIColor(red: 0.005, green: 0.045, blue: 0.16, alpha: 1).cgColor
         ]
         gradientLayer.startPoint = CGPoint(x: 0.05, y: 0)
         gradientLayer.endPoint = CGPoint(x: 0.95, y: 1)
@@ -1742,7 +2029,7 @@ private final class XMBWaveBackgroundView: UIView {
 
         glowLayer.colors = [
             UIColor.systemCyan.withAlphaComponent(0.0).cgColor,
-            UIColor.systemCyan.withAlphaComponent(0.14).cgColor,
+            UIColor.systemCyan.withAlphaComponent(0.18).cgColor,
             UIColor.systemBlue.withAlphaComponent(0.0).cgColor
         ]
         glowLayer.startPoint = CGPoint(x: 0, y: 0.5)
@@ -1750,10 +2037,11 @@ private final class XMBWaveBackgroundView: UIView {
         layer.addSublayer(glowLayer)
 
         for (index, wave) in waveLayers.enumerated() {
-            wave.fillColor = UIColor.clear.cgColor
-            wave.strokeColor = UIColor.white.withAlphaComponent(0.11 - CGFloat(index) * 0.02).cgColor
-            wave.lineWidth = CGFloat(1.2 + Double(index) * 0.7)
-            wave.lineCap = .round
+            let alpha = max(0.035, 0.105 - CGFloat(index) * 0.018)
+            wave.fillColor = UIColor.systemBlue.withAlphaComponent(alpha).cgColor
+            wave.strokeColor = UIColor.white.withAlphaComponent(alpha * 1.35).cgColor
+            wave.lineWidth = CGFloat(0.7 + Double(index) * 0.35)
+            wave.lineJoin = .round
             layer.addSublayer(wave)
         }
     }
@@ -1762,39 +2050,70 @@ private final class XMBWaveBackgroundView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            waveLayers.forEach { $0.removeAllAnimations() }
+        } else {
+            setNeedsLayout()
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = bounds
 
-        glowLayer.frame = CGRect(x: -bounds.width * 0.10,
-                                 y: bounds.height * 0.28,
-                                 width: bounds.width * 1.20,
-                                 height: bounds.height * 0.38)
+        glowLayer.frame = CGRect(x: -bounds.width * 0.15,
+                                 y: bounds.height * 0.24,
+                                 width: bounds.width * 1.30,
+                                 height: bounds.height * 0.52)
 
-        let centerY = bounds.height * 0.48
+        let centerY = bounds.height * 0.50
+        let waveWidth = bounds.width + 260
 
         for (index, wave) in waveLayers.enumerated() {
-            wave.frame = bounds
-            let offset = CGFloat(index) * 16
+            wave.frame = CGRect(x: -130, y: 0, width: waveWidth, height: bounds.height)
+
+            let verticalOffset = CGFloat(index) * 14
+            let amplitude = CGFloat(30 + index * 12)
+            let bandHeight = CGFloat(22 + index * 7)
+
             let path = UIBezierPath()
-            path.move(to: CGPoint(x: -80, y: centerY + 26 - offset))
-            path.addCurve(to: CGPoint(x: bounds.width * 0.55, y: centerY - 16 + offset * 0.25),
-                          controlPoint1: CGPoint(x: bounds.width * 0.14, y: centerY - 45 - offset),
-                          controlPoint2: CGPoint(x: bounds.width * 0.34, y: centerY + 32 + offset))
-            path.addCurve(to: CGPoint(x: bounds.width + 80, y: centerY + 10 - offset * 0.30),
-                          controlPoint1: CGPoint(x: bounds.width * 0.70, y: centerY - 58 + offset),
-                          controlPoint2: CGPoint(x: bounds.width * 0.88, y: centerY + 42 - offset))
+            path.move(to: CGPoint(x: 0, y: centerY + verticalOffset))
+            path.addCurve(to: CGPoint(x: waveWidth * 0.52, y: centerY - amplitude + verticalOffset),
+                          controlPoint1: CGPoint(x: waveWidth * 0.15, y: centerY - amplitude * 1.3 + verticalOffset),
+                          controlPoint2: CGPoint(x: waveWidth * 0.34, y: centerY + amplitude * 0.75 + verticalOffset))
+            path.addCurve(to: CGPoint(x: waveWidth, y: centerY + amplitude * 0.25 + verticalOffset),
+                          controlPoint1: CGPoint(x: waveWidth * 0.70, y: centerY - amplitude * 1.15 + verticalOffset),
+                          controlPoint2: CGPoint(x: waveWidth * 0.88, y: centerY + amplitude * 1.10 + verticalOffset))
+            path.addLine(to: CGPoint(x: waveWidth, y: centerY + amplitude * 0.25 + verticalOffset + bandHeight))
+            path.addCurve(to: CGPoint(x: waveWidth * 0.52, y: centerY - amplitude + verticalOffset + bandHeight),
+                          controlPoint1: CGPoint(x: waveWidth * 0.88, y: centerY + amplitude * 1.10 + verticalOffset + bandHeight),
+                          controlPoint2: CGPoint(x: waveWidth * 0.70, y: centerY - amplitude * 1.15 + verticalOffset + bandHeight))
+            path.addCurve(to: CGPoint(x: 0, y: centerY + verticalOffset + bandHeight),
+                          controlPoint1: CGPoint(x: waveWidth * 0.34, y: centerY + amplitude * 0.75 + verticalOffset + bandHeight),
+                          controlPoint2: CGPoint(x: waveWidth * 0.15, y: centerY - amplitude * 1.3 + verticalOffset + bandHeight))
+            path.close()
             wave.path = path.cgPath
 
             if wave.animation(forKey: "xmbWaveDrift") == nil {
-                let animation = CABasicAnimation(keyPath: "transform.translation.x")
-                animation.fromValue = -16 - index * 8
-                animation.toValue = 16 + index * 8
-                animation.duration = 7.5 + Double(index) * 2.2
-                animation.autoreverses = true
-                animation.repeatCount = .infinity
-                animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                wave.add(animation, forKey: "xmbWaveDrift")
+                let drift = CABasicAnimation(keyPath: "transform.translation.x")
+                drift.fromValue = CGFloat(-55 - index * 12)
+                drift.toValue = CGFloat(55 + index * 15)
+                drift.duration = 6.5 + Double(index) * 1.8
+                drift.autoreverses = true
+                drift.repeatCount = .infinity
+                drift.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                wave.add(drift, forKey: "xmbWaveDrift")
+
+                let pulse = CABasicAnimation(keyPath: "opacity")
+                pulse.fromValue = 0.62
+                pulse.toValue = 1.0
+                pulse.duration = 3.4 + Double(index) * 0.8
+                pulse.autoreverses = true
+                pulse.repeatCount = .infinity
+                pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                wave.add(pulse, forKey: "xmbWavePulse")
             }
         }
     }
