@@ -32,7 +32,7 @@ class ApplicationSceneDelegate: UIResponder, UIWindowSceneDelegate {
                     Database.setup {
                         ThemeManager.shared.setup()
 
-                        let homeController = HomeViewController()
+                        let homeController = XMBHomeViewController()
                         bootController.finish {
                             guard let window = self.window else { return }
 
@@ -289,35 +289,25 @@ extension ApplicationSceneDelegate: UIDropInteractionDelegate {
     }
 }
 
-/// Original console-style startup sequence for the XMB frontend.
-/// It intentionally uses its own abstract mark/animation rather than PlayStation branding or assets.
+/// Minimal original console-style startup sequence for the XMB frontend.
+/// Deliberately avoids PlayStation logos/assets while keeping the quiet, dark startup pacing.
 private final class XMBStartupViewController: UIViewController {
-    private let preparingResources: Bool
-    private let minimumDisplayDuration: TimeInterval = 2.35
+    private let minimumDisplayDuration: TimeInterval = 1.80
     private var appearedAt: CFTimeInterval = CACurrentMediaTime()
     private var didStartEntrance = false
     private var didStartExit = false
 
     private let backgroundGradient = CAGradientLayer()
-    private let radialGlow = CAGradientLayer()
-    private let horizonGlow = CAGradientLayer()
-    private let starLayer = CAReplicatorLayer()
-    private let starDot = CALayer()
-    private let ringLayer = CAShapeLayer()
-    private let secondaryRingLayer = CAShapeLayer()
-    private let sweepLayer = CAShapeLayer()
-
+    private let centerBloom = CAGradientLayer()
     private let emblemView = UIView()
-    private let emblemGlowView = UIView()
     private let barOne = UIView()
     private let barTwo = UIView()
-    private let centerCore = UIView()
-    private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
-    private let prepareLabel = UILabel()
+    private let flashView = UIView()
 
     init(preparingResources: Bool) {
-        self.preparingResources = preparingResources
+        // Keep the argument so the existing startup call does not need special first-launch logic.
+        // The visual intentionally stays text-free even while resources are being prepared.
+        _ = preparingResources
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -330,7 +320,7 @@ private final class XMBStartupViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(red: 0.005, green: 0.012, blue: 0.032, alpha: 1)
+        view.backgroundColor = .black
         setupLayers()
         setupViews()
     }
@@ -339,311 +329,125 @@ private final class XMBStartupViewController: UIViewController {
         super.viewDidAppear(animated)
         appearedAt = CACurrentMediaTime()
         startEntranceIfNeeded()
-
-        if preparingResources {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.1) { [weak self] in
-                guard let self, !self.didStartExit else { return }
-                UIView.animate(withDuration: 0.45) {
-                    self.prepareLabel.alpha = 0.62
-                }
-            }
-        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        let bounds = view.bounds
-        backgroundGradient.frame = bounds
-        radialGlow.frame = bounds
-        horizonGlow.frame = bounds
-        starLayer.frame = bounds
+        backgroundGradient.frame = view.bounds
+        centerBloom.frame = view.bounds
+        flashView.frame = view.bounds
 
-        let center = CGPoint(x: bounds.midX, y: bounds.midY - min(18, bounds.height * 0.025))
-        let emblemSize = min(max(bounds.width * 0.074, 72), 112)
-        emblemView.bounds = CGRect(x: 0, y: 0, width: emblemSize, height: emblemSize)
-        emblemView.center = center
-        emblemGlowView.bounds = emblemView.bounds
-        emblemGlowView.center = center
-        emblemGlowView.layer.cornerRadius = emblemSize / 2
+        let side = min(max(view.bounds.width * 0.065, 62), 94)
+        emblemView.bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        emblemView.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
 
-        let ringRadius = emblemSize * 0.86
-        ringLayer.path = UIBezierPath(
-            ovalIn: CGRect(
-                x: center.x - ringRadius,
-                y: center.y - ringRadius,
-                width: ringRadius * 2,
-                height: ringRadius * 2
-            )
-        ).cgPath
-
-        let secondRadius = ringRadius * 1.46
-        secondaryRingLayer.path = UIBezierPath(
-            ovalIn: CGRect(
-                x: center.x - secondRadius,
-                y: center.y - secondRadius,
-                width: secondRadius * 2,
-                height: secondRadius * 2
-            )
-        ).cgPath
-
-        let sweep = UIBezierPath()
-        let sweepY = center.y + emblemSize * 1.35
-        sweep.move(to: CGPoint(x: bounds.width * 0.12, y: sweepY))
-        sweep.addCurve(
-            to: CGPoint(x: bounds.width * 0.88, y: sweepY),
-            controlPoint1: CGPoint(x: bounds.width * 0.33, y: sweepY - 54),
-            controlPoint2: CGPoint(x: bounds.width * 0.67, y: sweepY + 54)
-        )
-        sweepLayer.path = sweep.cgPath
-
-        let barLength = emblemSize * 0.68
-        let barThickness = max(9, emblemSize * 0.12)
-        [barOne, barTwo].forEach {
-            $0.bounds = CGRect(x: 0, y: 0, width: barLength, height: barThickness)
-            $0.center = CGPoint(x: emblemSize / 2, y: emblemSize / 2)
-            $0.layer.cornerRadius = barThickness / 2
+        let barLength = side * 0.72
+        let barThickness = max(8, side * 0.105)
+        for bar in [barOne, barTwo] {
+            bar.bounds = CGRect(x: 0, y: 0, width: barLength, height: barThickness)
+            bar.center = CGPoint(x: side / 2, y: side / 2)
+            bar.layer.cornerRadius = barThickness / 2
         }
         barOne.transform = CGAffineTransform(rotationAngle: .pi / 4)
         barTwo.transform = CGAffineTransform(rotationAngle: -.pi / 4)
-
-        let coreSize = max(10, emblemSize * 0.13)
-        centerCore.bounds = CGRect(x: 0, y: 0, width: coreSize, height: coreSize)
-        centerCore.center = CGPoint(x: emblemSize / 2, y: emblemSize / 2)
-        centerCore.layer.cornerRadius = coreSize / 2
-
-        titleLabel.sizeToFit()
-        titleLabel.center = CGPoint(x: bounds.midX, y: center.y + emblemSize * 0.91)
-        subtitleLabel.sizeToFit()
-        subtitleLabel.center = CGPoint(x: bounds.midX, y: titleLabel.frame.maxY + 21)
-        prepareLabel.sizeToFit()
-        prepareLabel.center = CGPoint(x: bounds.midX, y: bounds.height - max(45, view.safeAreaInsets.bottom + 24))
     }
 
     private func setupLayers() {
         backgroundGradient.colors = [
-            UIColor(red: 0.002, green: 0.008, blue: 0.025, alpha: 1).cgColor,
-            UIColor(red: 0.008, green: 0.028, blue: 0.075, alpha: 1).cgColor,
-            UIColor(red: 0.002, green: 0.008, blue: 0.025, alpha: 1).cgColor
+            UIColor.black.cgColor,
+            UIColor(red: 0.002, green: 0.013, blue: 0.040, alpha: 1).cgColor,
+            UIColor.black.cgColor
         ]
-        backgroundGradient.locations = [0, 0.53, 1]
+        backgroundGradient.locations = [0, 0.52, 1]
         backgroundGradient.startPoint = CGPoint(x: 0.5, y: 0)
         backgroundGradient.endPoint = CGPoint(x: 0.5, y: 1)
+        backgroundGradient.opacity = 0
         view.layer.addSublayer(backgroundGradient)
 
-        radialGlow.type = .radial
-        radialGlow.colors = [
-            UIColor(red: 0.20, green: 0.58, blue: 1.0, alpha: 0.36).cgColor,
-            UIColor(red: 0.05, green: 0.20, blue: 0.55, alpha: 0.12).cgColor,
+        centerBloom.type = .radial
+        centerBloom.colors = [
+            UIColor(red: 0.28, green: 0.60, blue: 1.0, alpha: 0.16).cgColor,
+            UIColor(red: 0.05, green: 0.16, blue: 0.42, alpha: 0.06).cgColor,
             UIColor.clear.cgColor
         ]
-        radialGlow.locations = [0, 0.28, 1]
-        radialGlow.startPoint = CGPoint(x: 0.5, y: 0.46)
-        radialGlow.endPoint = CGPoint(x: 1.0, y: 0.98)
-        radialGlow.opacity = 0
-        view.layer.addSublayer(radialGlow)
-
-        horizonGlow.colors = [
-            UIColor.clear.cgColor,
-            UIColor(red: 0.10, green: 0.52, blue: 1.0, alpha: 0.08).cgColor,
-            UIColor(red: 0.38, green: 0.78, blue: 1.0, alpha: 0.15).cgColor,
-            UIColor(red: 0.10, green: 0.52, blue: 1.0, alpha: 0.08).cgColor,
-            UIColor.clear.cgColor
-        ]
-        horizonGlow.locations = [0, 0.38, 0.5, 0.62, 1]
-        horizonGlow.startPoint = CGPoint(x: 0, y: 0.5)
-        horizonGlow.endPoint = CGPoint(x: 1, y: 0.5)
-        horizonGlow.opacity = 0
-        view.layer.addSublayer(horizonGlow)
-
-        starDot.backgroundColor = UIColor.white.withAlphaComponent(0.85).cgColor
-        starDot.bounds = CGRect(x: 0, y: 0, width: 1.6, height: 1.6)
-        starDot.cornerRadius = 0.8
-        starDot.position = CGPoint(x: 22, y: 30)
-        starLayer.instanceCount = 34
-        starLayer.instanceTransform = CATransform3DMakeTranslation(47, 23, 0)
-        starLayer.instanceAlphaOffset = -0.018
-        starLayer.opacity = 0
-        starLayer.addSublayer(starDot)
-        view.layer.addSublayer(starLayer)
-
-        [ringLayer, secondaryRingLayer].forEach { ring in
-            ring.fillColor = UIColor.clear.cgColor
-            ring.strokeColor = UIColor(red: 0.44, green: 0.78, blue: 1.0, alpha: 0.75).cgColor
-            ring.lineWidth = 1
-            ring.opacity = 0
-            view.layer.addSublayer(ring)
-        }
-        secondaryRingLayer.strokeColor = UIColor(red: 0.22, green: 0.48, blue: 1.0, alpha: 0.30).cgColor
-
-        sweepLayer.fillColor = UIColor.clear.cgColor
-        sweepLayer.strokeColor = UIColor(red: 0.34, green: 0.72, blue: 1.0, alpha: 0.40).cgColor
-        sweepLayer.lineWidth = 1.2
-        sweepLayer.lineCap = .round
-        sweepLayer.strokeEnd = 0
-        sweepLayer.opacity = 0
-        view.layer.addSublayer(sweepLayer)
+        centerBloom.locations = [0, 0.30, 1]
+        centerBloom.startPoint = CGPoint(x: 0.5, y: 0.5)
+        centerBloom.endPoint = CGPoint(x: 1.0, y: 1.0)
+        centerBloom.opacity = 0
+        view.layer.addSublayer(centerBloom)
     }
 
     private func setupViews() {
-        emblemGlowView.backgroundColor = UIColor(red: 0.20, green: 0.60, blue: 1.0, alpha: 0.12)
-        emblemGlowView.layer.shadowColor = UIColor(red: 0.20, green: 0.65, blue: 1.0, alpha: 1).cgColor
-        emblemGlowView.layer.shadowOpacity = 0.8
-        emblemGlowView.layer.shadowRadius = 30
-        emblemGlowView.alpha = 0
-
         emblemView.backgroundColor = .clear
         emblemView.alpha = 0
-        emblemView.transform = CGAffineTransform(scaleX: 0.48, y: 0.48)
+        emblemView.transform = CGAffineTransform(scaleX: 0.94, y: 0.94)
 
-        let barColor = UIColor(red: 0.78, green: 0.91, blue: 1.0, alpha: 1)
-        [barOne, barTwo].forEach {
-            $0.backgroundColor = barColor
-            $0.layer.shadowColor = UIColor(red: 0.20, green: 0.65, blue: 1.0, alpha: 1).cgColor
-            $0.layer.shadowOpacity = 0.9
-            $0.layer.shadowRadius = 11
-            $0.layer.shadowOffset = .zero
-            emblemView.addSubview($0)
+        let markColor = UIColor(red: 0.86, green: 0.94, blue: 1.0, alpha: 1)
+        for bar in [barOne, barTwo] {
+            bar.backgroundColor = markColor
+            bar.layer.shadowColor = UIColor(red: 0.28, green: 0.62, blue: 1.0, alpha: 1).cgColor
+            bar.layer.shadowOpacity = 0.72
+            bar.layer.shadowRadius = 12
+            bar.layer.shadowOffset = .zero
+            emblemView.addSubview(bar)
         }
 
-        centerCore.backgroundColor = .white
-        centerCore.layer.shadowColor = UIColor.white.cgColor
-        centerCore.layer.shadowOpacity = 1
-        centerCore.layer.shadowRadius = 7
-        centerCore.layer.shadowOffset = .zero
-        emblemView.addSubview(centerCore)
+        flashView.backgroundColor = UIColor(red: 0.68, green: 0.84, blue: 1.0, alpha: 1)
+        flashView.alpha = 0
+        flashView.isUserInteractionEnabled = false
 
-        titleLabel.text = "XMB"
-        titleLabel.font = UIFont.systemFont(ofSize: 24, weight: .light)
-        titleLabel.textColor = UIColor.white.withAlphaComponent(0.96)
-        titleLabel.alpha = 0
-        titleLabel.attributedText = NSAttributedString(
-            string: "XMB",
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 24, weight: .light),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.96),
-                .kern: 8.0
-            ]
-        )
-
-        subtitleLabel.attributedText = NSAttributedString(
-            string: "SYSTEM START",
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 9, weight: .medium),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.44),
-                .kern: 4.2
-            ]
-        )
-        subtitleLabel.alpha = 0
-
-        prepareLabel.attributedText = NSAttributedString(
-            string: "PREPARING SYSTEM",
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 9, weight: .medium),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.68),
-                .kern: 2.6
-            ]
-        )
-        prepareLabel.alpha = 0
-
-        view.addSubview(emblemGlowView)
         view.addSubview(emblemView)
-        view.addSubview(titleLabel)
-        view.addSubview(subtitleLabel)
-        view.addSubview(prepareLabel)
+        view.addSubview(flashView)
     }
 
     private func startEntranceIfNeeded() {
         guard !didStartEntrance else { return }
         didStartEntrance = true
 
-        let glowAnimation = CABasicAnimation(keyPath: "opacity")
-        glowAnimation.fromValue = 0
-        glowAnimation.toValue = 0.95
-        glowAnimation.duration = 1.15
-        glowAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        radialGlow.opacity = 0.95
-        radialGlow.add(glowAnimation, forKey: "bootGlow")
+        let backgroundFade = CABasicAnimation(keyPath: "opacity")
+        backgroundFade.fromValue = 0
+        backgroundFade.toValue = 1
+        backgroundFade.duration = 0.70
+        backgroundFade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        backgroundGradient.opacity = 1
+        backgroundGradient.add(backgroundFade, forKey: "backgroundFade")
 
-        let horizonAnimation = CABasicAnimation(keyPath: "opacity")
-        horizonAnimation.fromValue = 0
-        horizonAnimation.toValue = 1
-        horizonAnimation.duration = 1.35
-        horizonAnimation.beginTime = CACurrentMediaTime() + 0.15
-        horizonAnimation.fillMode = .backwards
-        horizonAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        horizonGlow.opacity = 1
-        horizonGlow.add(horizonAnimation, forKey: "horizonGlow")
-
-        let stars = CABasicAnimation(keyPath: "opacity")
-        stars.fromValue = 0
-        stars.toValue = 0.50
-        stars.duration = 1.4
-        stars.beginTime = CACurrentMediaTime() + 0.35
-        stars.fillMode = .backwards
-        starLayer.opacity = 0.50
-        starLayer.add(stars, forKey: "stars")
+        let bloomFade = CABasicAnimation(keyPath: "opacity")
+        bloomFade.fromValue = 0
+        bloomFade.toValue = 0.72
+        bloomFade.duration = 0.85
+        bloomFade.beginTime = CACurrentMediaTime() + 0.18
+        bloomFade.fillMode = .backwards
+        bloomFade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        centerBloom.opacity = 0.72
+        centerBloom.add(bloomFade, forKey: "bloomFade")
 
         UIView.animate(
-            withDuration: 1.05,
-            delay: 0.28,
-            usingSpringWithDamping: 0.78,
-            initialSpringVelocity: 0.12,
+            withDuration: 0.68,
+            delay: 0.24,
             options: [.curveEaseOut, .allowUserInteraction],
             animations: {
-                self.emblemGlowView.alpha = 1
                 self.emblemView.alpha = 1
                 self.emblemView.transform = .identity
             }
         )
 
-        animateRing(ringLayer, delay: 0.35, scale: 1.18, duration: 1.25)
-        animateRing(secondaryRingLayer, delay: 0.60, scale: 1.12, duration: 1.55)
-
-        let stroke = CABasicAnimation(keyPath: "strokeEnd")
-        stroke.fromValue = 0
-        stroke.toValue = 1
-        stroke.duration = 1.15
-        stroke.beginTime = CACurrentMediaTime() + 0.82
-        stroke.fillMode = .backwards
-        stroke.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        sweepLayer.strokeEnd = 1
-        sweepLayer.opacity = 1
-        sweepLayer.add(stroke, forKey: "sweep")
-
-        UIView.animate(withDuration: 0.72, delay: 1.05, options: [.curveEaseOut]) {
-            self.titleLabel.alpha = 1
-        }
-        UIView.animate(withDuration: 0.65, delay: 1.28, options: [.curveEaseOut]) {
-            self.subtitleLabel.alpha = 1
-        }
-
-        let breathe = CABasicAnimation(keyPath: "transform.scale")
-        breathe.fromValue = 0.985
-        breathe.toValue = 1.025
-        breathe.duration = 1.55
-        breathe.autoreverses = true
-        breathe.repeatCount = .infinity
-        breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        emblemView.layer.add(breathe, forKey: "breathe")
-    }
-
-    private func animateRing(_ layer: CAShapeLayer, delay: TimeInterval, scale: CGFloat, duration: TimeInterval) {
-        let group = CAAnimationGroup()
-        group.beginTime = CACurrentMediaTime() + delay
-        group.duration = duration
-        group.fillMode = .backwards
-
-        let opacity = CAKeyframeAnimation(keyPath: "opacity")
-        opacity.values = [0, 0.72, 0]
-        opacity.keyTimes = [0, 0.28, 1]
-
-        let transform = CABasicAnimation(keyPath: "transform.scale")
-        transform.fromValue = 0.62
-        transform.toValue = scale
-
-        group.animations = [opacity, transform]
-        layer.add(group, forKey: "pulse")
+        // A single restrained luminance pulse keeps the startup from feeling static
+        // without adding rings, text, particles, or other busy animation.
+        UIView.animate(
+            withDuration: 0.16,
+            delay: 0.78,
+            options: [.curveEaseInOut, .allowUserInteraction],
+            animations: {
+                self.flashView.alpha = 0.055
+            },
+            completion: { _ in
+                UIView.animate(withDuration: 0.30) {
+                    self.flashView.alpha = 0
+                }
+            }
+        )
     }
 
     func finish(completion: @escaping () -> Void) {
@@ -654,27 +458,26 @@ private final class XMBStartupViewController: UIViewController {
             guard let self, !self.didStartExit else { return }
             self.didStartExit = true
 
-            self.prepareLabel.layer.removeAllAnimations()
-            UIView.animate(withDuration: 0.20) {
-                self.prepareLabel.alpha = 0
-            }
-
             UIView.animate(
-                withDuration: 0.48,
+                withDuration: 0.34,
                 delay: 0,
-                options: [.curveEaseIn],
+                options: [.curveEaseInOut],
                 animations: {
-                    self.titleLabel.alpha = 0
-                    self.subtitleLabel.alpha = 0
                     self.emblemView.alpha = 0
-                    self.emblemGlowView.alpha = 0
-                    self.view.backgroundColor = UIColor(red: 0.005, green: 0.020, blue: 0.060, alpha: 1)
+                    self.emblemView.transform = CGAffineTransform(scaleX: 1.025, y: 1.025)
+                    self.view.backgroundColor = .black
                 },
                 completion: { _ in
                     completion()
                 }
             )
+
+            let bloomOut = CABasicAnimation(keyPath: "opacity")
+            bloomOut.fromValue = self.centerBloom.presentation()?.opacity ?? self.centerBloom.opacity
+            bloomOut.toValue = 0
+            bloomOut.duration = 0.34
+            self.centerBloom.opacity = 0
+            self.centerBloom.add(bloomOut, forKey: "bloomOut")
         }
     }
 }
-
