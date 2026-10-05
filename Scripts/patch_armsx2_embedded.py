@@ -22,8 +22,9 @@ def main() -> None:
     scene = cpp / "IOS/SceneDelegate.mm"
     bridge = cpp / "ARMSX2Bridge.mm"
     host = cpp / "IOS/HostImpls.mm"
+    metal_device_info = root / "pcsx2/GS/Renderers/Metal/GSMTLDeviceInfo.mm"
 
-    for path in (cmake, scene, bridge, host):
+    for path in (cmake, scene, bridge, host, metal_device_info):
         if not path.exists():
             raise SystemExit(f"missing ARMSX2 source file: {path}")
 
@@ -72,6 +73,21 @@ def main() -> None:
     text = replace_once(text, "    std::optional<std::string> GetBundlePath() { return std::string([[NSBundle mainBundle].bundlePath UTF8String]); }", "    std::optional<std::string> GetBundlePath() {\n        const char* embeddedBundlePath = getenv(\"ARMSX2_EMBEDDED_BUNDLE_PATH\");\n        if (embeddedBundlePath && embeddedBundlePath[0])\n            return std::string(embeddedBundlePath);\n        return std::string([[NSBundle mainBundle].bundlePath UTF8String]);\n    }", "embedded CocoaTools bundle path")
 
     host.write_text(text)
+
+    text = metal_device_info.read_text()
+    text = replace_once(
+        text,
+        '\tNSString* path = [[NSBundle mainBundle] pathForResource:name ofType:@"metallib"];',
+        '\tconst char* embeddedBundlePath = getenv("ARMSX2_EMBEDDED_BUNDLE_PATH");\\n'
+        '\tNSBundle* shaderBundle = (embeddedBundlePath && embeddedBundlePath[0])\\n'
+        '\t\t? [NSBundle bundleWithPath:[NSString stringWithUTF8String:embeddedBundlePath]]\\n'
+        '\t\t: [NSBundle mainBundle];\\n'
+        '\tNSString* path = [shaderBundle pathForResource:name ofType:@"metallib"];\\n'
+        '\tif (embeddedBundlePath && embeddedBundlePath[0])\\n'
+        '\t\tConsole.WriteLn("[Embedded] Metal library %@ path=%@", name, path ?: @"<missing>");',
+        "load Metal shaders from embedded framework bundle",
+    )
+    metal_device_info.write_text(text)
 
     print("Patched ARMSX2 for embedded ARMSX2Core.framework")
 
