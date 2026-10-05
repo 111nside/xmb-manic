@@ -16,6 +16,7 @@ import BlurUIKit
 import RealmSwift
 import PhotosUI
 import SnapKit
+import SceneKit
 
 class HomeViewController: BaseViewController {
     
@@ -450,6 +451,92 @@ extension HomeViewController: PageContentViewDelegate {
 // MARK: - XMB-inspired home (Manic XMB fork)
 // Original HomeViewController is intentionally retained above as a fallback.
 
+private enum XMBBackgroundTheme: Int, CaseIterable {
+    case blue = 0
+    case purple
+    case green
+    case red
+    case silver
+    case black
+
+    static let defaultsKey = "ManicXMB.backgroundTheme"
+
+    static var current: XMBBackgroundTheme {
+        get { XMBBackgroundTheme(rawValue: UserDefaults.standard.integer(forKey: defaultsKey)) ?? .blue }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey)
+            NotificationCenter.default.post(name: .xmbBackgroundThemeDidChange, object: newValue)
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .blue: return "Classic Blue"
+        case .purple: return "Purple"
+        case .green: return "Green"
+        case .red: return "Red"
+        case .silver: return "Silver"
+        case .black: return "Black"
+        }
+    }
+
+    var gradientColors: [UIColor] {
+        switch self {
+        case .blue:
+            return [
+                UIColor(red: 0.005, green: 0.035, blue: 0.12, alpha: 1),
+                UIColor(red: 0.008, green: 0.12, blue: 0.31, alpha: 1),
+                UIColor(red: 0.005, green: 0.045, blue: 0.16, alpha: 1)
+            ]
+        case .purple:
+            return [
+                UIColor(red: 0.06, green: 0.015, blue: 0.12, alpha: 1),
+                UIColor(red: 0.22, green: 0.035, blue: 0.34, alpha: 1),
+                UIColor(red: 0.08, green: 0.018, blue: 0.15, alpha: 1)
+            ]
+        case .green:
+            return [
+                UIColor(red: 0.01, green: 0.08, blue: 0.055, alpha: 1),
+                UIColor(red: 0.03, green: 0.24, blue: 0.14, alpha: 1),
+                UIColor(red: 0.01, green: 0.10, blue: 0.07, alpha: 1)
+            ]
+        case .red:
+            return [
+                UIColor(red: 0.11, green: 0.015, blue: 0.02, alpha: 1),
+                UIColor(red: 0.31, green: 0.035, blue: 0.045, alpha: 1),
+                UIColor(red: 0.13, green: 0.018, blue: 0.025, alpha: 1)
+            ]
+        case .silver:
+            return [
+                UIColor(red: 0.10, green: 0.11, blue: 0.13, alpha: 1),
+                UIColor(red: 0.28, green: 0.30, blue: 0.34, alpha: 1),
+                UIColor(red: 0.12, green: 0.13, blue: 0.15, alpha: 1)
+            ]
+        case .black:
+            return [
+                UIColor(red: 0.008, green: 0.008, blue: 0.012, alpha: 1),
+                UIColor(red: 0.035, green: 0.035, blue: 0.05, alpha: 1),
+                UIColor(red: 0.012, green: 0.012, blue: 0.018, alpha: 1)
+            ]
+        }
+    }
+
+    var waveColor: UIColor {
+        switch self {
+        case .blue: return .systemBlue
+        case .purple: return .systemPurple
+        case .green: return .systemGreen
+        case .red: return .systemRed
+        case .silver: return .white
+        case .black: return UIColor(white: 0.72, alpha: 1)
+        }
+    }
+}
+
+private extension Notification.Name {
+    static let xmbBackgroundThemeDidChange = Notification.Name("ManicXMB.BackgroundThemeDidChange")
+}
+
 private enum XMBCoverMode: Int {
     case original = 0
     case square = 1
@@ -578,6 +665,8 @@ final class XMBHomeViewController: BaseViewController {
     private var pendingLibraryRefresh = false
     private var isRefreshingLibrary = false
     private var libraryRefreshWorkItem: DispatchWorkItem?
+    private var touchSelectedGameID: String?
+    private var pendingSectionTransitionDirection: CGFloat = 0
 
     private var coverMode: XMBCoverMode {
         get {
@@ -612,7 +701,8 @@ final class XMBHomeViewController: BaseViewController {
     private let sectionScrollView: UIScrollView = {
         let scrollView = UIScrollView()
         scrollView.showsHorizontalScrollIndicator = false
-        scrollView.alwaysBounceHorizontal = true
+        scrollView.alwaysBounceHorizontal = false
+        scrollView.isScrollEnabled = false
         scrollView.clipsToBounds = false
         scrollView.decelerationRate = .fast
         return scrollView
@@ -679,7 +769,8 @@ final class XMBHomeViewController: BaseViewController {
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.showsVerticalScrollIndicator = false
-        collectionView.alwaysBounceVertical = true
+        collectionView.alwaysBounceVertical = false
+        collectionView.isScrollEnabled = false
         collectionView.clipsToBounds = true
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.register(XMBGameRowCell.self, forCellWithReuseIdentifier: XMBGameRowCell.reuseIdentifier)
@@ -696,6 +787,16 @@ final class XMBHomeViewController: BaseViewController {
     }()
 
     private let profileContentView = UIView()
+
+    private let profileMenuContainerView = UIView()
+
+    private lazy var profileDetailsButton = makeProfileButton(title: "Profile Details", symbol: "person.crop.circle.fill") { [weak self] in
+        self?.openProfileDetails()
+    }
+
+    private lazy var ps2MemoryCardsButton = makeProfileButton(title: "PS2 Memory Card Data", symbol: "memorychip.fill") { [weak self] in
+        self?.openPS2MemoryCards()
+    }
 
     private lazy var avatarButton: UIButton = {
         let button = UIButton(type: .custom)
@@ -1003,6 +1104,27 @@ final class XMBHomeViewController: BaseViewController {
         }
 
         setupProfileManager()
+
+        view.addSubview(profileMenuContainerView)
+        profileMenuContainerView.isHidden = true
+        profileMenuContainerView.snp.makeConstraints { make in
+            make.top.equalTo(sectionScrollView.snp.bottom).offset(16)
+            make.centerX.equalToSuperview()
+            make.width.equalTo(420).priority(.high)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(24)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
+        }
+
+        let profileMenuStack = UIStackView(arrangedSubviews: [profileDetailsButton, ps2MemoryCardsButton])
+        profileMenuStack.axis = .vertical
+        profileMenuStack.alignment = .fill
+        profileMenuStack.distribution = .fillEqually
+        profileMenuStack.spacing = 10
+        profileMenuContainerView.addSubview(profileMenuStack)
+        profileMenuStack.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
+            make.height.equalTo(96)
+        }
 
         view.addSubview(actionContainerView)
         actionContainerView.isHidden = true
@@ -1402,6 +1524,7 @@ final class XMBHomeViewController: BaseViewController {
     @objc private func sectionTapped(_ sender: UIButton) {
         guard sections.indices.contains(sender.tag) else { return }
         rememberCurrentGameIndex()
+        pendingSectionTransitionDirection = sender.tag == selectedSectionIndex ? 0 : (sender.tag > selectedSectionIndex ? 1 : -1)
         selectedSectionIndex = sender.tag
         updateSelectedSection(animated: true, restoreFocus: false)
     }
@@ -1414,6 +1537,7 @@ final class XMBHomeViewController: BaseViewController {
         let newIndex = min(max(selectedSectionIndex + offset, 0), sections.count - 1)
         guard newIndex != selectedSectionIndex else { return }
 
+        pendingSectionTransitionDirection = newIndex > selectedSectionIndex ? 1 : -1
         selectedSectionIndex = newIndex
         updateSelectedSection(animated: true, restoreFocus: true)
     }
@@ -1436,18 +1560,30 @@ final class XMBHomeViewController: BaseViewController {
                 }
                 button.configuration = configuration
             }
-            button.alpha = selected ? 1.0 : 0.60
-            button.transform = selected ? CGAffineTransform(scaleX: 1.14, y: 1.14) : .identity
-            button.layer.shadowColor = selected ? UIColor.systemCyan.cgColor : UIColor.clear.cgColor
-            button.layer.shadowOpacity = selected ? 0.55 : 0
-            button.layer.shadowRadius = selected ? 12 : 0
+            let visualChanges = {
+                button.alpha = selected ? 1.0 : 0.60
+                button.transform = selected ? CGAffineTransform(scaleX: 1.14, y: 1.14) : .identity
+                button.layer.shadowColor = selected ? UIColor.systemCyan.cgColor : UIColor.clear.cgColor
+                button.layer.shadowOpacity = selected ? 0.55 : 0
+                button.layer.shadowRadius = selected ? 12 : 0
+            }
+            if animated {
+                UIView.animate(withDuration: 0.24,
+                               delay: 0,
+                               usingSpringWithDamping: 0.82,
+                               initialSpringVelocity: 0.2,
+                               options: [.beginFromCurrentState, .allowUserInteraction],
+                               animations: visualChanges)
+            } else {
+                visualChanges()
+            }
         }
 
         scrollSelectedSectionIntoView(animated: animated)
         titleLabel.text = section.title
 
         let showGames: Bool
-        let showProfile: Bool
+        let showProfileMenu: Bool
         let showAction: Bool
 
         switch section.kind {
@@ -1456,14 +1592,14 @@ final class XMBHomeViewController: BaseViewController {
                 .filter { $0.gameType == gameType }
                 .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             showGames = true
-            showProfile = false
+            showProfileMenu = false
             showAction = false
             subtitleLabel.text = games.isEmpty ? "No games in this system" : "\(games.count) game\(games.count == 1 ? "" : "s")"
 
         case .profile:
             games = []
             showGames = false
-            showProfile = true
+            showProfileMenu = true
             showAction = false
             subtitleLabel.text = "Custom XMB profile"
             refreshProfile()
@@ -1471,7 +1607,7 @@ final class XMBHomeViewController: BaseViewController {
         case .importGames:
             games = []
             showGames = false
-            showProfile = false
+            showProfileMenu = false
             showAction = true
             subtitleLabel.text = "Add games to your library"
             configureActionView(title: "Import Games",
@@ -1481,7 +1617,7 @@ final class XMBHomeViewController: BaseViewController {
         case .settings:
             games = []
             showGames = false
-            showProfile = false
+            showProfileMenu = false
             showAction = true
             subtitleLabel.text = "Controllers, cores, networking and more"
             configureActionView(title: "Settings",
@@ -1491,7 +1627,7 @@ final class XMBHomeViewController: BaseViewController {
         case .classicHome:
             games = []
             showGames = false
-            showProfile = false
+            showProfileMenu = false
             showAction = true
             subtitleLabel.text = "Original ManicEMU interface"
             configureActionView(title: "ManicEMU",
@@ -1500,13 +1636,15 @@ final class XMBHomeViewController: BaseViewController {
         }
 
         gamesContentView.isHidden = !showGames
-        profileContainerView.isHidden = !showProfile
+        // Account details now live on their own XMB-styled screen.
+        profileContainerView.isHidden = true
+        profileMenuContainerView.isHidden = !showProfileMenu
         actionContainerView.isHidden = !showAction
 
         if showAction {
             view.bringSubviewToFront(actionContainerView)
-        } else if showProfile {
-            view.bringSubviewToFront(profileContainerView)
+        } else if showProfileMenu {
+            view.bringSubviewToFront(profileMenuContainerView)
         }
         view.bringSubviewToFront(selectedSectionGlow)
         view.bringSubviewToFront(sectionScrollView)
@@ -1514,17 +1652,30 @@ final class XMBHomeViewController: BaseViewController {
 
         let initialIndex = games.isEmpty ? 0 : rememberedIndexForCurrentSection()
         gameColumnLayout.focusedItemIndex = initialIndex
+        touchSelectedGameID = games.indices.contains(initialIndex) ? games[initialIndex].id : nil
         collectionView.reloadData()
         updateGameColumnInsets()
 
+        let shownView: UIView? = showGames ? gamesContentView : (showProfileMenu ? profileMenuContainerView : (showAction ? actionContainerView : nil))
+        let direction = pendingSectionTransitionDirection
+        pendingSectionTransitionDirection = 0
+
         let updates = {
             self.gamesContentView.alpha = showGames ? 1 : 0
-            self.profileContainerView.alpha = showProfile ? 1 : 0
+            self.profileMenuContainerView.alpha = showProfileMenu ? 1 : 0
             self.actionContainerView.alpha = showAction ? 1 : 0
+            shownView?.transform = .identity
         }
 
         if animated {
-            UIView.animate(withDuration: 0.18, animations: updates)
+            if direction != 0 {
+                shownView?.alpha = 0.25
+                shownView?.transform = CGAffineTransform(translationX: direction * 24, y: 0)
+            }
+            UIView.animate(withDuration: 0.24,
+                           delay: 0,
+                           options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
+                           animations: updates)
         } else {
             updates()
         }
@@ -1534,8 +1685,8 @@ final class XMBHomeViewController: BaseViewController {
                 guard let self else { return }
                 if showGames {
                     self.focusGame(at: self.rememberedIndexForCurrentSection())
-                } else if showProfile {
-                    FocusSystem.shared.focus(self.avatarButton)
+                } else if showProfileMenu {
+                    FocusSystem.shared.focus(self.profileDetailsButton)
                 } else if showAction {
                     FocusSystem.shared.focus(self.actionButton)
                 }
@@ -1569,7 +1720,7 @@ final class XMBHomeViewController: BaseViewController {
         case .console:
             return collectionView
         case .profile:
-            return avatarButton
+            return profileDetailsButton
         case .importGames, .settings, .classicHome:
             return actionButton
         }
@@ -1583,16 +1734,17 @@ final class XMBHomeViewController: BaseViewController {
 
         let clamped = min(max(index, 0), games.count - 1)
         let indexPath = IndexPath(item: clamped, section: 0)
-        gameColumnLayout.focusedItemIndex = clamped
-        collectionView.collectionViewLayout.invalidateLayout()
-        collectionView.layoutIfNeeded()
-        scrollGameToAnchor(index: clamped, animated: false)
-        collectionView.layoutIfNeeded()
 
-        if let cell = collectionView.cellForItem(at: indexPath) {
-            FocusSystem.shared.focus(cell)
-        } else {
-            FocusSystem.shared.updateFocusIfNeeded()
+        updateFocusedGame(index: clamped)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { [weak self] in
+            guard let self else { return }
+            self.collectionView.layoutIfNeeded()
+            if let cell = self.collectionView.cellForItem(at: indexPath) {
+                FocusSystem.shared.focus(cell)
+            } else {
+                FocusSystem.shared.updateFocusIfNeeded()
+            }
         }
     }
 
@@ -1675,7 +1827,9 @@ final class XMBHomeViewController: BaseViewController {
         }
 
         gameColumnLayout.focusedItemIndex = index
-        UIView.animate(withDuration: 0.16) {
+        UIView.animate(withDuration: 0.22,
+                       delay: 0,
+                       options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
             self.collectionView.collectionViewLayout.invalidateLayout()
             self.collectionView.layoutIfNeeded()
         }
@@ -1912,6 +2066,18 @@ final class XMBHomeViewController: BaseViewController {
         _ = PlayHistoryView.show()
     }
 
+    private func openProfileDetails() {
+        let controller = XMBProfileDetailsViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
+
+    private func openPS2MemoryCards() {
+        let controller = XMBPS2MemoryCardViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
+
     private func updateClock() {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE  MMM d    h:mm a"
@@ -2014,8 +2180,18 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard games.indices.contains(indexPath.item) else { return }
         let gameID = games[indexPath.item].id
+
+        if touchSelectedGameID == gameID {
+            activateGame(gameID: gameID)
+            return
+        }
+
+        touchSelectedGameID = gameID
         updateFocusedGame(gameID: gameID)
-        activateGame(gameID: gameID)
+        collectionView.indexPathsForVisibleItems.forEach { visiblePath in
+            (collectionView.cellForItem(at: visiblePath) as? XMBGameRowCell)?
+                .setXMBFocused(visiblePath.item == indexPath.item)
+        }
     }
 
     func collectionView(_ collectionView: UICollectionView,
@@ -2423,28 +2599,51 @@ private final class XMBModalHostViewController: UIViewController {
 private final class XMBWaveBackgroundView: UIView {
     private let gradientLayer = CAGradientLayer()
     private let waveLayers: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
+    private var themeObserver: NSObjectProtocol?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
 
-        gradientLayer.colors = [
-            UIColor(red: 0.005, green: 0.035, blue: 0.12, alpha: 1).cgColor,
-            UIColor(red: 0.008, green: 0.12, blue: 0.31, alpha: 1).cgColor,
-            UIColor(red: 0.005, green: 0.045, blue: 0.16, alpha: 1).cgColor
-        ]
+        gradientLayer.colors = XMBBackgroundTheme.current.gradientColors.map(\.cgColor)
         gradientLayer.startPoint = CGPoint(x: 0.05, y: 0)
         gradientLayer.endPoint = CGPoint(x: 0.95, y: 1)
         layer.addSublayer(gradientLayer)
 
         for (index, wave) in waveLayers.enumerated() {
             let alpha = max(0.045, 0.125 - CGFloat(index) * 0.020)
-            wave.fillColor = UIColor.systemBlue.withAlphaComponent(alpha).cgColor
+            wave.fillColor = XMBBackgroundTheme.current.waveColor.withAlphaComponent(alpha).cgColor
             wave.strokeColor = UIColor.white.withAlphaComponent(alpha * 1.35).cgColor
             wave.lineWidth = CGFloat(0.7 + Double(index) * 0.35)
             wave.lineJoin = .round
             layer.addSublayer(wave)
         }
+
+        themeObserver = NotificationCenter.default.addObserver(forName: .xmbBackgroundThemeDidChange,
+                                                               object: nil,
+                                                               queue: .main) { [weak self] note in
+            let theme = (note.object as? XMBBackgroundTheme) ?? .current
+            self?.applyTheme(theme)
+        }
+        applyTheme(.current)
+    }
+
+    deinit {
+        if let themeObserver {
+            NotificationCenter.default.removeObserver(themeObserver)
+        }
+    }
+
+    func applyTheme(_ theme: XMBBackgroundTheme) {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.28)
+        gradientLayer.colors = theme.gradientColors.map(\.cgColor)
+        for (index, wave) in waveLayers.enumerated() {
+            let alpha = max(0.045, 0.125 - CGFloat(index) * 0.020)
+            wave.fillColor = theme.waveColor.withAlphaComponent(alpha).cgColor
+            wave.strokeColor = UIColor.white.withAlphaComponent(alpha * 1.35).cgColor
+        }
+        CATransaction.commit()
     }
 
     required init?(coder: NSCoder) {
