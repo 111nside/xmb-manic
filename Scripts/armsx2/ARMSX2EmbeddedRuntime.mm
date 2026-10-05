@@ -12,9 +12,6 @@
 #include <cstdlib>
 #include <string>
 
-@interface PCSX2SceneDelegate (ARMSX2EmbeddedPrivate)
-- (void)checkJITAndStartVM;
-@end
 
 namespace {
 
@@ -158,31 +155,33 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
         return NO;
     }
 
-    void (^prepareAndStart)(void) = ^{
-        // Mirror ARMSX2's normal iOS lifecycle before a game boot. In particular,
-        // sceneDidBecomeActive prewarms the persistent CPU worker while the JIT
-        // grant is fresh, instead of doing all executable-memory setup during
-        // the first black frame of gameplay.
-        UIWindowScene *windowScene = ARMSX2EmbeddedForegroundWindowScene();
-        if (windowScene)
-            [g_embeddedSceneDelegate sceneDidBecomeActive:windowScene];
-
+    void (^prepareAndRequestBoot)(void) = ^{
+        // Use ARMSX2's normal iOS boot-request path instead of calling the
+        // SceneDelegate's private VM starter directly. The embedded SceneDelegate
+        // installs the same boot observer as the standalone app.
         [ARMSX2Bridge bootISO:path];
         [ARMSX2Bridge prepareGameRenderViewForCurrentRenderer];
 
-        // Give the embedded CAMetalLayer one main-runloop turn to settle on its
-        // final bounds/window before entering ARMSX2's JIT gate.
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+        UIView *renderView = [ARMSX2Bridge gameRenderView];
+        Console.WriteLn("[Embedded] PS2 boot request render=%p window=%p size=%.0fx%.0f",
+                        renderView,
+                        renderView.window,
+                        renderView.bounds.size.width,
+                        renderView.bounds.size.height);
+
+        // Let Auto Layout/CAMetalLayer commit the visible game surface before
+        // the VM asks Metal for its render window.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
-            Console.WriteLn("[Embedded] Starting PS2 VM after render/JIT prewarm");
-            [g_embeddedSceneDelegate checkJITAndStartVM];
+            Console.WriteLn("[Embedded] Posting normal ARMSX2 VM boot request");
+            [ARMSX2Bridge requestVMBootLoadingLastSaveState:NO];
         });
     };
 
     if ([NSThread isMainThread])
-        prepareAndStart();
+        prepareAndRequestBoot();
     else
-        dispatch_async(dispatch_get_main_queue(), prepareAndStart);
+        dispatch_async(dispatch_get_main_queue(), prepareAndRequestBoot);
 
     return YES;
 }

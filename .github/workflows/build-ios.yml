@@ -698,12 +698,28 @@ jobs:
             echo 'Only System.core LFS pointers remain; the final app resource will be restored from the official IPA.'
           fi
 
+      - name: Restore incremental ARMSX2 build cache
+        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/armsx2-core-build
+          key: armsx2-build-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+          restore-keys: |
+            armsx2-build-ios-xcode26.6-67be95a2-
+
       - name: Build embedded ARMSX2 PS2 core
         if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
         run: |
           set -euo pipefail
           chmod +x Scripts/build_armsx2_core.sh
           Scripts/build_armsx2_core.sh ThirdParty/ARMSX2
+
+      - name: Save incremental ARMSX2 build cache
+        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/armsx2-core-build
+          key: armsx2-build-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
 
       - name: Validate embedded ARMSX2 PS2 core
         run: |
