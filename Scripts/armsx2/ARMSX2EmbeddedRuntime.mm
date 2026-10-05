@@ -158,16 +158,31 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
         return NO;
     }
 
-    [ARMSX2Bridge bootISO:path];
-    [ARMSX2Bridge prepareGameRenderViewForCurrentRenderer];
+    void (^prepareAndStart)(void) = ^{
+        // Mirror ARMSX2's normal iOS lifecycle before a game boot. In particular,
+        // sceneDidBecomeActive prewarms the persistent CPU worker while the JIT
+        // grant is fresh, instead of doing all executable-memory setup during
+        // the first black frame of gameplay.
+        UIWindowScene *windowScene = ARMSX2EmbeddedForegroundWindowScene();
+        if (windowScene)
+            [g_embeddedSceneDelegate sceneDidBecomeActive:windowScene];
 
-    void (^startVM)(void) = ^{
-        [g_embeddedSceneDelegate checkJITAndStartVM];
+        [ARMSX2Bridge bootISO:path];
+        [ARMSX2Bridge prepareGameRenderViewForCurrentRenderer];
+
+        // Give the embedded CAMetalLayer one main-runloop turn to settle on its
+        // final bounds/window before entering ARMSX2's JIT gate.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            Console.WriteLn("[Embedded] Starting PS2 VM after render/JIT prewarm");
+            [g_embeddedSceneDelegate checkJITAndStartVM];
+        });
     };
+
     if ([NSThread isMainThread])
-        startVM();
+        prepareAndStart();
     else
-        dispatch_async(dispatch_get_main_queue(), startVM);
+        dispatch_async(dispatch_get_main_queue(), prepareAndStart);
 
     return YES;
 }
