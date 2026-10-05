@@ -17,6 +17,9 @@ import RealmSwift
 import PhotosUI
 import SnapKit
 import SceneKit
+#if canImport(ARMSX2Core)
+import ARMSX2Core
+#endif
 
 class HomeViewController: BaseViewController {
     
@@ -3035,6 +3038,860 @@ extension XMBProfileDetailsViewController: PHPickerViewControllerDelegate {
             }
         }
     }
+}
+
+// MARK: - PS2 memory card browser
+
+private struct XMBPS2SaveItem {
+    let cardName: String
+    let folderName: String
+    let title: String
+    let serial: String?
+    let modified: Date?
+    let icon: XMBPS2IconModel?
+}
+
+private struct XMBPS2CardSection {
+    let name: String
+    let saves: [XMBPS2SaveItem]
+}
+
+private final class XMBPS2MemoryCardViewController: UIViewController {
+    private let backgroundView = XMBWaveBackgroundView()
+    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let emptyLabel: UILabel = {
+        let label = UILabel()
+        label.text = "No PS2 save data found."
+        label.textColor = UIColor.white.withAlphaComponent(0.68)
+        label.font = .systemFont(ofSize: 15, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.isHidden = true
+        return label
+    }()
+
+    private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+    private var sections: [XMBPS2CardSection] = []
+
+    private lazy var closeButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.left")
+        configuration.title = "Back"
+        configuration.imagePadding = 6
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        return button
+    }()
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.text = "PS2 Memory Card Data"
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 25, weight: .semibold)
+        return label
+    }()
+
+    private let subtitleLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Save folders and their original PlayStation 2 browser icons"
+        label.textColor = UIColor.white.withAlphaComponent(0.58)
+        label.font = .systemFont(ofSize: 12, weight: .regular)
+        label.textAlignment = .center
+        return label
+    }()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        view.addSubview(backgroundView)
+        backgroundView.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        view.addSubview(closeButton)
+        closeButton.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
+        }
+
+        view.addSubview(titleLabel)
+        titleLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
+        }
+
+        view.addSubview(subtitleLabel)
+        subtitleLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.top.equalTo(titleLabel.snp.bottom).offset(2)
+        }
+
+        tableView.backgroundColor = .clear
+        tableView.separatorColor = UIColor.white.withAlphaComponent(0.08)
+        tableView.showsVerticalScrollIndicator = false
+        tableView.rowHeight = 108
+        tableView.estimatedRowHeight = 108
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(XMBPS2SaveCell.self, forCellReuseIdentifier: XMBPS2SaveCell.reuseIdentifier)
+        view.addSubview(tableView)
+        tableView.snp.makeConstraints { make in
+            make.top.equalTo(subtitleLabel.snp.bottom).offset(12)
+            make.leading.trailing.bottom.equalTo(view.safeAreaLayoutGuide)
+        }
+
+        view.addSubview(emptyLabel)
+        emptyLabel.snp.makeConstraints { make in
+            make.center.equalToSuperview()
+            make.leading.trailing.equalTo(view.safeAreaLayoutGuide).inset(30)
+        }
+
+        view.addSubview(loadingIndicator)
+        loadingIndicator.color = .white
+        loadingIndicator.snp.makeConstraints { $0.center.equalToSuperview() }
+
+        backgroundView.applyTheme(.current)
+        loadMemoryCards()
+    }
+
+    @objc private func closePressed() {
+        dismiss(animated: true)
+    }
+
+    private func memoryCardDirectoryURL() -> URL? {
+#if canImport(ARMSX2Core)
+        guard ARMSX2EmbeddedRuntime.prepare() else { return nil }
+        return URL(fileURLWithPath: ARMSX2Bridge.memoryCardDirectory(), isDirectory: true)
+#else
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        return documents.appendingPathComponent("ARMSX2/memcards", isDirectory: true)
+#endif
+    }
+
+    private func loadMemoryCards() {
+        guard let directory = memoryCardDirectoryURL() else {
+            emptyLabel.text = "ARMSX2 could not initialize its memory-card directory."
+            emptyLabel.isHidden = false
+            return
+        }
+
+        loadingIndicator.startAnimating()
+        emptyLabel.isHidden = true
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let loaded = XMBPS2MemoryCardReader.readSections(in: directory)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.loadingIndicator.stopAnimating()
+                self.sections = loaded
+                self.tableView.reloadData()
+                let count = loaded.reduce(0) { $0 + $1.saves.count }
+                self.emptyLabel.text = loaded.isEmpty
+                    ? "No PS2 memory cards were found."
+                    : (count == 0 ? "The PS2 memory cards are present, but they do not contain readable save folders yet." : "")
+                self.emptyLabel.isHidden = !loaded.isEmpty && count > 0
+            }
+        }
+    }
+}
+
+extension XMBPS2MemoryCardViewController: UITableViewDataSource, UITableViewDelegate {
+    func numberOfSections(in tableView: UITableView) -> Int {
+        sections.count
+    }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        sections[section].saves.count
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        sections[section].name
+    }
+
+    func tableView(_ tableView: UITableView, willDisplayHeaderView view: UIView, forSection section: Int) {
+        guard let header = view as? UITableViewHeaderFooterView else { return }
+        header.textLabel?.textColor = UIColor.white.withAlphaComponent(0.72)
+        header.textLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
+        header.contentView.backgroundColor = UIColor.black.withAlphaComponent(0.10)
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: XMBPS2SaveCell.reuseIdentifier,
+                                                 for: indexPath) as! XMBPS2SaveCell
+        cell.configure(with: sections[indexPath.section].saves[indexPath.row])
+        return cell
+    }
+}
+
+private final class XMBPS2SaveCell: UITableViewCell {
+    static let reuseIdentifier = "XMBPS2SaveCell"
+
+    private let iconView = XMBPS2IconSceneView()
+    private let fallbackIconView: UIImageView = {
+        let view = UIImageView(image: UIImage(systemName: "memorychip.fill"))
+        view.tintColor = UIColor.white.withAlphaComponent(0.70)
+        view.contentMode = .scaleAspectFit
+        return view
+    }()
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 16, weight: .semibold)
+        label.numberOfLines = 2
+        return label
+    }()
+
+    private let detailLabel: UILabel = {
+        let label = UILabel()
+        label.textColor = UIColor.white.withAlphaComponent(0.55)
+        label.font = .systemFont(ofSize: 11.5, weight: .regular)
+        label.numberOfLines = 2
+        return label
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        contentView.backgroundColor = UIColor.black.withAlphaComponent(0.08)
+        selectionStyle = .none
+
+        contentView.addSubview(iconView)
+        contentView.addSubview(fallbackIconView)
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(detailLabel)
+
+        iconView.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(18)
+            make.centerY.equalToSuperview()
+            make.width.height.equalTo(86)
+        }
+        fallbackIconView.snp.makeConstraints { make in
+            make.center.equalTo(iconView)
+            make.width.height.equalTo(42)
+        }
+        titleLabel.snp.makeConstraints { make in
+            make.leading.equalTo(iconView.snp.trailing).offset(14)
+            make.trailing.equalToSuperview().offset(-18)
+            make.centerY.equalToSuperview().offset(-13)
+        }
+        detailLabel.snp.makeConstraints { make in
+            make.leading.trailing.equalTo(titleLabel)
+            make.top.equalTo(titleLabel.snp.bottom).offset(5)
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        iconView.setModel(nil)
+        fallbackIconView.isHidden = false
+        titleLabel.text = nil
+        detailLabel.text = nil
+    }
+
+    func configure(with item: XMBPS2SaveItem) {
+        titleLabel.text = item.title.isEmpty ? (item.serial ?? item.folderName) : item.title
+        var detail = [item.serial ?? item.folderName, item.cardName]
+        if let modified = item.modified {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            detail.append(formatter.string(from: modified))
+        }
+        detailLabel.text = detail.joined(separator: "  •  ")
+
+        iconView.setModel(item.icon)
+        fallbackIconView.isHidden = item.icon != nil
+    }
+}
+
+private final class XMBPS2IconSceneView: SCNView {
+    override init(frame: CGRect, options: [String : Any]? = nil) {
+        super.init(frame: frame, options: options)
+        backgroundColor = .clear
+        isOpaque = false
+        antialiasingMode = .multisampling4X
+        allowsCameraControl = false
+        autoenablesDefaultLighting = false
+        isPlaying = true
+        rendersContinuously = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setModel(_ model: XMBPS2IconModel?) {
+        scene = nil
+        guard let model else { return }
+
+        let scene = SCNScene()
+        let root = SCNNode()
+        scene.rootNode.addChildNode(root)
+
+        let geometry = model.makeGeometry()
+        let modelNode = SCNNode(geometry: geometry)
+        root.addChildNode(modelNode)
+
+        if let (minimum, maximum) = modelNode.boundingBox {
+            let center = SCNVector3((minimum.x + maximum.x) * 0.5,
+                                    (minimum.y + maximum.y) * 0.5,
+                                    (minimum.z + maximum.z) * 0.5)
+            modelNode.pivot = SCNMatrix4MakeTranslation(center.x, center.y, center.z)
+            let width = max(0.001, maximum.x - minimum.x)
+            let height = max(0.001, maximum.y - minimum.y)
+            let depth = max(0.001, maximum.z - minimum.z)
+            let scale = 1.65 / max(width, max(height, depth))
+            modelNode.scale = SCNVector3(scale, -scale, scale)
+        }
+
+        modelNode.runAction(.repeatForever(.rotateBy(x: 0, y: CGFloat.pi * 2, z: 0, duration: 6.0)))
+
+        let camera = SCNCamera()
+        camera.fieldOfView = 38
+        let cameraNode = SCNNode()
+        cameraNode.camera = camera
+        cameraNode.position = SCNVector3(0, 0, 4.2)
+        scene.rootNode.addChildNode(cameraNode)
+
+        let ambient = SCNLight()
+        ambient.type = .ambient
+        ambient.intensity = 520
+        ambient.color = UIColor(white: 0.92, alpha: 1)
+        let ambientNode = SCNNode()
+        ambientNode.light = ambient
+        scene.rootNode.addChildNode(ambientNode)
+
+        let key = SCNLight()
+        key.type = .omni
+        key.intensity = 900
+        key.color = UIColor.white
+        let keyNode = SCNNode()
+        keyNode.light = key
+        keyNode.position = SCNVector3(2.4, 2.2, 3.6)
+        scene.rootNode.addChildNode(keyNode)
+
+        self.scene = scene
+    }
+}
+
+private struct XMBPS2IconModel {
+    let positions: [SCNVector3]
+    let normals: [SCNVector3]
+    let textureCoordinates: [CGPoint]
+    let texture: UIImage?
+
+    func makeGeometry() -> SCNGeometry {
+        let vertexSource = SCNGeometrySource(vertices: positions)
+        var sources = [vertexSource]
+
+        if normals.count == positions.count {
+            sources.append(SCNGeometrySource(normals: normals))
+        }
+        if textureCoordinates.count == positions.count {
+            sources.append(SCNGeometrySource(textureCoordinates: textureCoordinates))
+        }
+
+        let indices = (0..<positions.count).map { UInt32($0) }
+        let indexData = indices.withUnsafeBufferPointer { Data(buffer: $0) }
+        let element = SCNGeometryElement(data: indexData,
+                                         primitiveType: .triangles,
+                                         primitiveCount: positions.count / 3,
+                                         bytesPerIndex: MemoryLayout<UInt32>.size)
+
+        let geometry = SCNGeometry(sources: sources, elements: [element])
+        let material = SCNMaterial()
+        material.lightingModel = .phong
+        material.isDoubleSided = true
+        material.diffuse.contents = texture ?? UIColor(white: 0.90, alpha: 1)
+        material.diffuse.wrapS = .repeat
+        material.diffuse.wrapT = .repeat
+        material.specular.contents = UIColor.white.withAlphaComponent(0.18)
+        material.shininess = 0.15
+        geometry.materials = [material]
+        return geometry
+    }
+
+    static func parse(_ data: Data?) -> XMBPS2IconModel? {
+        guard let data, data.count >= 20, ps2U32(data, 0) == 0x00010000 else { return nil }
+        let shapeCount = Int(ps2U32(data, 4))
+        let textureType = Int(ps2U32(data, 8))
+        let vertexCountRaw = Int(ps2U32(data, 16))
+        guard (1...64).contains(shapeCount), (3...60_000).contains(vertexCountRaw) else { return nil }
+
+        let bytesPerVertex = shapeCount * 8 + 16
+        guard 20 + vertexCountRaw * bytesPerVertex <= data.count else { return nil }
+
+        var positions: [SCNVector3] = []
+        var normals: [SCNVector3] = []
+        var texcoords: [CGPoint] = []
+        positions.reserveCapacity(vertexCountRaw)
+        normals.reserveCapacity(vertexCountRaw)
+        texcoords.reserveCapacity(vertexCountRaw)
+
+        var offset = 20
+        for _ in 0..<vertexCountRaw {
+            var firstPosition = SCNVector3Zero
+            for shape in 0..<shapeCount {
+                let x = Float(ps2I16(data, offset)) / 4096.0
+                let y = Float(ps2I16(data, offset + 2)) / 4096.0
+                let z = Float(ps2I16(data, offset + 4)) / 4096.0
+                if shape == 0 {
+                    firstPosition = SCNVector3(x, y, z)
+                }
+                offset += 8
+            }
+            positions.append(firstPosition)
+
+            normals.append(SCNVector3(Float(ps2I16(data, offset)) / 4096.0,
+                                      Float(ps2I16(data, offset + 2)) / 4096.0,
+                                      Float(ps2I16(data, offset + 4)) / 4096.0))
+            offset += 8
+
+            texcoords.append(CGPoint(x: CGFloat(Float(ps2I16(data, offset)) / 4096.0),
+                                     y: CGFloat(Float(ps2I16(data, offset + 2)) / 4096.0)))
+            offset += 4
+
+            // Vertex RGBA, currently left to SceneKit's material/texture.
+            offset += 4
+        }
+
+        // Skip animation records to reach the texture payload.
+        if offset + 20 <= data.count, ps2U32(data, offset) == 1 {
+            let frameCount = min(1024, max(0, Int(ps2U32(data, offset + 16))))
+            offset += 20
+            for _ in 0..<frameCount {
+                guard offset + 8 <= data.count else { break }
+                let keyCount = Int(ps2U32(data, offset + 4))
+                offset += 8
+                guard keyCount >= 0, keyCount <= 4096, offset + keyCount * 8 <= data.count else { break }
+                offset += keyCount * 8
+            }
+        }
+
+        let safeCount = vertexCountRaw - vertexCountRaw % 3
+        guard safeCount >= 3 else { return nil }
+
+        return XMBPS2IconModel(
+            positions: Array(positions.prefix(safeCount)),
+            normals: Array(normals.prefix(safeCount)),
+            textureCoordinates: Array(texcoords.prefix(safeCount)),
+            texture: decodePS2IconTexture(data, start: offset, type: textureType)
+        )
+    }
+}
+
+private struct XMBPS2IconSystem {
+    let title: String
+    let iconNormal: String
+
+    static func parse(_ data: Data?) -> XMBPS2IconSystem? {
+        guard let data, data.count >= 964,
+              String(data: data.subdata(in: 0..<4), encoding: .ascii) == "PS2D" else { return nil }
+
+        let iconName = ps2CString(data, offset: 0x104, maxLength: 64, encoding: .ascii)
+        let titleStart = 0xC0
+        var titleEnd = titleStart
+        let titleLimit = min(data.count, titleStart + 68)
+        while titleEnd < titleLimit, data[titleEnd] != 0 {
+            titleEnd += 1
+        }
+
+        let raw = data.subdata(in: titleStart..<titleEnd)
+        let split = min(max(Int(ps2U16(data, 0x06)), 0), raw.count)
+        let firstData = raw.subdata(in: 0..<split)
+        let secondData = raw.subdata(in: split..<raw.count)
+        let first = String(data: firstData, encoding: .shiftJIS) ?? ""
+        let second = String(data: secondData, encoding: .shiftJIS) ?? ""
+        let joined: String
+        if first.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            second.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            joined = first + second
+        } else {
+            joined = first + " " + second
+        }
+        let normalized = (joined as NSString)
+            .precomposedStringWithCompatibilityMapping
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return XMBPS2IconSystem(title: normalized, iconNormal: iconName)
+    }
+}
+
+private enum XMBPS2MemoryCardReader {
+    static func readSections(in directory: URL) -> [XMBPS2CardSection] {
+        let fileManager = FileManager.default
+        guard let cards = try? fileManager.contentsOfDirectory(at: directory,
+                                                               includingPropertiesForKeys: [.isDirectoryKey],
+                                                               options: [.skipsHiddenFiles]) else {
+            return []
+        }
+
+        return cards.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+            .compactMap { cardURL in
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: cardURL.path, isDirectory: &isDirectory) else { return nil }
+
+                let saves: [XMBPS2SaveItem]
+                if isDirectory.boolValue {
+                    saves = readFolderCard(at: cardURL)
+                } else {
+                    saves = XMBPS2ImageCardReader(url: cardURL)?.readSaves(cardName: cardURL.lastPathComponent) ?? []
+                }
+                return XMBPS2CardSection(name: cardURL.lastPathComponent,
+                                         saves: saves.sorted {
+                                             ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast)
+                                         })
+            }
+    }
+
+    private static func readFolderCard(at url: URL) -> [XMBPS2SaveItem] {
+        let fileManager = FileManager.default
+        guard let folders = try? fileManager.contentsOfDirectory(at: url,
+                                                                 includingPropertiesForKeys: [.isDirectoryKey],
+                                                                 options: [.skipsHiddenFiles]) else {
+            return []
+        }
+
+        return folders.compactMap { saveURL in
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: saveURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  !saveURL.lastPathComponent.hasPrefix("_pcsx2") else { return nil }
+
+            let files = (try? fileManager.contentsOfDirectory(at: saveURL,
+                                                              includingPropertiesForKeys: [.contentModificationDateKey],
+                                                              options: [.skipsHiddenFiles])) ?? []
+            let byName = Dictionary(uniqueKeysWithValues: files.map { ($0.lastPathComponent.lowercased(), $0) })
+            let sysURL = byName["icon.sys"]
+            let sysData = sysURL.flatMap { try? Data(contentsOf: $0) }
+            let sys = XMBPS2IconSystem.parse(sysData)
+            let iconURL = sys.flatMap { byName[$0.iconNormal.lowercased()] }
+            let iconData = iconURL.flatMap { try? Data(contentsOf: $0) }
+            let modified = files.compactMap {
+                try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            }.compactMap { $0 }.max()
+
+            let folderName = saveURL.lastPathComponent
+            let serial = ps2Serial(from: folderName)
+            let title = (sys?.title.isEmpty == false) ? sys!.title : (serial ?? folderName)
+            return XMBPS2SaveItem(cardName: url.lastPathComponent,
+                                  folderName: folderName,
+                                  title: title,
+                                  serial: serial,
+                                  modified: modified,
+                                  icon: XMBPS2IconModel.parse(iconData))
+        }
+    }
+}
+
+private final class XMBPS2ImageCardReader {
+    private struct Entry {
+        let mode: Int
+        let length: Int
+        let cluster: Int
+        let name: String
+        let modified: Date?
+    }
+
+    private let data: Data
+    private let stride: Int
+    private let pagesPerCluster: Int
+    private let clustersPerCard: Int
+    private let allocationOffset: Int
+    private let rootCluster: Int
+    private let indirectFATClusters: [Int]
+    private let clusterSize: Int
+    private let entriesPerCluster: Int
+    private var fatCache: [Int: Data] = [:]
+
+    init?(url: URL) {
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]), !data.isEmpty else { return nil }
+
+        let stride: Int
+        if data.count % 528 == 0, data.count / 528 >= 1024 {
+            stride = 528
+        } else if data.count % 512 == 0, data.count >= 512 {
+            stride = 512
+        } else {
+            return nil
+        }
+
+        guard data.count >= 512 else { return nil }
+        let superblock = data.subdata(in: 0..<512)
+        let magic = "Sony PS2 Memory Card Format "
+        guard let magicData = magic.data(using: .ascii),
+              superblock.prefix(magicData.count) == magicData,
+              ps2U16(superblock, 0x28) == 512 else { return nil }
+
+        let ppc = Int(ps2U16(superblock, 0x2A))
+        let clusters = Int(ps2U32(superblock, 0x30))
+        guard (1...16).contains(ppc), (1...(1 << 22)).contains(clusters) else { return nil }
+
+        self.data = data
+        self.stride = stride
+        self.pagesPerCluster = ppc
+        self.clustersPerCard = clusters
+        self.allocationOffset = Int(ps2U32(superblock, 0x34))
+        self.rootCluster = Int(ps2U32(superblock, 0x3C))
+        self.indirectFATClusters = (0..<32).map { Int(ps2U32(superblock, 0x50 + $0 * 4)) }
+        self.clusterSize = 512 * ppc
+        self.entriesPerCluster = (512 * ppc) / 4
+    }
+
+    func readSaves(cardName: String) -> [XMBPS2SaveItem] {
+        guard let rootCount = entries(relativeCluster: rootCluster, count: 1).first?.length else { return [] }
+
+        return entries(relativeCluster: rootCluster, count: rootCount)
+            .dropFirst(2)
+            .filter { ($0.mode & 0x8000) != 0 && ($0.mode & 0x0020) != 0 }
+            .compactMap { directory in
+                let fileEntries = entries(relativeCluster: directory.cluster, count: directory.length)
+                    .dropFirst(2)
+                    .filter { ($0.mode & 0x8000) != 0 && ($0.mode & 0x0010) != 0 }
+
+                let byName = Dictionary(uniqueKeysWithValues: fileEntries.map { ($0.name.lowercased(), $0) })
+                let sysEntry = byName["icon.sys"]
+                let sysData = sysEntry.flatMap { read(relativeCluster: $0.cluster, length: $0.length) }
+                let sys = XMBPS2IconSystem.parse(sysData)
+                let iconEntry = sys.flatMap { byName[$0.iconNormal.lowercased()] }
+                let iconData = iconEntry.flatMap { read(relativeCluster: $0.cluster, length: $0.length) }
+                let serial = ps2Serial(from: directory.name)
+                let title = (sys?.title.isEmpty == false) ? sys!.title : (serial ?? directory.name)
+
+                return XMBPS2SaveItem(cardName: cardName,
+                                      folderName: directory.name,
+                                      title: title,
+                                      serial: serial,
+                                      modified: directory.modified,
+                                      icon: XMBPS2IconModel.parse(iconData))
+            }
+    }
+
+    private func cluster(_ absolute: Int) -> Data? {
+        guard absolute >= 0, absolute < clustersPerCard else { return nil }
+        var output = Data(capacity: clusterSize)
+        let totalPages = data.count / stride
+
+        for index in 0..<pagesPerCluster {
+            let page = absolute * pagesPerCluster + index
+            guard page < totalPages else { return nil }
+            let start = page * stride
+            guard start + 512 <= data.count else { return nil }
+            output.append(data.subdata(in: start..<(start + 512)))
+        }
+        return output
+    }
+
+    private func cachedCluster(_ absolute: Int) -> Data? {
+        if let cached = fatCache[absolute] { return cached }
+        guard let loaded = cluster(absolute) else { return nil }
+        if fatCache.count < 4096 {
+            fatCache[absolute] = loaded
+        }
+        return loaded
+    }
+
+    private func fat(_ relative: Int) -> UInt32? {
+        guard relative >= 0 else { return nil }
+        let fatIndex = relative / entriesPerCluster
+        guard fatIndex / entriesPerCluster < indirectFATClusters.count else { return nil }
+
+        let indirect = indirectFATClusters[fatIndex / entriesPerCluster]
+        guard let indirectData = cachedCluster(indirect) else { return nil }
+        let fatClusterOffset = (fatIndex % entriesPerCluster) * 4
+        guard fatClusterOffset + 4 <= indirectData.count else { return nil }
+
+        let fatCluster = Int(ps2U32(indirectData, fatClusterOffset))
+        guard let fatData = cachedCluster(fatCluster) else { return nil }
+        let entryOffset = (relative % entriesPerCluster) * 4
+        guard entryOffset + 4 <= fatData.count else { return nil }
+        return ps2U32(fatData, entryOffset)
+    }
+
+    private func read(relativeCluster: Int, length: Int) -> Data? {
+        guard length >= 0, length <= clustersPerCard * clusterSize else { return nil }
+
+        var output = Data(capacity: length)
+        var current = relativeCluster
+        var steps = 0
+
+        while output.count < length {
+            guard steps <= clustersPerCard,
+                  let bytes = cluster(current + allocationOffset) else { return nil }
+            steps += 1
+            output.append(bytes.prefix(min(clusterSize, length - output.count)))
+            if output.count >= length { break }
+
+            guard let fatEntry = fat(current),
+                  fatEntry != 0xFFFFFFFF,
+                  (fatEntry & 0x80000000) != 0 else { return nil }
+            current = Int(fatEntry & 0x7FFFFFFF)
+        }
+
+        return output
+    }
+
+    private func entries(relativeCluster: Int, count: Int) -> [Entry] {
+        guard count > 0, count <= 4096,
+              let raw = read(relativeCluster: relativeCluster, length: count * 512) else { return [] }
+
+        return (0..<count).compactMap { index in
+            let offset = index * 512
+            guard offset + 0x60 <= raw.count else { return nil }
+
+            var nameEnd = offset + 0x40
+            while nameEnd < offset + 0x60, raw[nameEnd] != 0 {
+                nameEnd += 1
+            }
+            let name = String(data: raw.subdata(in: (offset + 0x40)..<nameEnd), encoding: .ascii) ?? ""
+            return Entry(mode: Int(ps2U16(raw, offset)),
+                         length: Int(ps2U32(raw, offset + 4)),
+                         cluster: Int(ps2U32(raw, offset + 0x10)),
+                         name: name,
+                         modified: ps2Timestamp(raw, offset: offset + 0x18))
+        }
+    }
+}
+
+private func ps2Serial(from folder: String) -> String? {
+    let upper = folder.uppercased()
+    let pattern = #"^B[A-Z]([A-Z]{4})[-_]?(\d{3})\.?(\d{2})"#
+    guard let regex = try? NSRegularExpression(pattern: pattern),
+          let match = regex.firstMatch(in: upper, range: NSRange(upper.startIndex..., in: upper)),
+          match.numberOfRanges >= 4,
+          let codeRange = Range(match.range(at: 1), in: upper),
+          let firstRange = Range(match.range(at: 2), in: upper),
+          let secondRange = Range(match.range(at: 3), in: upper) else { return nil }
+    return "\(upper[codeRange])-\(upper[firstRange])\(upper[secondRange])"
+}
+
+private func ps2Timestamp(_ data: Data, offset: Int) -> Date? {
+    guard offset >= 0, offset + 8 <= data.count else { return nil }
+    var components = DateComponents()
+    components.timeZone = TimeZone(identifier: "Asia/Tokyo")
+    components.second = Int(data[offset + 1])
+    components.minute = Int(data[offset + 2])
+    components.hour = Int(data[offset + 3])
+    components.day = Int(data[offset + 4])
+    components.month = Int(data[offset + 5])
+    components.year = Int(ps2U16(data, offset + 6))
+    return Calendar(identifier: .gregorian).date(from: components)
+}
+
+private func ps2CString(_ data: Data,
+                        offset: Int,
+                        maxLength: Int,
+                        encoding: String.Encoding) -> String {
+    guard offset >= 0, offset < data.count else { return "" }
+    let limit = min(data.count, offset + maxLength)
+    var end = offset
+    while end < limit, data[end] != 0 {
+        end += 1
+    }
+    return String(data: data.subdata(in: offset..<end), encoding: encoding) ?? ""
+}
+
+private func ps2U16(_ data: Data, _ offset: Int) -> UInt16 {
+    guard offset >= 0, offset + 2 <= data.count else { return 0 }
+    return UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+}
+
+private func ps2I16(_ data: Data, _ offset: Int) -> Int16 {
+    Int16(bitPattern: ps2U16(data, offset))
+}
+
+private func ps2U32(_ data: Data, _ offset: Int) -> UInt32 {
+    guard offset >= 0, offset + 4 <= data.count else { return 0 }
+    return UInt32(data[offset])
+        | (UInt32(data[offset + 1]) << 8)
+        | (UInt32(data[offset + 2]) << 16)
+        | (UInt32(data[offset + 3]) << 24)
+}
+
+private func decodePS2IconTexture(_ data: Data, start: Int, type: Int) -> UIImage? {
+    let textureSize = 128
+    let pixelCount = textureSize * textureSize
+    var pixels = [UInt16]()
+    pixels.reserveCapacity(pixelCount)
+    var offset = start
+
+    func appendPixel(_ value: UInt16) {
+        if pixels.count < pixelCount {
+            pixels.append(value)
+        }
+    }
+
+    if (type & 8) != 0 {
+        guard offset + 4 <= data.count else { return nil }
+        let encodedSize = Int(ps2U32(data, offset))
+        offset += 4
+        let end = min(data.count, offset + max(0, encodedSize))
+
+        while pixels.count < pixelCount, offset + 2 <= end {
+            let code = ps2U16(data, offset)
+            offset += 2
+            if code == 0 { continue }
+
+            if (code & 0x8000) != 0 {
+                var count = 0x10000 - Int(code)
+                while count > 0, pixels.count < pixelCount, offset + 2 <= end {
+                    appendPixel(ps2U16(data, offset))
+                    offset += 2
+                    count -= 1
+                }
+            } else {
+                guard offset + 2 <= end else { break }
+                let color = ps2U16(data, offset)
+                offset += 2
+                var count = Int(code)
+                while count > 0, pixels.count < pixelCount {
+                    appendPixel(color)
+                    count -= 1
+                }
+            }
+        }
+    } else {
+        guard offset + pixelCount * 2 <= data.count else { return nil }
+        for index in 0..<pixelCount {
+            appendPixel(ps2U16(data, offset + index * 2))
+        }
+    }
+
+    guard !pixels.isEmpty else { return nil }
+    if pixels.count < pixelCount {
+        pixels.append(contentsOf: repeatElement(0, count: pixelCount - pixels.count))
+    }
+
+    var rgba = [UInt8](repeating: 0, count: pixelCount * 4)
+    for index in 0..<pixelCount {
+        let pixel = Int(pixels[index])
+        rgba[index * 4] = UInt8((pixel & 31) * 255 / 31)
+        rgba[index * 4 + 1] = UInt8(((pixel >> 5) & 31) * 255 / 31)
+        rgba[index * 4 + 2] = UInt8(((pixel >> 10) & 31) * 255 / 31)
+        rgba[index * 4 + 3] = 255
+    }
+
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let image: CGImage? = rgba.withUnsafeMutableBytes { bytes in
+        guard let base = bytes.baseAddress,
+              let context = CGContext(data: base,
+                                      width: textureSize,
+                                      height: textureSize,
+                                      bitsPerComponent: 8,
+                                      bytesPerRow: textureSize * 4,
+                                      space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        return context.makeImage()
+    }
+    return image.map { UIImage(cgImage: $0) }
 }
 
 // MARK: - Easier exit from original Manic screens
