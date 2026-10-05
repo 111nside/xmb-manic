@@ -590,7 +590,7 @@ enum ARMSX2EmbeddedCore {
 
         let biosName = ARMSX2Bridge.defaultBIOSName()
         let biosAvailable = ARMSX2Bridge.hasBIOS()
-        let validBIOS = ARMSX2Bridge.availableBIOSInfos().filter { $0.valid }.map(.fileName)
+        let validBIOS = ARMSX2Bridge.availableBIOSInfos().filter { $0.valid }.map { $0.fileName }
         PS2DiagnosticLog.log("bios_available=\(biosAvailable) default_bios=\(biosName) valid_bios_files=\(validBIOS)")
         PS2DiagnosticLog.checkpoint("startGame.after-bios-check")
         guard biosAvailable else {
