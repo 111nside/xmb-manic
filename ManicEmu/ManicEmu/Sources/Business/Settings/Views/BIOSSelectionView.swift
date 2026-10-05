@@ -15,7 +15,7 @@ import ZipArchive
 class BIOSSelectionView: BaseView {
     
     private enum SectionIndex: Int, CaseIterable {
-        case amiga, c64, pce, ngc, wii, symbian, lynx, a7800, a5200, arcade, mcd, ss, ds, ps1, dc, gb, gbc, gba, fds, pm, _3ds
+        case amiga, c64, pce, ngc, wii, symbian, lynx, a7800, a5200, arcade, mcd, ss, ds, ps1, ps2, dc, gb, gbc, gba, fds, pm, _3ds
         var title: String {
             switch self {
             case .arcade: GameType.arcade.localizedName
@@ -23,6 +23,7 @@ class BIOSSelectionView: BaseView {
             case .ss: GameType.ss.localizedName
             case .ds: GameType.ds.localizedName
             case .ps1: GameType.ps1.localizedName
+            case .ps2: GameType.ps2.localizedName
             case .dc: GameType.dc.localizedName
             case .gb: GameType.gb.localizedName
             case .gbc: GameType.gbc.localizedName
@@ -49,6 +50,7 @@ class BIOSSelectionView: BaseView {
             case .ss: return .ss
             case .ds: return .ds
             case .ps1: return .ps1
+            case .ps2: return .ps2
             case .dc: return .dc
             case .gb: return .gb
             case .gbc: return .gbc
@@ -71,6 +73,19 @@ class BIOSSelectionView: BaseView {
     
     private let gameType: GameType?
     private var biosItemMaps: [GameType: [BIOSItem]]
+
+    private static func initialBIOSItems(for gameType: GameType) -> [BIOSItem] {
+        if gameType == .ps2 {
+            let selected = ARMSX2EmbeddedCore.defaultBIOSName
+            return [
+                BIOSItem(fileName: selected ?? "PS2 BIOS (.bin / .rom)",
+                         imported: selected != nil,
+                         desc: "Required by the embedded ARMSX2/PCSX2 core. Import a BIOS dumped from your own PlayStation 2.",
+                         required: true)
+            ]
+        }
+        return gameType.biosItems
+    }
     private let showClose: Bool
     
     private lazy var listPageView: ASListPageView = {
@@ -113,10 +128,10 @@ class BIOSSelectionView: BaseView {
         self.gameType = gameType
         self.showClose = parameters.compactMap({ $0 as? Bool }).first ?? true
         if let gameType {
-            self.biosItemMaps = [gameType: gameType.biosItems]
+            self.biosItemMaps = [gameType: Self.initialBIOSItems(for: gameType)]
         } else {
             self.biosItemMaps = SectionIndex.allCases.reduce([GameType: [BIOSItem]](), {
-                $0 + [$1.gameType: $1.gameType.biosItems]
+                $0 + [$1.gameType: Self.initialBIOSItems(for: $1.gameType)]
             })
         }
         super.init(frame: .zero)
@@ -224,6 +239,24 @@ class BIOSSelectionView: BaseView {
     }
     
     private func reloadImportState(gameType: GameType, updateViews: Bool) {
+        if gameType == .ps2 {
+            let selected = ARMSX2EmbeddedCore.defaultBIOSName
+            let available = ARMSX2EmbeddedCore.availableBIOSNames
+            self.biosItemMaps[.ps2] = [
+                BIOSItem(fileName: selected ?? available.first ?? "PS2 BIOS (.bin / .rom)",
+                         imported: selected != nil || !available.isEmpty,
+                         desc: "Required by the embedded ARMSX2/PCSX2 core. Import a BIOS dumped from your own PlayStation 2.",
+                         required: true)
+            ]
+            if updateViews {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.listPageView.updatePage(self.getListPage())
+                }
+            }
+            return
+        }
+
         let fileManager = FileManager.default
         guard var biosItems = self.biosItemMaps[gameType] else { return }
         for (index, bios) in biosItems.enumerated() {
@@ -344,6 +377,29 @@ class BIOSSelectionView: BaseView {
     }
     
     private func importBios(gameType: GameType) {
+        if gameType == .ps2 {
+            FilesImporter.shared.presentImportController(supportedTypes: UTType.binTypes, allowsMultipleSelection: false) { [weak self] urls in
+                guard let self, let sourceURL = urls.first else { return }
+                UIView.makeLoading()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let accessing = sourceURL.startAccessingSecurityScopedResource()
+                    let success = ARMSX2EmbeddedCore.importBIOS(from: sourceURL)
+                    if accessing { sourceURL.stopAccessingSecurityScopedResource() }
+
+                    DispatchQueue.main.async {
+                        UIView.hideLoading()
+                        if success {
+                            UIView.makeToast(message: R.string.localizable.biosImportSuccess(sourceURL.lastPathComponent))
+                            self.reloadImportState(gameType: .ps2, updateViews: true)
+                        } else {
+                            UIView.makeToast(message: "That file was not recognized as a valid PS2 BIOS.")
+                        }
+                    }
+                }
+            }
+            return
+        }
+
         func importFromFiles() {
             FilesImporter.shared.presentImportController(supportedTypes: UTType.binTypes, allowsMultipleSelection: true) {  urls in
                 UIView.makeLoading()
