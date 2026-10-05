@@ -539,6 +539,7 @@ private enum XMBBackgroundTheme: Int, CaseIterable {
 private extension Notification.Name {
     static let xmbBackgroundThemeDidChange = Notification.Name("ManicXMB.BackgroundThemeDidChange")
     static let xmbConsoleIconsDidChange = Notification.Name("ManicXMB.ConsoleIconsDidChange")
+    static let xmbLibraryViewSettingsDidChange = Notification.Name("ManicXMB.LibraryViewSettingsDidChange")
 }
 
 private enum XMBCoverMode: Int {
@@ -557,9 +558,9 @@ private enum XMBCoverMode: Int {
 /// Games already passed by the focused item are shifted above the rail instead
 /// of visually travelling through/behind the selected console icon.
 private final class XMBGameColumnLayout: UICollectionViewFlowLayout {
-    var focusedItemIndex: Int = 0 {
+    var focusPosition: CGFloat = 0 {
         didSet {
-            if oldValue != focusedItemIndex { invalidateLayout() }
+            if abs(oldValue - focusPosition) > 0.002 { invalidateLayout() }
         }
     }
 
@@ -573,19 +574,25 @@ private final class XMBGameColumnLayout: UICollectionViewFlowLayout {
         guard let copy = attributes.copy() as? UICollectionViewLayoutAttributes else {
             return attributes
         }
-        if copy.representedElementCategory == .cell,
-           copy.indexPath.item < focusedItemIndex {
-            // Keep already-passed games in the column rather than deleting them from
-            // the focus geometry. The immediate previous game is lifted across the
-            // console rail so its bottom edge rests just above the icons; older games
-            // naturally continue farther toward/off the top of the screen. This also
-            // leaves a real focus target for Up navigation.
-            copy.frame.origin.y -= railGap
+        if copy.representedElementCategory == .cell {
+            let clampedPosition = max(0, focusPosition)
+            let completedIndex = floor(clampedPosition)
+            let fraction = clampedPosition - completedIndex
+            let item = CGFloat(copy.indexPath.item)
+
+            if item < completedIndex {
+                // Rows which have fully crossed the XMB rail stay above it.
+                copy.frame.origin.y -= railGap
+                copy.zIndex = -20
+            } else if abs(item - completedIndex) < 0.001, fraction > 0 {
+                // Move the crossing row progressively instead of jumping the entire
+                // rail gap when the selected index changes.
+                copy.frame.origin.y -= railGap * fraction
+                copy.zIndex = -10
+            } else {
+                copy.zIndex = 0
+            }
             copy.alpha = 1
-            copy.zIndex = -20
-        } else if copy.representedElementCategory == .cell {
-            copy.alpha = 1
-            copy.zIndex = 0
         }
         return copy
     }
@@ -643,6 +650,7 @@ private enum XMBConsoleSort: Int, CaseIterable {
     case nameZA
     case recentlyPlayed
     case mostPlayed
+    case manufacturer
 
     var title: String {
         switch self {
@@ -651,6 +659,7 @@ private enum XMBConsoleSort: Int, CaseIterable {
         case .nameZA: return "Name Z–A"
         case .recentlyPlayed: return "Recently Played"
         case .mostPlayed: return "Most Played"
+        case .manufacturer: return "Manufacturer"
         }
     }
 }
@@ -747,6 +756,10 @@ final class XMBHomeViewController: BaseViewController {
     private var libraryRefreshWorkItem: DispatchWorkItem?
     private var pendingSectionTransitionDirection: CGFloat = 0
     private var consoleIconObserver: NSObjectProtocol?
+    private var librarySettingsObserver: NSObjectProtocol?
+    private var isTouchScrollingSections = false
+    private var isTouchScrollingGames = false
+    private var isProgrammaticGameScroll = false
 
     private var gameSort: XMBGameSort {
         get { XMBGameSort(rawValue: UserDefaults.standard.integer(forKey: Self.gameSortDefaultsKey)) ?? .nameAZ }
@@ -812,7 +825,7 @@ final class XMBHomeViewController: BaseViewController {
         scrollView.alwaysBounceHorizontal = true
         scrollView.isScrollEnabled = true
         scrollView.clipsToBounds = false
-        scrollView.decelerationRate = .fast
+        scrollView.decelerationRate = .normal
         return scrollView
     }()
 
@@ -879,6 +892,7 @@ final class XMBHomeViewController: BaseViewController {
         collectionView.showsVerticalScrollIndicator = false
         collectionView.alwaysBounceVertical = true
         collectionView.isScrollEnabled = true
+        collectionView.decelerationRate = .normal
         collectionView.clipsToBounds = true
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.register(XMBGameRowCell.self, forCellWithReuseIdentifier: XMBGameRowCell.reuseIdentifier)
@@ -896,7 +910,14 @@ final class XMBHomeViewController: BaseViewController {
 
     private let profileContentView = UIView()
 
-    private let profileMenuContainerView = UIView()
+    private let profileMenuContainerView: UIScrollView = {
+        let scrollView = UIScrollView()
+        scrollView.backgroundColor = .clear
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.alwaysBounceVertical = true
+        scrollView.decelerationRate = .normal
+        return scrollView
+    }()
 
     private lazy var profileDetailsButton = makeProfileMenuButton(title: "Profile Details",
                                                                   subtitle: "Account, avatar, XMB colors and preferences",
@@ -910,6 +931,18 @@ final class XMBHomeViewController: BaseViewController {
         self?.openPS2MemoryCards()
     }
 
+    private lazy var gameLibrarySettingsButton = makeProfileMenuButton(title: "Game Library View",
+                                                                        subtitle: "Sort and filter games",
+                                                                        symbol: "line.3.horizontal.decrease.circle") { [weak self] in
+        self?.openLibraryViewSettings(.games)
+    }
+
+    private lazy var consoleLibrarySettingsButton = makeProfileMenuButton(title: "Console Library View",
+                                                                           subtitle: "Sort and filter consoles",
+                                                                           symbol: "arrow.up.arrow.down.circle") { [weak self] in
+        self?.openLibraryViewSettings(.consoles)
+    }
+
     private lazy var avatarButton: UIButton = {
         let button = UIButton(type: .custom)
         button.backgroundColor = UIColor.white.withAlphaComponent(0.10)
@@ -921,7 +954,7 @@ final class XMBHomeViewController: BaseViewController {
         button.enableFocusEffects = false
         button.addTarget(self, action: #selector(changeAvatarPressed), for: .touchUpInside)
         button.onFocusChange = { [weak button] focused in
-            UIView.animate(withDuration: 0.12) {
+            UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
                 button?.transform = focused ? CGAffineTransform(scaleX: 1.07, y: 1.07) : .identity
                 button?.layer.borderWidth = focused ? 2 : 0
                 button?.layer.borderColor = UIColor.white.withAlphaComponent(0.85).cgColor
@@ -1043,12 +1076,18 @@ final class XMBHomeViewController: BaseViewController {
         observeGames()
         updateClock()
         applyControllerHintVisibility()
-        refreshViewOptionMenus()
 
         consoleIconObserver = NotificationCenter.default.addObserver(forName: .xmbConsoleIconsDidChange,
                                                                      object: nil,
                                                                      queue: .main) { [weak self] _ in
             self?.refreshSectionButtonImages()
+        }
+        librarySettingsObserver = NotificationCenter.default.addObserver(forName: .xmbLibraryViewSettingsDidChange,
+                                                                          object: nil,
+                                                                          queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.refreshProfileMenuSettingsLabels()
+            self.rebuildSectionsAndContent()
         }
 
         clockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -1063,12 +1102,16 @@ final class XMBHomeViewController: BaseViewController {
         if let consoleIconObserver {
             NotificationCenter.default.removeObserver(consoleIconObserver)
         }
+        if let librarySettingsObserver {
+            NotificationCenter.default.removeObserver(librarySettingsObserver)
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
         ExternalInputDispatch.sink = .focusKit
+        FocusSystem.shared.isEnabled = true
 
         activateFocusRoot { [weak self] context in
             guard let self else { return }
@@ -1082,6 +1125,12 @@ final class XMBHomeViewController: BaseViewController {
                 }),
                 FocusCommand(key: .right, title: "Next system", action: { [weak self] in
                     self?.moveSection(by: 1)
+                }),
+                FocusCommand(key: .up, title: "Previous game", handler: { [weak self] in
+                    self?.moveGame(by: -1) ?? false
+                }),
+                FocusCommand(key: .down, title: "Next game", handler: { [weak self] in
+                    self?.moveGame(by: 1) ?? false
                 }),
                 FocusCommand(key: FocusKey("l1"), title: "Previous system", action: { [weak self] in
                     self?.moveSection(by: -1)
@@ -1136,7 +1185,11 @@ final class XMBHomeViewController: BaseViewController {
 
         if sections.indices.contains(selectedSectionIndex),
            case .console = sections[selectedSectionIndex].kind,
-           !games.isEmpty {
+           !games.isEmpty,
+           !isTouchScrollingGames,
+           !isProgrammaticGameScroll,
+           !collectionView.isDragging,
+           !collectionView.isDecelerating {
             scrollGameToAnchor(index: rememberedIndexForCurrentSection(), animated: false)
         }
     }
@@ -1153,16 +1206,6 @@ final class XMBHomeViewController: BaseViewController {
         dateLabel.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide).offset(10)
             make.trailing.equalTo(view.safeAreaLayoutGuide).offset(-20)
-        }
-
-        let optionsStack = UIStackView(arrangedSubviews: [consoleOptionsButton, gameOptionsButton])
-        optionsStack.axis = .horizontal
-        optionsStack.alignment = .center
-        optionsStack.spacing = 6
-        view.addSubview(optionsStack)
-        optionsStack.snp.makeConstraints { make in
-            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
-            make.centerY.equalTo(dateLabel)
         }
 
         view.addSubview(selectedSectionGlow)
@@ -1241,22 +1284,31 @@ final class XMBHomeViewController: BaseViewController {
         view.addSubview(profileMenuContainerView)
         profileMenuContainerView.isHidden = true
         profileMenuContainerView.snp.makeConstraints { make in
-            make.top.equalTo(sectionScrollView.snp.bottom).offset(16)
+            make.top.equalTo(sectionScrollView.snp.bottom).offset(24)
             make.centerX.equalToSuperview()
-            make.width.equalTo(420).priority(.high)
+            make.width.equalTo(440).priority(.high)
             make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(24)
             make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-10)
         }
 
-        let profileMenuStack = UIStackView(arrangedSubviews: [profileDetailsButton, ps2MemoryCardsButton])
+        let profileMenuStack = UIStackView(arrangedSubviews: [
+            profileDetailsButton,
+            ps2MemoryCardsButton,
+            gameLibrarySettingsButton,
+            consoleLibrarySettingsButton
+        ])
         profileMenuStack.axis = .vertical
         profileMenuStack.alignment = .fill
-        profileMenuStack.distribution = .fillEqually
-        profileMenuStack.spacing = 4
+        profileMenuStack.distribution = .fill
+        profileMenuStack.spacing = 5
         profileMenuContainerView.addSubview(profileMenuStack)
         profileMenuStack.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
-            make.height.equalTo(116)
+            make.edges.equalTo(profileMenuContainerView.contentLayoutGuide)
+            make.width.equalTo(profileMenuContainerView.frameLayoutGuide)
+        }
+        [profileDetailsButton, ps2MemoryCardsButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
+            $0.snp.makeConstraints { $0.height.equalTo(54) }
         }
 
         view.addSubview(actionContainerView)
@@ -1759,6 +1811,14 @@ final class XMBHomeViewController: BaseViewController {
             orderedTypes.sort {
                 totalPlayTime(for: $0, in: snapshot) > totalPlayTime(for: $1, in: snapshot)
             }
+        case .manufacturer:
+            let order = Dictionary(uniqueKeysWithValues: Manufacturer.allCases.enumerated().map { ($1, $0) })
+            orderedTypes.sort {
+                let leftRank = order[$0.manufacturer] ?? Int.max
+                let rightRank = order[$1.manufacturer] ?? Int.max
+                if leftRank != rightRank { return leftRank < rightRank }
+                return $0.localizedShortName.localizedCaseInsensitiveCompare($1.localizedShortName) == .orderedAscending
+            }
         }
 
         var rebuilt = [
@@ -1794,7 +1854,7 @@ final class XMBHomeViewController: BaseViewController {
 
         updateSelectedSection(animated: false, restoreFocus: false)
         refreshProfile()
-        refreshViewOptionMenus()
+        refreshProfileMenuSettingsLabels()
     }
 
     private func rebuildSectionButtons() {
@@ -1890,7 +1950,9 @@ final class XMBHomeViewController: BaseViewController {
             }
         }
 
-        scrollSelectedSectionIntoView(animated: animated)
+        if !isTouchScrollingSections {
+            scrollSelectedSectionIntoView(animated: animated)
+        }
         titleLabel.text = section.title
 
         let showGames: Bool
@@ -1912,6 +1974,7 @@ final class XMBHomeViewController: BaseViewController {
             showAction = false
             subtitleLabel.text = "Custom XMB profile"
             refreshProfile()
+            refreshProfileMenuSettingsLabels()
 
         case .importGames:
             games = []
@@ -1960,9 +2023,19 @@ final class XMBHomeViewController: BaseViewController {
         view.bringSubviewToFront(dateLabel)
 
         let initialIndex = games.isEmpty ? 0 : rememberedIndexForCurrentSection()
-        gameColumnLayout.focusedItemIndex = initialIndex
-        collectionView.reloadData()
-        updateGameColumnInsets()
+        UIView.performWithoutAnimation {
+            gameColumnLayout.focusPosition = CGFloat(initialIndex)
+            collectionView.reloadData()
+            updateGameColumnInsets()
+            collectionView.layoutIfNeeded()
+            if games.indices.contains(initialIndex) {
+                scrollGameToAnchor(index: initialIndex, animated: false)
+            } else {
+                let top = -collectionView.contentInset.top
+                collectionView.setContentOffset(CGPoint(x: 0, y: top), animated: false)
+            }
+            collectionView.layoutIfNeeded()
+        }
 
         let shownView: UIView? = showGames ? gamesContentView : (showProfileMenu ? profileMenuContainerView : (showAction ? actionContainerView : nil))
         let direction = pendingSectionTransitionDirection
@@ -2044,6 +2117,45 @@ final class XMBHomeViewController: BaseViewController {
             .max() ?? .distantPast
     }
 
+    private var gameRowHeight: CGFloat {
+        coverMode == .square ? 52 : 58
+    }
+
+    private var gameRowStride: CGFloat {
+        gameRowHeight + gameColumnLayout.minimumLineSpacing
+    }
+
+    @discardableResult
+    private func moveGame(by offset: Int) -> Bool {
+        guard sections.indices.contains(selectedSectionIndex),
+              case .console = sections[selectedSectionIndex].kind,
+              !games.isEmpty else { return false }
+
+        let current = rememberedIndexForCurrentSection()
+        let next = min(max(current + offset, 0), games.count - 1)
+        guard next != current else { return true }
+        focusGame(at: next)
+        return true
+    }
+
+    private func refreshProfileMenuSettingsLabels() {
+        func update(_ button: UIButton, subtitle: String) {
+            guard var configuration = button.configuration else { return }
+            configuration.subtitle = subtitle
+            button.configuration = configuration
+        }
+        update(gameLibrarySettingsButton,
+               subtitle: "Sort: \(gameSort.title)  •  Filter: \(gameFilter.title)")
+        update(consoleLibrarySettingsButton,
+               subtitle: "Sort: \(consoleSort.title)  •  Filter: \(consoleFilter.title)")
+    }
+
+    private func openLibraryViewSettings(_ kind: XMBLibraryViewSettingsKind) {
+        let controller = XMBLibraryViewSettingsViewController(kind: kind)
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
+
     private func rememberCurrentGameIndex() {
         guard sections.indices.contains(selectedSectionIndex), !games.isEmpty else { return }
         let sectionID = sections[selectedSectionIndex].identifier
@@ -2115,7 +2227,7 @@ final class XMBHomeViewController: BaseViewController {
         // clearance also accounts for the 1.08x focus scale on the cover artwork.
         let anchorY = railBottom + 30
 
-        let rowHeight: CGFloat = coverMode == .square ? 54 : 60
+        let rowHeight = gameRowHeight
 
         // Put the previous row immediately above the console rail instead of making it
         // disappear. With the focused row anchored at `anchorY`, the unmodified previous
@@ -2139,16 +2251,21 @@ final class XMBHomeViewController: BaseViewController {
         updateGameColumnInsets()
         collectionView.layoutIfNeeded()
 
-        let indexPath = IndexPath(item: index, section: 0)
-        guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
-
-        let anchorY = collectionView.contentInset.top
-        let targetY = attributes.frame.minY - anchorY
         let minY = -collectionView.contentInset.top
         let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + collectionView.contentInset.bottom)
-        let clampedY = min(max(targetY, minY), maxY)
+        let nominalY = CGFloat(index) * gameRowStride - collectionView.contentInset.top
+        let clampedY = min(max(nominalY, minY), maxY)
 
+        if !animated {
+            isProgrammaticGameScroll = false
+            gameColumnLayout.focusPosition = CGFloat(index)
+        } else {
+            isProgrammaticGameScroll = true
+        }
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
+        if !animated {
+            updateGameFocusFromScroll()
+        }
     }
 
     private func scrollSelectedSectionIntoView(animated: Bool = true) {
@@ -2156,17 +2273,12 @@ final class XMBHomeViewController: BaseViewController {
 
         sectionScrollView.layoutIfNeeded()
         let button = sectionButtons[selectedSectionIndex]
-        let visibleRect = button.convert(button.bounds, to: sectionScrollView)
-        let delta = visibleRect.midX - sectionScrollView.bounds.midX
-        var target = sectionScrollView.contentOffset
-        target.x += delta
-
         let minX = -sectionScrollView.adjustedContentInset.left
         let maxX = max(minX,
                        sectionScrollView.contentSize.width - sectionScrollView.bounds.width + sectionScrollView.adjustedContentInset.right)
-        target.x = min(max(target.x, minX), maxX)
-
-        sectionScrollView.setContentOffset(target, animated: animated)
+        let centeredX = button.frame.midX - sectionScrollView.bounds.width * 0.5
+        let targetX = min(max(centeredX, minX), maxX)
+        sectionScrollView.setContentOffset(CGPoint(x: targetX, y: sectionScrollView.contentOffset.y), animated: animated)
     }
 
     private func updateFocusedGame(index: Int) {
@@ -2176,14 +2288,26 @@ final class XMBHomeViewController: BaseViewController {
             rememberedGameIndex[sections[selectedSectionIndex].identifier] = index
         }
 
-        gameColumnLayout.focusedItemIndex = index
-        UIView.animate(withDuration: 0.22,
-                       delay: 0,
-                       options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
-            self.collectionView.collectionViewLayout.invalidateLayout()
-            self.collectionView.layoutIfNeeded()
-        }
         scrollGameToAnchor(index: index, animated: true)
+    }
+
+    private func updateGameFocusFromScroll() {
+        guard !games.isEmpty,
+              sections.indices.contains(selectedSectionIndex),
+              case .console = sections[selectedSectionIndex].kind,
+              gameRowStride > 0 else { return }
+
+        let raw = (collectionView.contentOffset.y + collectionView.contentInset.top) / gameRowStride
+        let position = min(max(raw, 0), CGFloat(games.count - 1))
+        gameColumnLayout.focusPosition = position
+
+        let nearest = min(max(Int(position.rounded()), 0), games.count - 1)
+        rememberedGameIndex[sections[selectedSectionIndex].identifier] = nearest
+
+        collectionView.indexPathsForVisibleItems.forEach { path in
+            (collectionView.cellForItem(at: path) as? XMBGameRowCell)?
+                .setXMBFocused(path.item == nearest)
+        }
     }
 
     private func updateFocusedGame(gameID: String) {
@@ -2553,6 +2677,67 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
         openGameDetails(gameID: games[indexPath.item].id)
     }
 
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if scrollView === sectionScrollView {
+            isTouchScrollingSections = true
+        } else if scrollView === collectionView {
+            isTouchScrollingGames = true
+            isProgrammaticGameScroll = false
+        }
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if scrollView === sectionScrollView {
+            guard isTouchScrollingSections || scrollView.isDragging || scrollView.isDecelerating,
+                  !sections.isEmpty,
+                  !sectionButtons.isEmpty else { return }
+
+            let centerX = sectionScrollView.contentOffset.x + sectionScrollView.bounds.width * 0.5
+            guard let nearest = sectionButtons.enumerated().min(by: {
+                abs($0.element.frame.midX - centerX) < abs($1.element.frame.midX - centerX)
+            }) else { return }
+
+            if nearest.offset != selectedSectionIndex {
+                rememberCurrentGameIndex()
+                let direction = nearest.offset > selectedSectionIndex ? 1 : -1
+                let next = min(max(selectedSectionIndex + direction, 0), sections.count - 1)
+                pendingSectionTransitionDirection = CGFloat(direction)
+                selectedSectionIndex = next
+                updateSelectedSection(animated: false, restoreFocus: false)
+            }
+            return
+        }
+
+        if scrollView === collectionView {
+            updateGameFocusFromScroll()
+        }
+    }
+
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView,
+                                   withVelocity velocity: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        if scrollView === sectionScrollView, !sectionButtons.isEmpty {
+            let predictedCenter = targetContentOffset.pointee.x + sectionScrollView.bounds.width * 0.5
+            if let nearest = sectionButtons.min(by: {
+                abs($0.frame.midX - predictedCenter) < abs($1.frame.midX - predictedCenter)
+            }) {
+                let minX = -sectionScrollView.adjustedContentInset.left
+                let maxX = max(minX,
+                               sectionScrollView.contentSize.width - sectionScrollView.bounds.width + sectionScrollView.adjustedContentInset.right)
+                targetContentOffset.pointee.x = min(max(nearest.frame.midX - sectionScrollView.bounds.width * 0.5, minX), maxX)
+            }
+            return
+        }
+
+        if scrollView === collectionView, !games.isEmpty, gameRowStride > 0 {
+            let predicted = (targetContentOffset.pointee.y + collectionView.contentInset.top) / gameRowStride
+            let index = min(max(Int(predicted.rounded()), 0), games.count - 1)
+            let minY = -collectionView.contentInset.top
+            let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + collectionView.contentInset.bottom)
+            targetContentOffset.pointee.y = min(max(CGFloat(index) * gameRowStride - collectionView.contentInset.top, minY), maxY)
+        }
+    }
+
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         finishTouchScroll(on: scrollView)
     }
@@ -2563,54 +2748,33 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
         }
     }
 
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        if scrollView === collectionView {
+            isProgrammaticGameScroll = false
+            updateGameFocusFromScroll()
+        }
+    }
+
     private func finishTouchScroll(on scrollView: UIScrollView) {
         if scrollView === sectionScrollView {
-            guard !sections.isEmpty else { return }
-            sectionScrollView.layoutIfNeeded()
-            let centerX = sectionScrollView.bounds.midX
-            let nearest = sectionButtons.enumerated().min { lhs, rhs in
-                let lhsMid = lhs.element.convert(lhs.element.bounds, to: sectionScrollView).midX
-                let rhsMid = rhs.element.convert(rhs.element.bounds, to: sectionScrollView).midX
-                return abs(lhsMid - centerX) < abs(rhsMid - centerX)
-            }
-            guard let nearest, nearest.offset != selectedSectionIndex else {
-                scrollSelectedSectionIntoView(animated: true)
-                return
-            }
-            rememberCurrentGameIndex()
-            pendingSectionTransitionDirection = nearest.offset > selectedSectionIndex ? 1 : -1
-            selectedSectionIndex = nearest.offset
-            updateSelectedSection(animated: true, restoreFocus: false)
+            isTouchScrollingSections = false
+            // The predicted target is already centered by scrollViewWillEndDragging.
+            // Correct any sub-point residue without launching a second long snap.
+            scrollSelectedSectionIntoView(animated: true)
             return
         }
 
-        guard scrollView === collectionView,
-              !games.isEmpty,
-              sections.indices.contains(selectedSectionIndex),
-              case .console = sections[selectedSectionIndex].kind else { return }
-
-        collectionView.layoutIfNeeded()
-        let rowHeight: CGFloat = coverMode == .square ? 52 : 58
-        let targetY = collectionView.contentOffset.y + collectionView.contentInset.top + rowHeight * 0.5
-        let nearest = collectionView.indexPathsForVisibleItems.compactMap { indexPath -> (IndexPath, CGFloat)? in
-            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
-            return (indexPath, abs(attributes.frame.midY - targetY))
-        }.min { $0.1 < $1.1 }
-
-        if let indexPath = nearest?.0 {
-            updateFocusedGame(index: indexPath.item)
-            collectionView.indexPathsForVisibleItems.forEach { visiblePath in
-                (collectionView.cellForItem(at: visiblePath) as? XMBGameRowCell)?
-                    .setXMBFocused(visiblePath.item == indexPath.item)
-            }
+        if scrollView === collectionView {
+            isTouchScrollingGames = false
+            isProgrammaticGameScroll = false
+            updateGameFocusFromScroll()
         }
     }
 
     func collectionView(_ collectionView: UICollectionView,
                         layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let rowHeight: CGFloat = coverMode == .square ? 52 : 58
-        return CGSize(width: collectionView.bounds.width, height: rowHeight)
+        return CGSize(width: collectionView.bounds.width, height: gameRowHeight)
     }
 }
 
@@ -2931,6 +3095,199 @@ private final class XMBGameRowCell: UICollectionViewCell {
     }
 }
 
+private enum XMBLibraryViewSettingsKind {
+    case games
+    case consoles
+
+    var title: String {
+        switch self {
+        case .games: return "Game Library View"
+        case .consoles: return "Console Library View"
+        }
+    }
+}
+
+private final class XMBLibraryViewSettingsViewController: UIViewController {
+    private let kind: XMBLibraryViewSettingsKind
+    private let backgroundView = XMBWaveBackgroundView()
+    private let titleLabel = UILabel()
+    private let sortButton = UIButton(type: .system)
+    private let filterButton = UIButton(type: .system)
+
+    private lazy var closeButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.left")
+        configuration.title = "Back"
+        configuration.imagePadding = 6
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.closePressed()
+            return true
+        }
+        return button
+    }()
+
+    init(kind: XMBLibraryViewSettingsKind) {
+        self.kind = kind
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        view.addSubview(backgroundView)
+        backgroundView.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        view.addSubview(closeButton)
+        closeButton.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
+        }
+
+        titleLabel.text = kind.title
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 26, weight: .semibold)
+        view.addSubview(titleLabel)
+        titleLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalTo(closeButton)
+        }
+
+        configureSettingButton(sortButton, action: #selector(sortPressed))
+        configureSettingButton(filterButton, action: #selector(filterPressed))
+
+        let stack = UIStackView(arrangedSubviews: [sortButton, filterButton])
+        stack.axis = .vertical
+        stack.spacing = 12
+        stack.distribution = .fillEqually
+        view.addSubview(stack)
+        stack.snp.makeConstraints { make in
+            make.top.equalTo(closeButton.snp.bottom).offset(44)
+            make.centerX.equalToSuperview()
+            make.width.equalTo(520).priority(.high)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(24)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
+            make.height.equalTo(132)
+        }
+
+        refreshLabels()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ExternalInputDispatch.sink = .focusKit
+        FocusSystem.shared.isEnabled = true
+        pushOverlayFocusContext { [weak self] context in
+            context.autoFocusOnActivate = true
+            context.preferredFocusView = { [weak self] in self?.sortButton }
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if hasFocusContext { popFocusContext() }
+    }
+
+    private func configureSettingButton(_ button: UIButton, action: Selector) {
+        var configuration = UIButton.Configuration.gray()
+        configuration.baseForegroundColor = .white
+        configuration.background.backgroundColor = UIColor.black.withAlphaComponent(0.24)
+        configuration.cornerStyle = .large
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 18, bottom: 12, trailing: 18)
+        button.configuration = configuration
+        button.contentHorizontalAlignment = .leading
+        button.addTarget(self, action: action, for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusChange = { [weak button] focused in
+            UIView.animate(withDuration: 0.16,
+                           delay: 0,
+                           options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
+                button?.transform = focused ? CGAffineTransform(scaleX: 1.025, y: 1.025) : .identity
+                button?.backgroundColor = focused ? UIColor.white.withAlphaComponent(0.10) : .clear
+            }
+        }
+        button.onFocusConfirm = { [weak button] in
+            button?.sendActions(for: .touchUpInside)
+            return true
+        }
+    }
+
+    @objc private func closePressed() {
+        dismiss(animated: true)
+    }
+
+    @objc private func sortPressed() {
+        let defaults = UserDefaults.standard
+        switch kind {
+        case .games:
+            let current = XMBGameSort(rawValue: defaults.integer(forKey: "ManicXMB.gameSort")) ?? .nameAZ
+            let cases = XMBGameSort.allCases
+            let index = cases.firstIndex(of: current) ?? 0
+            defaults.set(cases[(index + 1) % cases.count].rawValue, forKey: "ManicXMB.gameSort")
+        case .consoles:
+            let current = XMBConsoleSort(rawValue: defaults.integer(forKey: "ManicXMB.consoleSort")) ?? .systemDefault
+            let cases = XMBConsoleSort.allCases
+            let index = cases.firstIndex(of: current) ?? 0
+            defaults.set(cases[(index + 1) % cases.count].rawValue, forKey: "ManicXMB.consoleSort")
+        }
+        refreshLabels()
+        NotificationCenter.default.post(name: .xmbLibraryViewSettingsDidChange, object: nil)
+    }
+
+    @objc private func filterPressed() {
+        let defaults = UserDefaults.standard
+        switch kind {
+        case .games:
+            let current = XMBGameFilter(rawValue: defaults.integer(forKey: "ManicXMB.gameFilter")) ?? .all
+            let cases = XMBGameFilter.allCases
+            let index = cases.firstIndex(of: current) ?? 0
+            defaults.set(cases[(index + 1) % cases.count].rawValue, forKey: "ManicXMB.gameFilter")
+        case .consoles:
+            let current = XMBConsoleFilter(rawValue: defaults.integer(forKey: "ManicXMB.consoleFilter")) ?? .libraryOnly
+            let cases = XMBConsoleFilter.allCases
+            let index = cases.firstIndex(of: current) ?? 0
+            defaults.set(cases[(index + 1) % cases.count].rawValue, forKey: "ManicXMB.consoleFilter")
+        }
+        refreshLabels()
+        NotificationCenter.default.post(name: .xmbLibraryViewSettingsDidChange, object: nil)
+    }
+
+    private func refreshLabels() {
+        let defaults = UserDefaults.standard
+        var sortTitle = ""
+        var filterTitle = ""
+
+        switch kind {
+        case .games:
+            sortTitle = (XMBGameSort(rawValue: defaults.integer(forKey: "ManicXMB.gameSort")) ?? .nameAZ).title
+            filterTitle = (XMBGameFilter(rawValue: defaults.integer(forKey: "ManicXMB.gameFilter")) ?? .all).title
+        case .consoles:
+            sortTitle = (XMBConsoleSort(rawValue: defaults.integer(forKey: "ManicXMB.consoleSort")) ?? .systemDefault).title
+            filterTitle = (XMBConsoleFilter(rawValue: defaults.integer(forKey: "ManicXMB.consoleFilter")) ?? .libraryOnly).title
+        }
+
+        if var configuration = sortButton.configuration {
+            configuration.title = "Sort"
+            configuration.subtitle = sortTitle
+            sortButton.configuration = configuration
+        }
+        if var configuration = filterButton.configuration {
+            configuration.title = "Filter"
+            configuration.subtitle = filterTitle
+            filterButton.configuration = configuration
+        }
+    }
+}
+
 // MARK: - Console icon customization
 
 private enum XMBConsoleIconStore {
@@ -2997,6 +3354,12 @@ private final class XMBConsoleIconSettingsViewController: UIViewController {
         configuration.baseForegroundColor = .white
         let button = UIButton(configuration: configuration)
         button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.closePressed()
+            return true
+        }
         return button
     }()
 
@@ -3034,6 +3397,21 @@ private final class XMBConsoleIconSettingsViewController: UIViewController {
             make.top.equalTo(closeButton.snp.bottom).offset(12)
             make.leading.trailing.bottom.equalTo(view.safeAreaLayoutGuide)
         }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ExternalInputDispatch.sink = .focusKit
+        FocusSystem.shared.isEnabled = true
+        pushOverlayFocusContext { [weak self] context in
+            context.autoFocusOnActivate = true
+            context.preferredFocusView = { [weak self] in self?.closeButton }
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if hasFocusContext { popFocusContext() }
     }
 
     @objc private func closePressed() {
@@ -3140,6 +3518,12 @@ private final class XMBGameDetailViewController: UIViewController {
         configuration.baseForegroundColor = .white
         let button = UIButton(configuration: configuration)
         button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.closePressed()
+            return true
+        }
         return button
     }()
 
@@ -3171,6 +3555,12 @@ private final class XMBGameDetailViewController: UIViewController {
         configuration.background.backgroundColor = UIColor.white.withAlphaComponent(0.10)
         let button = UIButton(configuration: configuration)
         button.addTarget(self, action: #selector(morePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.morePressed()
+            return true
+        }
         return button
     }()
 
@@ -3195,8 +3585,7 @@ private final class XMBGameDetailViewController: UIViewController {
         bannerView.alpha = 0.78
         view.addSubview(bannerView)
         bannerView.snp.makeConstraints { make in
-            make.top.leading.trailing.equalToSuperview()
-            make.height.equalToSuperview().multipliedBy(0.48)
+            make.edges.equalToSuperview()
         }
 
         bannerDimView.backgroundColor = UIColor.black.withAlphaComponent(0.42)
@@ -3224,6 +3613,21 @@ private final class XMBGameDetailViewController: UIViewController {
 
         setupContent()
         loadGame()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ExternalInputDispatch.sink = .focusKit
+        FocusSystem.shared.isEnabled = true
+        pushOverlayFocusContext { [weak self] context in
+            context.autoFocusOnActivate = true
+            context.preferredFocusView = { [weak self] in self?.playButton }
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if hasFocusContext { popFocusContext() }
     }
 
     private func setupContent() {
@@ -3480,6 +3884,12 @@ private final class XMBProfileDetailsViewController: UIViewController {
         configuration.baseForegroundColor = .white
         let button = UIButton(configuration: configuration)
         button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.closePressed()
+            return true
+        }
         return button
     }()
 
@@ -3561,12 +3971,28 @@ private final class XMBProfileDetailsViewController: UIViewController {
         control.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
         control.setTitleTextAttributes([.foregroundColor: UIColor.white.withAlphaComponent(0.60)], for: .normal)
         control.addTarget(self, action: #selector(coverModeChanged(_:)), for: .valueChanged)
+        control.isFocusable = true
+        control.enableFocusEffects = false
+        control.onFocusConfirm = { [weak self, weak control] in
+            guard let self, let control else { return true }
+            control.selectedSegmentIndex = control.selectedSegmentIndex == 0 ? 1 : 0
+            self.coverModeChanged(control)
+            return true
+        }
         return control
     }()
 
     private lazy var hintsSwitch: UISwitch = {
         let toggle = UISwitch()
         toggle.addTarget(self, action: #selector(hintsChanged(_:)), for: .valueChanged)
+        toggle.isFocusable = true
+        toggle.enableFocusEffects = false
+        toggle.onFocusConfirm = { [weak self, weak toggle] in
+            guard let self, let toggle else { return true }
+            toggle.setOn(!toggle.isOn, animated: true)
+            self.hintsChanged(toggle)
+            return true
+        }
         return toggle
     }()
 
@@ -3608,6 +4034,21 @@ private final class XMBProfileDetailsViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         refresh()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ExternalInputDispatch.sink = .focusKit
+        FocusSystem.shared.isEnabled = true
+        pushOverlayFocusContext { [weak self] context in
+            context.autoFocusOnActivate = true
+            context.preferredFocusView = { [weak self] in self?.avatarButton }
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if hasFocusContext { popFocusContext() }
     }
 
     private func buildContent() {
@@ -4044,6 +4485,12 @@ private final class XMBPS2MemoryCardViewController: UIViewController {
         configuration.baseForegroundColor = .white
         let button = UIButton(configuration: configuration)
         button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.closePressed()
+            return true
+        }
         return button
     }()
 
@@ -4115,6 +4562,21 @@ private final class XMBPS2MemoryCardViewController: UIViewController {
 
         backgroundView.applyTheme(.current)
         loadMemoryCards()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ExternalInputDispatch.sink = .focusKit
+        FocusSystem.shared.isEnabled = true
+        pushOverlayFocusContext { [weak self] context in
+            context.autoFocusOnActivate = true
+            context.preferredFocusView = { [weak self] in self?.closeButton }
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if hasFocusContext { popFocusContext() }
     }
 
     @objc private func closePressed() {

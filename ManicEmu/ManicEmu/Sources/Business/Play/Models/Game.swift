@@ -1273,6 +1273,7 @@ return URL(fileURLWithPath: path.appendingPathComponent("data/00000001/"))
             isSegaArcade ||
             gameType == .dos ||
             gameType == .symbian ||
+            gameType == .ps2 ||
             isDolphinCore {
             return true
         }

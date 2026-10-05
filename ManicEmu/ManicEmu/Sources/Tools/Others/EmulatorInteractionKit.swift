@@ -403,6 +403,17 @@ enum ARMSX2EmbeddedCore {
             return true
         }
 
+        guard ARMSX2Bridge.canResolveISO(game.romUrl.path) else {
+            UIView.makeToast(message: "ARMSX2 could not read this PS2 game image")
+            return true
+        }
+
+        applyExecutionMode(for: game)
+
+        if game.jit && !ARMSX2Bridge.isJITAvailable() {
+            UIView.makeToast(message: "PS2 JIT is enabled for this game, but no JIT grant is active. ARMSX2 will use its interpreter fallback.")
+        }
+
         let controller = ARMSX2EmbeddedGameViewController(game: game)
         controller.modalPresentationStyle = .fullScreen
         topViewController(appController: true)?.present(controller, animated: true)
@@ -411,6 +422,28 @@ enum ARMSX2EmbeddedCore {
         return false
 #endif
     }
+
+#if canImport(ARMSX2Core)
+    private static func applyExecutionMode(for game: Game) {
+        // Game.jit is Manic's per-game preference. Apply it to ARMSX2's CPU
+        // configuration before every boot. ARMSX2 still performs its own live
+        // JIT-grant check and will fall back if iOS has not granted executable memory.
+        let useJIT = game.jit
+        ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: Int32(useJIT ? 2 : 1))
+        ARMSX2Bridge.setINIBool("EmuCore/CPU", key: "UseArm64Dynarec", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableEE", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableIOP", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: useJIT)
+        ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: true)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: useJIT)
+        if !useJIT {
+            // Match ARMSX2's full-interpreter diagnostic preset for the stable default.
+            ARMSX2Bridge.setINIBool("EmuCore/Speedhacks", key: "vuThread", value: false)
+        }
+        ARMSX2Bridge.flushINISettings()
+    }
+#endif
 }
 
 #if canImport(ARMSX2Core)
@@ -419,7 +452,9 @@ enum ARMSX2EmbeddedCore {
 private final class ARMSX2EmbeddedGameViewController: UIViewController {
     private let gameID: String
     private var hasBooted = false
+    private var isClosing = false
     private weak var renderView: UIView?
+    private var vmObservers: [NSObjectProtocol] = []
 
     init(game: Game) {
         self.gameID = game.id
@@ -456,31 +491,63 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
             renderView.topAnchor.constraint(equalTo: view.topAnchor),
             renderView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+
+        let center = NotificationCenter.default
+        vmObservers = [
+            center.addObserver(forName: Notification.Name("ARMSX2iOSVMDidShutdown"), object: nil, queue: .main) { [weak self] _ in
+                self?.closeAfterVMStops()
+            },
+            center.addObserver(forName: Notification.Name("ARMSX2iOSReturnToMenu"), object: nil, queue: .main) { [weak self] _ in
+                self?.closeAfterVMStops()
+            }
+        ]
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+
+        // ARMSX2 reads connected controllers directly. Do not let the XMB focus
+        // engine consume those same D-pad events while a PS2 VM is active.
+        FocusSystem.shared.isEnabled = false
+
         guard !hasBooted,
               let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
               !game.isInvalidated,
               game.isRomExtsts else { return }
 
+        renderView?.setNeedsLayout()
+        renderView?.layoutIfNeeded()
+        ARMSX2Bridge.prepareGameRenderViewForCurrentRenderer()
+
         hasBooted = true
         if !ARMSX2EmbeddedRuntime.bootISO(atPath: game.romUrl.path) {
             hasBooted = false
             UIView.makeToast(message: "ARMSX2 could not start this PS2 game")
-            dismiss(animated: true)
+            closeAfterVMStops()
         }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        FocusSystem.shared.isEnabled = true
+        ExternalInputDispatch.sink = .focusKit
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
             ARMSX2EmbeddedRuntime.stop()
         }
     }
 
+    private func closeAfterVMStops() {
+        guard !isClosing else { return }
+        isClosing = true
+        FocusSystem.shared.isEnabled = true
+        ExternalInputDispatch.sink = .focusKit
+        if presentingViewController != nil {
+            dismiss(animated: true)
+        }
+    }
+
     deinit {
+        vmObservers.forEach(NotificationCenter.default.removeObserver)
         ARMSX2EmbeddedRuntime.stop()
     }
 }

@@ -1103,6 +1103,11 @@ enum GameOption: Int, CaseIterable {
         }
         
         if game.gameType.externalType {
+            if game.gameType == .ps2 {
+                // Embedded ARMSX2 is a local core in this build. Keep the normal
+                // lightweight external options, but expose Manic's per-game JIT toggle.
+                return [.rename, .cover, .jit, .delete]
+            }
             return [.rename, .cover, .delete]
         }
         
