@@ -3337,17 +3337,16 @@ private final class XMBPS2IconSceneView: SCNView {
         let modelNode = SCNNode(geometry: geometry)
         root.addChildNode(modelNode)
 
-        if let (minimum, maximum) = modelNode.boundingBox {
-            let center = SCNVector3((minimum.x + maximum.x) * 0.5,
-                                    (minimum.y + maximum.y) * 0.5,
-                                    (minimum.z + maximum.z) * 0.5)
-            modelNode.pivot = SCNMatrix4MakeTranslation(center.x, center.y, center.z)
-            let width = max(0.001, maximum.x - minimum.x)
-            let height = max(0.001, maximum.y - minimum.y)
-            let depth = max(0.001, maximum.z - minimum.z)
-            let scale = 1.65 / max(width, max(height, depth))
-            modelNode.scale = SCNVector3(scale, -scale, scale)
-        }
+        let (minimum, maximum) = modelNode.boundingBox
+        let center = SCNVector3((minimum.x + maximum.x) * 0.5,
+                                (minimum.y + maximum.y) * 0.5,
+                                (minimum.z + maximum.z) * 0.5)
+        modelNode.pivot = SCNMatrix4MakeTranslation(center.x, center.y, center.z)
+        let width = max(0.001, maximum.x - minimum.x)
+        let height = max(0.001, maximum.y - minimum.y)
+        let depth = max(0.001, maximum.z - minimum.z)
+        let scale = 1.65 / max(width, max(height, depth))
+        modelNode.scale = SCNVector3(scale, -scale, scale)
 
         modelNode.runAction(.repeatForever(.rotateBy(x: 0, y: CGFloat.pi * 2, z: 0, duration: 6.0)))
 
@@ -3514,7 +3513,7 @@ private struct XMBPS2IconSystem {
         } else {
             joined = first + " " + second
         }
-        let normalized = (joined as NSString)
+        let normalized = joined
             .precomposedStringWithCompatibilityMapping
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
