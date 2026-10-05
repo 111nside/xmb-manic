@@ -408,27 +408,13 @@ enum ARMSX2EmbeddedCore {
             return true
         }
 
-        guard game.jit else {
-            let gameID = game.id
-            UIView.makeAlert(
-                title: "PS2 requires JIT",
-                detail: "ARMSX2's normal iOS game-launch path requires an active JIT grant. Enable JIT for this PS2 game before starting it.",
-                cancelTitle: "Cancel",
-                confirmTitle: R.string.localizable.enableJIT(),
-                confirmAction: {
-                    guard let liveGame = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
-                          !liveGame.isInvalidated else { return }
-                    Game.change { _ in liveGame.jit = true }
-                    _ = ARMSX2EmbeddedCore.startGame(liveGame)
-                })
-            return true
-        }
-
-        guard ARMSX2Bridge.isJITAvailable() else {
+        // PS2 can boot through ARMSX2's interpreter without a JIT grant.
+        // JIT is an opt-in per-game acceleration, not a hard launch requirement.
+        if game.jit && !ARMSX2Bridge.isJITAvailable() {
 #if SIDE_LOAD
             acquireJITAndLaunch(gameID: game.id)
 #else
-            UIView.makeToast(message: "PS2 requires JIT. Install the sideload build and enable JIT before launching this game.")
+            UIView.makeToast(message: "JIT is enabled for this PS2 game, but this build cannot acquire a JIT grant. Disable JIT for interpreter mode.")
 #endif
             return true
         }
@@ -482,16 +468,19 @@ enum ARMSX2EmbeddedCore {
               game.gameType == .ps2,
               game.isRomExtsts else { return }
 
-        // Match ARMSX2's normal iOS JIT defaults. Regular PS2 launches do not
-        // enter its interpreter fallback; upstream itself gates them on JIT.
-        ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: 2)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU", key: "UseArm64Dynarec", value: true)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableEE", value: true)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableIOP", value: true)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: true)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: true)
+        let useJIT = game.jit && ARMSX2Bridge.isJITAvailable()
+
+        ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: Int32(useJIT ? 2 : 1))
+        ARMSX2Bridge.setINIBool("EmuCore/CPU", key: "UseArm64Dynarec", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableEE", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableIOP", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: useJIT)
         ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: true)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: true)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: useJIT)
+        if !useJIT {
+            ARMSX2Bridge.setINIBool("EmuCore/Speedhacks", key: "vuThread", value: false)
+        }
         ARMSX2Bridge.flushINISettings()
 
         let controller = ARMSX2EmbeddedGameViewController(game: game)

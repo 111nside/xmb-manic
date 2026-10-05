@@ -25,63 +25,18 @@ jobs:
           lfs: false
           submodules: recursive
 
-      # ARMSX2 is expensive to build. Restore the framework cache first.
-      # The first optimized run can bootstrap the identical core from the last
-      # known-good IPA instead of recompiling the entire PS2 core.
+      # ARMSX2 is expensive to build, but the cached framework is valid only
+      # when the embedded runtime/patch scripts are byte-for-byte identical.
+      # Never bootstrap from an old IPA: that previously hid native PS2 fixes.
       - name: Restore cached ARMSX2 core
         id: armsx2-cache
         uses: actions/cache/restore@v4
         with:
           path: Cores/ARMSX2Core.framework
-          key: armsx2core-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
-
-      - name: Download known-good IPA for ARMSX2 bootstrap
-        id: armsx2-bootstrap-download
-        if: steps.armsx2-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: ManicEMU-XMB-unsigned-IPA
-          path: ${{ runner.temp }}/armsx2-bootstrap
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: 37242350212
-
-      - name: Extract ARMSX2 core from known-good IPA
-        id: armsx2-bootstrap
-        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap-download.outcome == 'success'
-        run: |
-          set -euo pipefail
-          echo "ready=false" >> "$GITHUB_OUTPUT"
-
-          IPA=$(find "$RUNNER_TEMP/armsx2-bootstrap" -type f -name '*.ipa' | head -1)
-          if [ -z "$IPA" ]; then
-            echo "Bootstrap IPA was not found; falling back to a source build."
-            exit 0
-          fi
-
-          EXTRACT="$RUNNER_TEMP/armsx2-bootstrap-ipa"
-          rm -rf "$EXTRACT"
-          mkdir -p "$EXTRACT"
-          unzip -q "$IPA" -d "$EXTRACT"
-
-          FRAMEWORK=$(find "$EXTRACT/Payload" -type d -path '*/Frameworks/ARMSX2Core.framework' | head -1)
-          if [ -z "$FRAMEWORK" ]; then
-            echo "ARMSX2Core.framework was not found in bootstrap IPA; falling back to a source build."
-            exit 0
-          fi
-
-          rm -rf Cores/ARMSX2Core.framework
-          ditto "$FRAMEWORK" Cores/ARMSX2Core.framework
-          test -f Cores/ARMSX2Core.framework/ARMSX2Core
-
-          echo "Bootstrapped ARMSX2Core.framework:"
-          du -sh Cores/ARMSX2Core.framework
-          otool -L Cores/ARMSX2Core.framework/ARMSX2Core || true
-          echo "ready=true" >> "$GITHUB_OUTPUT"
+          key: armsx2core-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
 
       - name: Checkout pinned ARMSX2 source
-        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: ARMSX2/ARMSX2
@@ -699,43 +654,52 @@ jobs:
           fi
 
       - name: Restore incremental ARMSX2 build cache
-        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/armsx2-core-build
-          key: armsx2-build-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+          key: armsx2-build-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
           restore-keys: |
+            armsx2-build-v2-ios-xcode26.6-67be95a2-
             armsx2-build-ios-xcode26.6-67be95a2-
 
       - name: Build embedded ARMSX2 PS2 core
-        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           chmod +x Scripts/build_armsx2_core.sh
           Scripts/build_armsx2_core.sh ThirdParty/ARMSX2
 
       - name: Save incremental ARMSX2 build cache
-        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/armsx2-core-build
-          key: armsx2-build-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+          key: armsx2-build-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
 
       - name: Validate embedded ARMSX2 PS2 core
         run: |
           set -euo pipefail
           test -d Cores/ARMSX2Core.framework
           test -f Cores/ARMSX2Core.framework/ARMSX2Core
+
+          BIN=Cores/ARMSX2Core.framework/ARMSX2Core
           echo "ARMSX2Core dependencies:"
           du -sh Cores/ARMSX2Core.framework
-          otool -L Cores/ARMSX2Core.framework/ARMSX2Core || true
+          otool -L "$BIN" || true
+
+          # These markers exist only in the current embedded runtime. If either is
+          # absent, fail instead of packaging a stale framework from an older IPA/cache.
+          strings "$BIN" | grep -F "[Embedded] Installed ARMSX2 VM boot observer"
+          strings "$BIN" | grep -F "[Embedded] Posting normal ARMSX2 VM boot request"
+          echo "Verified current native ARMSX2 embedded boot path."
 
       - name: Save ARMSX2 core cache immediately
         if: steps.armsx2-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: Cores/ARMSX2Core.framework
-          key: armsx2core-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+          key: armsx2core-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
 
       - name: Show Xcode version and schemes
         working-directory: ManicEmu
