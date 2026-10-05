@@ -793,11 +793,15 @@ final class XMBHomeViewController: BaseViewController {
 
     private let profileMenuContainerView = UIView()
 
-    private lazy var profileDetailsButton = makeProfileButton(title: "Profile Details", symbol: "person.crop.circle.fill") { [weak self] in
+    private lazy var profileDetailsButton = makeProfileMenuButton(title: "Profile Details",
+                                                                  subtitle: "Account, avatar, XMB colors and preferences",
+                                                                  symbol: "person.crop.circle.fill") { [weak self] in
         self?.openProfileDetails()
     }
 
-    private lazy var ps2MemoryCardsButton = makeProfileButton(title: "PS2 Memory Card Data", symbol: "memorychip.fill") { [weak self] in
+    private lazy var ps2MemoryCardsButton = makeProfileMenuButton(title: "PS2 Memory Card Data",
+                                                                  subtitle: "Browse saves and original PS2 3D icons",
+                                                                  symbol: "memorychip.fill") { [weak self] in
         self?.openPS2MemoryCards()
     }
 
@@ -1122,11 +1126,11 @@ final class XMBHomeViewController: BaseViewController {
         profileMenuStack.axis = .vertical
         profileMenuStack.alignment = .fill
         profileMenuStack.distribution = .fillEqually
-        profileMenuStack.spacing = 10
+        profileMenuStack.spacing = 4
         profileMenuContainerView.addSubview(profileMenuStack)
         profileMenuStack.snp.makeConstraints { make in
             make.edges.equalToSuperview()
-            make.height.equalTo(96)
+            make.height.equalTo(116)
         }
 
         view.addSubview(actionContainerView)
@@ -1336,6 +1340,56 @@ final class XMBHomeViewController: BaseViewController {
         label.font = .systemFont(ofSize: 13, weight: .medium)
         label.textColor = UIColor.white.withAlphaComponent(0.76)
         return label
+    }
+
+    private func makeProfileMenuButton(title: String,
+                                       subtitle: String,
+                                       symbol: String,
+                                       action: @escaping () -> Void) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = title
+        configuration.subtitle = subtitle
+        configuration.image = safeSystemImage(symbol)
+        configuration.imagePlacement = .leading
+        configuration.imagePadding = 14
+        configuration.baseForegroundColor = .white
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .systemFont(ofSize: 16, weight: .semibold)
+            return outgoing
+        }
+        configuration.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .systemFont(ofSize: 11.5, weight: .regular)
+            outgoing.foregroundColor = UIColor.white.withAlphaComponent(0.56)
+            return outgoing
+        }
+
+        let button = UIButton(configuration: configuration)
+        button.contentHorizontalAlignment = .leading
+        button.titleLabel?.textAlignment = .left
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.layer.cornerRadius = 10
+
+        let applyFocus: (Bool) -> Void = { [weak button] focused in
+            guard let button else { return }
+            UIView.animate(withDuration: 0.16,
+                           delay: 0,
+                           options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
+                button.backgroundColor = focused ? UIColor.white.withAlphaComponent(0.10) : .clear
+                button.transform = focused ? CGAffineTransform(scaleX: 1.025, y: 1.025) : .identity
+                button.alpha = focused ? 1.0 : 0.84
+            }
+        }
+        button.onFocusChange = applyFocus
+        button.onFocusConfirm = {
+            action()
+            return true
+        }
+        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        return button
     }
 
     private func makeProfileButton(title: String, symbol: String, action: @escaping () -> Void) -> UIButton {
