@@ -351,10 +351,8 @@ private enum PS2DiagnosticLog {
         recoverPreviousSessionIfNeeded()
 
         let fileSize: UInt64 = {
-            guard let value = try? FileManager.default.attributesOfItem(atPath: game.romUrl.path)[.size] as? NSNumber else {
-                return 0
-            }
-            return value?.uint64Value ?? 0
+            let attributes = try? FileManager.default.attributesOfItem(atPath: game.romUrl.path)
+            return (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         }()
 
         log("========== PS2 SESSION BEGIN ==========")
