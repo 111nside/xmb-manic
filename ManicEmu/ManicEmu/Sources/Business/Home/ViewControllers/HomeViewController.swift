@@ -2507,6 +2507,536 @@ private final class XMBGameRowCell: UICollectionViewCell {
     }
 }
 
+// MARK: - XMB profile details
+
+private final class XMBProfileDetailsViewController: UIViewController {
+    private let backgroundView = XMBWaveBackgroundView()
+    private let scrollView = UIScrollView()
+    private let contentView = UIView()
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Profile"
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 27, weight: .semibold)
+        return label
+    }()
+
+    private lazy var closeButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.left")
+        configuration.title = "Back"
+        configuration.imagePadding = 6
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        return button
+    }()
+
+    private lazy var avatarButton: UIButton = {
+        let button = UIButton(type: .custom)
+        button.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        button.layer.cornerRadius = 48
+        button.clipsToBounds = true
+        button.tintColor = .white
+        button.imageView?.contentMode = .scaleAspectFill
+        button.addTarget(self, action: #selector(changeAvatarPressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.changeAvatarPressed()
+            return true
+        }
+        return button
+    }()
+
+    private let nameLabel: UILabel = {
+        let label = UILabel()
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 25, weight: .semibold)
+        return label
+    }()
+
+    private let statusLabel: UILabel = {
+        let label = UILabel()
+        label.textColor = UIColor.white.withAlphaComponent(0.66)
+        label.font = .systemFont(ofSize: 13, weight: .regular)
+        label.numberOfLines = 2
+        return label
+    }()
+
+    private let statsLabel: UILabel = {
+        let label = UILabel()
+        label.textColor = UIColor.white.withAlphaComponent(0.84)
+        label.font = .systemFont(ofSize: 14, weight: .medium)
+        label.numberOfLines = 0
+        return label
+    }()
+
+    private let accountStatusLabel: UILabel = {
+        let label = UILabel()
+        label.textColor = UIColor.white.withAlphaComponent(0.76)
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.numberOfLines = 2
+        return label
+    }()
+
+    private lazy var editNameButton = makeButton(title: "Display Name", symbol: "pencil") { [weak self] in
+        self?.editName()
+    }
+
+    private lazy var editStatusButton = makeButton(title: "Status", symbol: "text.bubble") { [weak self] in
+        self?.editStatus()
+    }
+
+    private lazy var changeAvatarButton = makeButton(title: "Avatar", symbol: "photo") { [weak self] in
+        self?.changeAvatarPressed()
+    }
+
+    private lazy var retroButton = makeButton(title: "RetroAchievements", symbol: "trophy.fill") {
+        RetroAchievementsLaunchView.show(loginedAction: .jumpProfile)
+    }
+
+    private lazy var historyButton = makeButton(title: "Play History", symbol: "clock.arrow.circlepath") {
+        _ = PlayHistoryView.show()
+    }
+
+    private lazy var coverModeControl: UISegmentedControl = {
+        let control = UISegmentedControl(items: [XMBCoverMode.original.title, XMBCoverMode.square.title])
+        control.selectedSegmentTintColor = UIColor.white.withAlphaComponent(0.22)
+        control.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
+        control.setTitleTextAttributes([.foregroundColor: UIColor.white.withAlphaComponent(0.60)], for: .normal)
+        control.addTarget(self, action: #selector(coverModeChanged(_:)), for: .valueChanged)
+        return control
+    }()
+
+    private lazy var hintsSwitch: UISwitch = {
+        let toggle = UISwitch()
+        toggle.addTarget(self, action: #selector(hintsChanged(_:)), for: .valueChanged)
+        return toggle
+    }()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        view.addSubview(backgroundView)
+        backgroundView.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        view.addSubview(closeButton)
+        closeButton.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
+        }
+
+        view.addSubview(titleLabel)
+        titleLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalTo(closeButton)
+        }
+
+        view.addSubview(scrollView)
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.snp.makeConstraints { make in
+            make.top.equalTo(closeButton.snp.bottom).offset(12)
+            make.leading.trailing.bottom.equalTo(view.safeAreaLayoutGuide)
+        }
+
+        scrollView.addSubview(contentView)
+        contentView.snp.makeConstraints { make in
+            make.edges.equalTo(scrollView.contentLayoutGuide)
+            make.width.equalTo(scrollView.frameLayoutGuide)
+        }
+
+        buildContent()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        refresh()
+    }
+
+    private func buildContent() {
+        let headerCard = makeCard()
+        let preferencesCard = makeCard()
+        let themeCard = makeCard()
+        let accountCard = makeCard()
+
+        contentView.addSubview(headerCard)
+        contentView.addSubview(preferencesCard)
+        contentView.addSubview(themeCard)
+        contentView.addSubview(accountCard)
+
+        headerCard.snp.makeConstraints { make in
+            make.top.equalToSuperview().offset(10)
+            make.centerX.equalToSuperview()
+            make.width.equalTo(620).priority(.high)
+            make.leading.greaterThanOrEqualToSuperview().offset(18)
+            make.trailing.lessThanOrEqualToSuperview().offset(-18)
+        }
+
+        headerCard.addSubview(avatarButton)
+        headerCard.addSubview(nameLabel)
+        headerCard.addSubview(statusLabel)
+
+        avatarButton.snp.makeConstraints { make in
+            make.leading.top.equalToSuperview().offset(18)
+            make.width.height.equalTo(96)
+        }
+
+        nameLabel.snp.makeConstraints { make in
+            make.leading.equalTo(avatarButton.snp.trailing).offset(18)
+            make.trailing.equalToSuperview().offset(-18)
+            make.top.equalTo(avatarButton).offset(8)
+        }
+
+        statusLabel.snp.makeConstraints { make in
+            make.leading.trailing.equalTo(nameLabel)
+            make.top.equalTo(nameLabel.snp.bottom).offset(5)
+        }
+
+        let editStack = UIStackView(arrangedSubviews: [editNameButton, editStatusButton, changeAvatarButton])
+        editStack.axis = .horizontal
+        editStack.distribution = .fillEqually
+        editStack.spacing = 8
+        headerCard.addSubview(editStack)
+        editStack.snp.makeConstraints { make in
+            make.leading.equalTo(nameLabel)
+            make.trailing.equalToSuperview().offset(-18)
+            make.top.greaterThanOrEqualTo(statusLabel.snp.bottom).offset(12)
+            make.height.equalTo(42)
+            make.bottom.equalToSuperview().offset(-18)
+        }
+
+        preferencesCard.snp.makeConstraints { make in
+            make.top.equalTo(headerCard.snp.bottom).offset(12)
+            make.leading.trailing.equalTo(headerCard)
+        }
+
+        let preferencesTitle = makeSectionTitle("Profile & XMB")
+        preferencesCard.addSubview(preferencesTitle)
+        preferencesCard.addSubview(statsLabel)
+        preferencesCard.addSubview(coverModeControl)
+        preferencesCard.addSubview(hintsSwitch)
+
+        let coverLabel = makeSmallLabel("Game cover shape")
+        let hintsLabel = makeSmallLabel("Show controller instructions")
+        preferencesCard.addSubview(coverLabel)
+        preferencesCard.addSubview(hintsLabel)
+
+        preferencesTitle.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview().inset(16)
+        }
+        statsLabel.snp.makeConstraints { make in
+            make.top.equalTo(preferencesTitle.snp.bottom).offset(10)
+            make.leading.trailing.equalToSuperview().inset(16)
+        }
+        coverLabel.snp.makeConstraints { make in
+            make.top.equalTo(statsLabel.snp.bottom).offset(20)
+            make.leading.equalToSuperview().offset(16)
+        }
+        coverModeControl.snp.makeConstraints { make in
+            make.centerY.equalTo(coverLabel)
+            make.trailing.equalToSuperview().offset(-16)
+            make.width.equalTo(200)
+        }
+        hintsLabel.snp.makeConstraints { make in
+            make.top.equalTo(coverLabel.snp.bottom).offset(24)
+            make.leading.equalTo(coverLabel)
+            make.bottom.equalToSuperview().offset(-18)
+        }
+        hintsSwitch.snp.makeConstraints { make in
+            make.centerY.equalTo(hintsLabel)
+            make.trailing.equalToSuperview().offset(-16)
+        }
+
+        themeCard.snp.makeConstraints { make in
+            make.top.equalTo(preferencesCard.snp.bottom).offset(12)
+            make.leading.trailing.equalTo(headerCard)
+        }
+
+        let themeTitle = makeSectionTitle("Classic PS3 Background")
+        let themeSubtitle = makeSmallLabel("Choose an XMB colorway.")
+        themeCard.addSubview(themeTitle)
+        themeCard.addSubview(themeSubtitle)
+        themeTitle.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview().inset(16)
+        }
+        themeSubtitle.snp.makeConstraints { make in
+            make.top.equalTo(themeTitle.snp.bottom).offset(4)
+            make.leading.trailing.equalToSuperview().inset(16)
+        }
+
+        let rows = UIStackView()
+        rows.axis = .vertical
+        rows.spacing = 8
+        rows.distribution = .fillEqually
+        themeCard.addSubview(rows)
+        rows.snp.makeConstraints { make in
+            make.top.equalTo(themeSubtitle.snp.bottom).offset(14)
+            make.leading.trailing.equalToSuperview().inset(16)
+            make.bottom.equalToSuperview().offset(-16)
+        }
+
+        let themes = XMBBackgroundTheme.allCases
+        for start in stride(from: 0, to: themes.count, by: 3) {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 8
+            row.distribution = .fillEqually
+            for index in start..<min(start + 3, themes.count) {
+                row.addArrangedSubview(makeThemeButton(themes[index]))
+            }
+            while row.arrangedSubviews.count < 3 {
+                let spacer = UIView()
+                spacer.isUserInteractionEnabled = false
+                row.addArrangedSubview(spacer)
+            }
+            rows.addArrangedSubview(row)
+            row.snp.makeConstraints { $0.height.equalTo(42) }
+        }
+
+        accountCard.snp.makeConstraints { make in
+            make.top.equalTo(themeCard.snp.bottom).offset(12)
+            make.leading.trailing.equalTo(headerCard)
+            make.bottom.equalToSuperview().offset(-24)
+        }
+
+        let accountTitle = makeSectionTitle("Account")
+        accountCard.addSubview(accountTitle)
+        accountCard.addSubview(accountStatusLabel)
+
+        let accountActions = UIStackView(arrangedSubviews: [retroButton, historyButton])
+        accountActions.axis = .horizontal
+        accountActions.spacing = 8
+        accountActions.distribution = .fillEqually
+        accountCard.addSubview(accountActions)
+
+        accountTitle.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview().inset(16)
+        }
+        accountStatusLabel.snp.makeConstraints { make in
+            make.top.equalTo(accountTitle.snp.bottom).offset(8)
+            make.leading.trailing.equalToSuperview().inset(16)
+        }
+        accountActions.snp.makeConstraints { make in
+            make.top.equalTo(accountStatusLabel.snp.bottom).offset(12)
+            make.leading.trailing.equalToSuperview().inset(16)
+            make.height.equalTo(44)
+            make.bottom.equalToSuperview().offset(-16)
+        }
+    }
+
+    private func makeCard() -> UIView {
+        let view = UIView()
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        view.layer.cornerRadius = 16
+        view.layer.borderWidth = 1
+        view.layer.borderColor = UIColor.white.withAlphaComponent(0.09).cgColor
+        return view
+    }
+
+    private func makeSectionTitle(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 16, weight: .semibold)
+        return label
+    }
+
+    private func makeSmallLabel(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.textColor = UIColor.white.withAlphaComponent(0.70)
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        return label
+    }
+
+    private func makeButton(title: String, symbol: String, action: @escaping () -> Void) -> UIButton {
+        var configuration = UIButton.Configuration.gray()
+        configuration.title = title
+        configuration.image = UIImage(systemName: symbol)
+        configuration.imagePadding = 7
+        configuration.baseForegroundColor = .white
+        configuration.background.backgroundColor = UIColor.white.withAlphaComponent(0.09)
+        let button = UIButton(configuration: configuration)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        button.onFocusConfirm = {
+            action()
+            return true
+        }
+        button.onFocusChange = { [weak button] focused in
+            UIView.animate(withDuration: 0.14) {
+                button?.transform = focused ? CGAffineTransform(scaleX: 1.025, y: 1.025) : .identity
+            }
+        }
+        return button
+    }
+
+    private func makeThemeButton(_ theme: XMBBackgroundTheme) -> UIButton {
+        var configuration = UIButton.Configuration.gray()
+        configuration.title = theme.title
+        configuration.baseForegroundColor = .white
+        configuration.background.backgroundColor = theme.gradientColors[1].withAlphaComponent(0.55)
+        configuration.cornerStyle = .medium
+        let button = UIButton(configuration: configuration)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.addAction(UIAction { [weak button] _ in
+            XMBBackgroundTheme.current = theme
+            button?.superview?.superview?.setNeedsLayout()
+        }, for: .touchUpInside)
+        button.onFocusConfirm = {
+            XMBBackgroundTheme.current = theme
+            return true
+        }
+        return button
+    }
+
+    private func refresh() {
+        let defaults = UserDefaults.standard
+        let name = defaults.string(forKey: "ManicXMB.profileName")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let status = defaults.string(forKey: "ManicXMB.profileStatus")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        nameLabel.text = name?.isEmpty == false ? name : "Player"
+        statusLabel.text = status?.isEmpty == false ? status : "Ready to play"
+
+        let allGames = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
+        let totalDuration = allGames.reduce(0.0) { $0 + $1.totalPlayDuration }
+        let playedGames = allGames.filter { $0.totalPlayDuration > 0 }.count
+        let totalText = totalDuration > 0
+            ? Date.timeDuration(milliseconds: Int(totalDuration))
+            : R.string.localizable.readyGameInfoNeverPlayed()
+        let mostPlayed = allGames
+            .filter { $0.totalPlayDuration > 0 }
+            .max(by: { $0.totalPlayDuration < $1.totalPlayDuration })
+
+        if let mostPlayed {
+            statsLabel.text = "Total playtime  \(totalText)\nGames played  \(playedGames) / \(allGames.count)\nMost played  \(mostPlayed.displayName) • \(Date.timeDuration(milliseconds: Int(mostPlayed.totalPlayDuration)))"
+        } else {
+            statsLabel.text = "Total playtime  \(totalText)\nGames played  \(playedGames) / \(allGames.count)\nMost played  —"
+        }
+
+        accountStatusLabel.text = AchievementsUser.getUser().map {
+            "RetroAchievements connected as \($0.username)"
+        } ?? "RetroAchievements not connected"
+
+        coverModeControl.selectedSegmentIndex = XMBCoverMode(rawValue: defaults.integer(forKey: "ManicXMB.coverMode"))?.rawValue ?? 0
+        hintsSwitch.isOn = defaults.bool(forKey: "ManicXMB.showControllerHints")
+        loadAvatar()
+        backgroundView.applyTheme(.current)
+    }
+
+    private func avatarURL() -> URL? {
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let directory = documents.appendingPathComponent("XMBProfile", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("avatar.png")
+    }
+
+    private func loadAvatar() {
+        if let url = avatarURL(),
+           let data = try? Data(contentsOf: url),
+           let image = UIImage(data: data) {
+            avatarButton.setImage(image, for: .normal)
+            avatarButton.imageView?.contentMode = .scaleAspectFill
+        } else {
+            avatarButton.setImage(UIImage(systemName: "person.crop.circle.fill"), for: .normal)
+            avatarButton.imageView?.contentMode = .scaleAspectFit
+        }
+    }
+
+    @objc private func closePressed() {
+        dismiss(animated: true)
+    }
+
+    @objc private func changeAvatarPressed() {
+        let alert = UIAlertController(title: "Profile avatar", message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "Choose Photo", style: .default) { [weak self] _ in
+            self?.presentAvatarPicker()
+        })
+        alert.addAction(UIAlertAction(title: "Reset Avatar", style: .destructive) { [weak self] _ in
+            guard let self else { return }
+            if let url = avatarURL() {
+                try? FileManager.default.removeItem(at: url)
+            }
+            loadAvatar()
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = avatarButton
+            popover.sourceRect = avatarButton.bounds
+        }
+        present(alert, animated: true)
+    }
+
+    private func presentAvatarPicker() {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func editName() {
+        let alert = UIAlertController(title: "Display name", message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.text = UserDefaults.standard.string(forKey: "ManicXMB.profileName") ?? "Player"
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
+            let value = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            UserDefaults.standard.set(value.isEmpty ? "Player" : String(value.prefix(32)), forKey: "ManicXMB.profileName")
+            self?.refresh()
+        })
+        present(alert, animated: true)
+    }
+
+    private func editStatus() {
+        let alert = UIAlertController(title: "Profile status", message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.text = UserDefaults.standard.string(forKey: "ManicXMB.profileStatus") ?? "Ready to play"
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
+            let value = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            UserDefaults.standard.set(value.isEmpty ? "Ready to play" : String(value.prefix(70)), forKey: "ManicXMB.profileStatus")
+            self?.refresh()
+        })
+        present(alert, animated: true)
+    }
+
+    @objc private func coverModeChanged(_ sender: UISegmentedControl) {
+        UserDefaults.standard.set(sender.selectedSegmentIndex, forKey: "ManicXMB.coverMode")
+    }
+
+    @objc private func hintsChanged(_ sender: UISwitch) {
+        UserDefaults.standard.set(sender.isOn, forKey: "ManicXMB.showControllerHints")
+    }
+}
+
+extension XMBProfileDetailsViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider,
+              provider.canLoadObject(ofClass: UIImage.self) else { return }
+
+        provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+            guard let self, let image = object as? UIImage else { return }
+            DispatchQueue.main.async {
+                if let url = self.avatarURL(), let data = image.pngData() {
+                    try? data.write(to: url, options: .atomic)
+                }
+                self.loadAvatar()
+            }
+        }
+    }
+}
+
 // MARK: - Easier exit from original Manic screens
 
 private final class XMBModalHostViewController: UIViewController {
