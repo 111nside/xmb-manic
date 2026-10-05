@@ -408,15 +408,32 @@ enum ARMSX2EmbeddedCore {
             return true
         }
 
-        applyExecutionMode(for: game)
-
-        if game.jit && !ARMSX2Bridge.isJITAvailable() {
-            UIView.makeToast(message: "PS2 JIT is enabled for this game, but no JIT grant is active. ARMSX2 will use its interpreter fallback.")
+        guard game.jit else {
+            let gameID = game.id
+            UIView.makeAlert(
+                title: "PS2 requires JIT",
+                detail: "ARMSX2's normal iOS game-launch path requires an active JIT grant. Enable JIT for this PS2 game before starting it.",
+                cancelTitle: R.string.localizable.cancelTitle(),
+                confirmTitle: R.string.localizable.enableJIT(),
+                confirmAction: {
+                    guard let liveGame = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+                          !liveGame.isInvalidated else { return }
+                    Game.change { _ in liveGame.jit = true }
+                    _ = ARMSX2EmbeddedCore.startGame(liveGame)
+                })
+            return true
         }
 
-        let controller = ARMSX2EmbeddedGameViewController(game: game)
-        controller.modalPresentationStyle = .fullScreen
-        topViewController(appController: true)?.present(controller, animated: true)
+        guard ARMSX2Bridge.isJITAvailable() else {
+#if SIDE_LOAD
+            acquireJITAndLaunch(gameID: game.id)
+#else
+            UIView.makeToast(message: "PS2 requires JIT. Install the sideload build and enable JIT before launching this game.")
+#endif
+            return true
+        }
+
+        launchPreparedGame(gameID: game.id)
         return true
 #else
         return false
@@ -424,24 +441,62 @@ enum ARMSX2EmbeddedCore {
     }
 
 #if canImport(ARMSX2Core)
-    private static func applyExecutionMode(for game: Game) {
-        // Game.jit is Manic's per-game preference. Apply it to ARMSX2's CPU
-        // configuration before every boot. ARMSX2 still performs its own live
-        // JIT-grant check and will fall back if iOS has not granted executable memory.
-        let useJIT = game.jit
-        ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: Int32(useJIT ? 2 : 1))
-        ARMSX2Bridge.setINIBool("EmuCore/CPU", key: "UseArm64Dynarec", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableEE", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableIOP", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: useJIT)
-        ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: true)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: useJIT)
-        if !useJIT {
-            // Match ARMSX2's full-interpreter diagnostic preset for the stable default.
-            ARMSX2Bridge.setINIBool("EmuCore/Speedhacks", key: "vuThread", value: false)
+    private static func acquireJITAndLaunch(gameID: String) {
+#if SIDE_LOAD
+        if StikJITManager.shared.jitLaunchMode == .externalDebugger {
+            if !StikJITHostCoordinator.shared.openExternalDebugger() {
+                UIView.makeToast(message: R.string.localizable.notInstall("StikDebug"))
+            }
+            return
         }
+
+        UIView.makeLoading(timeout: R.Numbers.WebLoadingViewTimeout)
+        StikJITHostCoordinator.shared.acquireNow { ok, message in
+            DispatchQueue.main.async {
+                UIView.hideLoading()
+
+                guard ok else {
+                    UIView.makeAlert(
+                        title: R.string.localizable.enableJIT(),
+                        detail: message ?? R.string.localizable.errorUnknown(),
+                        detailAlignment: .center,
+                        cancelTitle: R.string.localizable.gotIt())
+                    return
+                }
+
+                guard ARMSX2Bridge.isJITAvailable() else {
+                    UIView.makeToast(message: "JIT was requested, but ARMSX2 still cannot see an active JIT grant.")
+                    return
+                }
+
+                launchPreparedGame(gameID: gameID)
+            }
+        }
+#endif
+    }
+
+    private static func launchPreparedGame(gameID: String) {
+        guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+              !game.isInvalidated,
+              !game.isDeleted,
+              game.gameType == .ps2,
+              game.isRomExtsts else { return }
+
+        // Match ARMSX2's normal iOS JIT defaults. Regular PS2 launches do not
+        // enter its interpreter fallback; upstream itself gates them on JIT.
+        ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: 2)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU", key: "UseArm64Dynarec", value: true)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableEE", value: true)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableIOP", value: true)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: true)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: true)
+        ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: true)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: true)
         ARMSX2Bridge.flushINISettings()
+
+        let controller = ARMSX2EmbeddedGameViewController(game: game)
+        controller.modalPresentationStyle = .fullScreen
+        topViewController(appController: true)?.present(controller, animated: true)
     }
 #endif
 }
