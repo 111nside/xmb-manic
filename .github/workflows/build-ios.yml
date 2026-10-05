@@ -7,6 +7,11 @@ on:
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: xmb-ios-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -20,7 +25,63 @@ jobs:
           lfs: false
           submodules: recursive
 
+      # ARMSX2 is expensive to build. Restore the framework cache first.
+      # The first optimized run can bootstrap the identical core from the last
+      # known-good IPA instead of recompiling the entire PS2 core.
+      - name: Restore cached ARMSX2 core
+        id: armsx2-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: Cores/ARMSX2Core.framework
+          key: armsx2core-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+
+      - name: Download known-good IPA for ARMSX2 bootstrap
+        id: armsx2-bootstrap-download
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ManicEMU-XMB-unsigned-IPA
+          path: ${{ runner.temp }}/armsx2-bootstrap
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 37242350212
+
+      - name: Extract ARMSX2 core from known-good IPA
+        id: armsx2-bootstrap
+        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap-download.outcome == 'success'
+        run: |
+          set -euo pipefail
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+
+          IPA=$(find "$RUNNER_TEMP/armsx2-bootstrap" -type f -name '*.ipa' | head -1)
+          if [ -z "$IPA" ]; then
+            echo "Bootstrap IPA was not found; falling back to a source build."
+            exit 0
+          fi
+
+          EXTRACT="$RUNNER_TEMP/armsx2-bootstrap-ipa"
+          rm -rf "$EXTRACT"
+          mkdir -p "$EXTRACT"
+          unzip -q "$IPA" -d "$EXTRACT"
+
+          FRAMEWORK=$(find "$EXTRACT/Payload" -type d -path '*/Frameworks/ARMSX2Core.framework' | head -1)
+          if [ -z "$FRAMEWORK" ]; then
+            echo "ARMSX2Core.framework was not found in bootstrap IPA; falling back to a source build."
+            exit 0
+          fi
+
+          rm -rf Cores/ARMSX2Core.framework
+          ditto "$FRAMEWORK" Cores/ARMSX2Core.framework
+          test -f Cores/ARMSX2Core.framework/ARMSX2Core
+
+          echo "Bootstrapped ARMSX2Core.framework:"
+          du -sh Cores/ARMSX2Core.framework
+          otool -L Cores/ARMSX2Core.framework/ARMSX2Core || true
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
       - name: Checkout pinned ARMSX2 source
+        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
         uses: actions/checkout@v4
         with:
           repository: ARMSX2/ARMSX2
@@ -638,22 +699,40 @@ jobs:
           fi
 
       - name: Build embedded ARMSX2 PS2 core
+        if: steps.armsx2-cache.outputs.cache-hit != 'true' && steps.armsx2-bootstrap.outputs.ready != 'true'
         run: |
           set -euo pipefail
           chmod +x Scripts/build_armsx2_core.sh
           Scripts/build_armsx2_core.sh ThirdParty/ARMSX2
 
+      - name: Validate embedded ARMSX2 PS2 core
+        run: |
+          set -euo pipefail
           test -d Cores/ARMSX2Core.framework
           test -f Cores/ARMSX2Core.framework/ARMSX2Core
-
           echo "ARMSX2Core dependencies:"
+          du -sh Cores/ARMSX2Core.framework
           otool -L Cores/ARMSX2Core.framework/ARMSX2Core || true
+
+      - name: Save ARMSX2 core cache immediately
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Cores/ARMSX2Core.framework
+          key: armsx2core-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
 
       - name: Show Xcode version and schemes
         working-directory: ManicEmu
         run: |
           xcodebuild -version
           xcodebuild -project ManicEmu.xcodeproj -list
+
+      - name: Restore Swift package source cache
+        id: swiftpm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: swiftpm-ios-xcode26.6-${{ hashFiles('ManicEmu/ManicEmu.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Resolve Swift packages
         working-directory: ManicEmu
@@ -662,7 +741,15 @@ jobs:
             -resolvePackageDependencies \
             -project ManicEmu.xcodeproj \
             -scheme ManicEmuSideload \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
             -skipPackagePluginValidation
+
+      - name: Save Swift package source cache immediately
+        if: steps.swiftpm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: swiftpm-ios-xcode26.6-${{ hashFiles('ManicEmu/ManicEmu.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Build unsigned iPhone app
         working-directory: ManicEmu
@@ -675,6 +762,7 @@ jobs:
             -configuration SideloadRelease \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \

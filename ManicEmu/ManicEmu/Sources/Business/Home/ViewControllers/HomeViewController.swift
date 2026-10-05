@@ -3970,6 +3970,12 @@ private final class XMBProfileDetailsViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    private func openConsoleIconSettings() {
+        let controller = XMBConsoleIconSettingsViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
+
     @objc private func coverModeChanged(_ sender: UISegmentedControl) {
         UserDefaults.standard.set(sender.selectedSegmentIndex, forKey: "ManicXMB.coverMode")
     }
@@ -4183,7 +4189,7 @@ extension XMBPS2MemoryCardViewController: UITableViewDataSource, UITableViewDele
 private final class XMBPS2SaveCell: UITableViewCell {
     static let reuseIdentifier = "XMBPS2SaveCell"
 
-    private let iconView = XMBPS2IconSceneView()
+    private let iconView = XMBPS2IconSceneView(frame: .zero)
     private let fallbackIconView: UIImageView = {
         let view = UIImageView(image: UIImage(systemName: "memorychip.fill"))
         view.tintColor = UIColor.white.withAlphaComponent(0.70)
@@ -4244,7 +4250,7 @@ private final class XMBPS2SaveCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        iconView.setModel(nil)
+        iconView.setModel(Optional<XMBPS2IconModel>.none)
         fallbackIconView.isHidden = false
         titleLabel.text = nil
         detailLabel.text = nil
