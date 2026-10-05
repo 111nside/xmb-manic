@@ -69,7 +69,9 @@ static UIWindowScene *ARMSX2EmbeddedForegroundWindowScene(void)
 
 static BOOL ARMSX2EmbeddedPrepareOnMain(void)
 {
-    if (g_embeddedPrepared && [ARMSX2Bridge gameRenderView] != nil)
+    if (g_embeddedPrepared &&
+        g_embeddedSceneDelegate.window != nil &&
+        Host::g_sdl_window != nullptr)
         return YES;
 
     NSArray<NSString *> *documents = NSSearchPathForDirectoriesInDomains(
@@ -118,7 +120,9 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
               willConnectToSession:windowScene.session
                            options:nil];
 
-    g_embeddedPrepared = ([ARMSX2Bridge gameRenderView] != nil);
+    g_embeddedPrepared = (g_embeddedSceneDelegate.window != nil &&
+                          g_embeddedSceneDelegate.window.rootViewController != nil &&
+                          Host::g_sdl_window != nullptr);
     Console.WriteLn("[Embedded] ARMSX2 prepare result=%d resources=%s data=%s",
                     g_embeddedPrepared ? 1 : 0,
                     EmuFolders::Resources.c_str(),
@@ -152,13 +156,11 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
         window.hidden = NO;
         [window makeKeyAndVisible];
 
-        UIView *renderView = [ARMSX2Bridge gameRenderView];
+        UIView *renderView = window.rootViewController.view;
         [renderView setNeedsLayout];
         [renderView layoutIfNeeded];
-        [window.rootViewController.view setNeedsLayout];
-        [window.rootViewController.view layoutIfNeeded];
 
-        Console.WriteLn("[Embedded] ARMSX2 game window shown window=%p render=%p size=%.0fx%.0f",
+        Console.WriteLn("[Embedded] ARMSX2 game window shown window=%p sdl_root=%p size=%.0fx%.0f",
                         window,
                         renderView,
                         renderView.bounds.size.width,
@@ -204,12 +206,12 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
         // SceneDelegate's private VM starter directly. The embedded SceneDelegate
         // installs the same boot observer as the standalone app.
         [ARMSX2Bridge bootISO:path];
-        [ARMSX2Bridge prepareGameRenderViewForCurrentRenderer];
 
-        UIView *renderView = [ARMSX2Bridge gameRenderView];
-        Console.WriteLn("[Embedded] PS2 boot request render=%p window=%p size=%.0fx%.0f",
+        UIWindow *window = g_embeddedSceneDelegate.window;
+        UIView *renderView = window.rootViewController.view;
+        Console.WriteLn("[Embedded] PS2 boot request sdl_root=%p window=%p size=%.0fx%.0f",
                         renderView,
-                        renderView.window,
+                        window,
                         renderView.bounds.size.width,
                         renderView.bounds.size.height);
 

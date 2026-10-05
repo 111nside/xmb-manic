@@ -548,7 +548,6 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
               game.isRomExtsts else { return }
 
         ARMSX2EmbeddedRuntime.showGameWindow()
-        ARMSX2Bridge.prepareGameRenderViewForCurrentRenderer()
 
         hasBooted = true
         if !ARMSX2EmbeddedRuntime.bootISO(atPath: game.romUrl.path) {
