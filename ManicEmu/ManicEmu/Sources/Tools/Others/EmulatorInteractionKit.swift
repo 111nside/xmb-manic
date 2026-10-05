@@ -580,7 +580,7 @@ enum ARMSX2EmbeddedCore {
         PS2DiagnosticLog.begin(game: game)
         PS2DiagnosticLog.checkpoint("startGame.before-prepare")
         let prepared = prepare()
-        PS2DiagnosticLog.log("prepare_result=(prepared)")
+        PS2DiagnosticLog.log("prepare_result=\(prepared)")
         PS2DiagnosticLog.checkpoint("startGame.after-prepare")
         guard prepared else {
             PS2DiagnosticLog.end(clean: true, reason: "prepare returned false")
@@ -591,7 +591,7 @@ enum ARMSX2EmbeddedCore {
         let biosName = ARMSX2Bridge.defaultBIOSName()
         let biosAvailable = ARMSX2Bridge.hasBIOS()
         let validBIOS = ARMSX2Bridge.availableBIOSInfos().filter { $0.valid }.map(.fileName)
-        PS2DiagnosticLog.log("bios_available=(biosAvailable) default_bios=(biosName) valid_bios_files=(validBIOS)")
+        PS2DiagnosticLog.log("bios_available=\(biosAvailable) default_bios=\(biosName) valid_bios_files=\(validBIOS)")
         PS2DiagnosticLog.checkpoint("startGame.after-bios-check")
         guard biosAvailable else {
             PS2DiagnosticLog.end(clean: true, reason: "BIOS missing")
@@ -601,7 +601,7 @@ enum ARMSX2EmbeddedCore {
 
         PS2DiagnosticLog.checkpoint("startGame.before-canResolveISO")
         let canResolve = ARMSX2Bridge.canResolveISO(game.romUrl.path)
-        PS2DiagnosticLog.log("canResolveISO=(canResolve)")
+        PS2DiagnosticLog.log("canResolveISO=\(canResolve)")
         PS2DiagnosticLog.checkpoint("startGame.after-canResolveISO")
         guard canResolve else {
             PS2DiagnosticLog.end(clean: true, reason: "ISO could not be resolved")
@@ -610,7 +610,7 @@ enum ARMSX2EmbeddedCore {
         }
 
         let jitAvailable = ARMSX2Bridge.isJITAvailable()
-        PS2DiagnosticLog.log("jit_preference=(game.jit) jit_available=(jitAvailable)")
+        PS2DiagnosticLog.log("jit_preference=\(game.jit) jit_available=\(jitAvailable)")
         PS2DiagnosticLog.checkpoint("startGame.after-jit-check")
 
         // PS2 can boot through ARMSX2's interpreter without a JIT grant.
@@ -646,7 +646,7 @@ enum ARMSX2EmbeddedCore {
         StikJITHostCoordinator.shared.acquireNow { ok, message in
             DispatchQueue.main.async {
                 UIView.hideLoading()
-                PS2DiagnosticLog.log("jit-acquire.callback ok=(ok) message=(message ?? "nil")")
+                PS2DiagnosticLog.log("jit-acquire.callback ok=\(ok) message=\(message ?? "nil")")
                 PS2DiagnosticLog.checkpoint("jit-acquire.callback")
 
                 guard ok else {
@@ -678,7 +678,7 @@ enum ARMSX2EmbeddedCore {
               game.isRomExtsts else { return }
 
         let useJIT = game.jit && ARMSX2Bridge.isJITAvailable()
-        PS2DiagnosticLog.log("launchPreparedGame useJIT=(useJIT)")
+        PS2DiagnosticLog.log("launchPreparedGame useJIT=\(useJIT)")
         PS2DiagnosticLog.checkpoint("launchPreparedGame.before-cpu-settings")
 
         ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: Int32(useJIT ? 2 : 1))
@@ -734,7 +734,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
 
         PS2DiagnosticLog.checkpoint("gameVC.viewDidLoad.before-runtime-prepare")
         let runtimePrepared = ARMSX2EmbeddedRuntime.prepare()
-        PS2DiagnosticLog.log("gameVC runtime_prepare_result=(runtimePrepared)")
+        PS2DiagnosticLog.log("gameVC runtime_prepare_result=\(runtimePrepared)")
         PS2DiagnosticLog.checkpoint("gameVC.viewDidLoad.after-runtime-prepare")
         guard runtimePrepared else {
             UIView.makeToast(message: "Could not initialize the embedded ARMSX2 core")
@@ -784,7 +784,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         hasBooted = true
         PS2DiagnosticLog.checkpoint("gameVC.before-bootISO")
         let bootAccepted = ARMSX2EmbeddedRuntime.bootISO(atPath: game.romUrl.path)
-        PS2DiagnosticLog.log("bootISO_return=(bootAccepted)")
+        PS2DiagnosticLog.log("bootISO_return=\(bootAccepted)")
         PS2DiagnosticLog.checkpoint("gameVC.after-bootISO")
         if !bootAccepted {
             hasBooted = false
@@ -795,7 +795,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        PS2DiagnosticLog.log("gameVC.viewWillDisappear isBeingDismissed=(isBeingDismissed) navDismissed=(navigationController?.isBeingDismissed == true)")
+        PS2DiagnosticLog.log("gameVC.viewWillDisappear isBeingDismissed=\(isBeingDismissed) navDismissed=\(navigationController?.isBeingDismissed == true)")
         FocusSystem.shared.isEnabled = true
         ExternalInputDispatch.sink = .focusKit
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
