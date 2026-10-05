@@ -497,7 +497,6 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     private let gameID: String
     private var hasBooted = false
     private var isClosing = false
-    private weak var renderView: UIView?
     private var vmObservers: [NSObjectProtocol] = []
 
     init(game: Game) {
@@ -523,19 +522,8 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
             return
         }
 
-        let renderView = ARMSX2Bridge.gameRenderView()
-        renderView.removeFromSuperview()
-        renderView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(renderView)
-        self.renderView = renderView
-
-        NSLayoutConstraint.activate([
-            renderView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            renderView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            renderView.topAnchor.constraint(equalTo: view.topAnchor),
-            renderView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-
+        // Do not reparent ARMSX2's CAMetalLayer into Manic's UIWindow.
+        // The native render surface stays attached to ARMSX2's SDL-created window.
         let center = NotificationCenter.default
         vmObservers = [
             center.addObserver(forName: Notification.Name("ARMSX2iOSVMDidShutdown"), object: nil, queue: .main) { [weak self] _ in
@@ -559,8 +547,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
               !game.isInvalidated,
               game.isRomExtsts else { return }
 
-        renderView?.setNeedsLayout()
-        renderView?.layoutIfNeeded()
+        ARMSX2EmbeddedRuntime.showGameWindow()
         ARMSX2Bridge.prepareGameRenderViewForCurrentRenderer()
 
         hasBooted = true
@@ -577,6 +564,8 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         ExternalInputDispatch.sink = .focusKit
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
             ARMSX2EmbeddedRuntime.stop()
+            ARMSX2EmbeddedRuntime.hideGameWindow()
+            ApplicationSceneDelegate.applicationWindow?.makeKeyAndVisible()
         }
     }
 
@@ -585,6 +574,8 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         isClosing = true
         FocusSystem.shared.isEnabled = true
         ExternalInputDispatch.sink = .focusKit
+        ARMSX2EmbeddedRuntime.hideGameWindow()
+        ApplicationSceneDelegate.applicationWindow?.makeKeyAndVisible()
         if presentingViewController != nil {
             dismiss(animated: true)
         }
@@ -593,6 +584,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     deinit {
         vmObservers.forEach(NotificationCenter.default.removeObserver)
         ARMSX2EmbeddedRuntime.stop()
+        ARMSX2EmbeddedRuntime.hideGameWindow()
     }
 }
 #endif

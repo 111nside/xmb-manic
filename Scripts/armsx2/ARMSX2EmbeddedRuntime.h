@@ -12,6 +12,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// Safe to call repeatedly. Must succeed before asking for the render view.
 + (BOOL)prepare;
 
+/// Makes ARMSX2's SDL-created host window visible and key for gameplay.
+/// The Metal render view remains attached to this window for its entire lifetime.
++ (void)showGameWindow;
+
+/// Hides ARMSX2's host window after gameplay. The host app should then make its
+/// own UIWindow key again.
++ (void)hideGameWindow;
+
 /// Boots a local PS2 image through the already-prepared PCSX2 runtime.
 + (BOOL)bootISOAtPath:(NSString *)path NS_SWIFT_NAME(bootISO(atPath:));
 

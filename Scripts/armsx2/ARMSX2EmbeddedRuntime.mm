@@ -142,6 +142,50 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
     return result;
 }
 
++ (void)showGameWindow
+{
+    void (^show)(void) = ^{
+        if (![self prepare] || !g_embeddedSceneDelegate.window)
+            return;
+
+        UIWindow *window = g_embeddedSceneDelegate.window;
+        window.hidden = NO;
+        [window makeKeyAndVisible];
+
+        UIView *renderView = [ARMSX2Bridge gameRenderView];
+        [renderView setNeedsLayout];
+        [renderView layoutIfNeeded];
+        [window.rootViewController.view setNeedsLayout];
+        [window.rootViewController.view layoutIfNeeded];
+
+        Console.WriteLn("[Embedded] ARMSX2 game window shown window=%p render=%p size=%.0fx%.0f",
+                        window,
+                        renderView,
+                        renderView.bounds.size.width,
+                        renderView.bounds.size.height);
+    };
+
+    if ([NSThread isMainThread])
+        show();
+    else
+        dispatch_async(dispatch_get_main_queue(), show);
+}
+
++ (void)hideGameWindow
+{
+    void (^hide)(void) = ^{
+        if (g_embeddedSceneDelegate.window) {
+            g_embeddedSceneDelegate.window.hidden = YES;
+            Console.WriteLn("[Embedded] ARMSX2 game window hidden");
+        }
+    };
+
+    if ([NSThread isMainThread])
+        hide();
+    else
+        dispatch_async(dispatch_get_main_queue(), hide);
+}
+
 + (BOOL)bootISOAtPath:(NSString *)path
 {
     if (path.length == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:path])
