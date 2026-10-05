@@ -156,15 +156,22 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
         window.hidden = NO;
         [window makeKeyAndVisible];
 
-        UIView *renderView = window.rootViewController.view;
-        [renderView setNeedsLayout];
-        [renderView layoutIfNeeded];
+        UIView *rootView = window.rootViewController.view;
+        [rootView setNeedsLayout];
+        [rootView layoutIfNeeded];
 
-        Console.WriteLn("[Embedded] ARMSX2 game window shown window=%p sdl_root=%p size=%.0fx%.0f",
+        UIView *gameView = [ARMSX2Bridge gameRenderView];
+        [gameView setNeedsLayout];
+        [gameView layoutIfNeeded];
+
+        Console.WriteLn("[Embedded] ARMSX2 game window shown window=%p root=%p root_size=%.0fx%.0f game=%p game_size=%.0fx%.0f",
                         window,
-                        renderView,
-                        renderView.bounds.size.width,
-                        renderView.bounds.size.height);
+                        rootView,
+                        rootView.bounds.size.width,
+                        rootView.bounds.size.height,
+                        gameView,
+                        gameView.bounds.size.width,
+                        gameView.bounds.size.height);
     };
 
     if ([NSThread isMainThread])
@@ -208,12 +215,16 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
         [ARMSX2Bridge bootISO:path];
 
         UIWindow *window = g_embeddedSceneDelegate.window;
-        UIView *renderView = window.rootViewController.view;
-        Console.WriteLn("[Embedded] PS2 boot request sdl_root=%p window=%p size=%.0fx%.0f",
-                        renderView,
+        UIView *rootView = window.rootViewController.view;
+        UIView *gameView = [ARMSX2Bridge gameRenderView];
+        [rootView layoutIfNeeded];
+        [gameView layoutIfNeeded];
+        Console.WriteLn("[Embedded] PS2 boot request root=%p game=%p window=%p game_size=%.0fx%.0f",
+                        rootView,
+                        gameView,
                         window,
-                        renderView.bounds.size.width,
-                        renderView.bounds.size.height);
+                        gameView.bounds.size.width,
+                        gameView.bounds.size.height);
 
         // Let Auto Layout/CAMetalLayer commit the visible game surface before
         // the VM asks Metal for its render window.
