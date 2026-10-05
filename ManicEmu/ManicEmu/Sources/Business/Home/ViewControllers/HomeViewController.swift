@@ -538,6 +538,7 @@ private enum XMBBackgroundTheme: Int, CaseIterable {
 
 private extension Notification.Name {
     static let xmbBackgroundThemeDidChange = Notification.Name("ManicXMB.BackgroundThemeDidChange")
+    static let xmbConsoleIconsDidChange = Notification.Name("ManicXMB.ConsoleIconsDidChange")
 }
 
 private enum XMBCoverMode: Int {
@@ -602,11 +603,80 @@ private final class XMBGameColumnLayout: UICollectionViewFlowLayout {
     }
 }
 
+private enum XMBGameSort: Int, CaseIterable {
+    case nameAZ = 0
+    case nameZA
+    case recentlyPlayed
+    case mostPlayed
+    case recentlyAdded
+
+    var title: String {
+        switch self {
+        case .nameAZ: return "Name A–Z"
+        case .nameZA: return "Name Z–A"
+        case .recentlyPlayed: return "Recently Played"
+        case .mostPlayed: return "Most Played"
+        case .recentlyAdded: return "Recently Added"
+        }
+    }
+}
+
+private enum XMBGameFilter: Int, CaseIterable {
+    case all = 0
+    case played
+    case unplayed
+    case hasSave
+
+    var title: String {
+        switch self {
+        case .all: return "All Games"
+        case .played: return "Played"
+        case .unplayed: return "Unplayed"
+        case .hasSave: return "Has Save Data"
+        }
+    }
+}
+
+private enum XMBConsoleSort: Int, CaseIterable {
+    case systemDefault = 0
+    case nameAZ
+    case nameZA
+    case recentlyPlayed
+    case mostPlayed
+
+    var title: String {
+        switch self {
+        case .systemDefault: return "System Default"
+        case .nameAZ: return "Name A–Z"
+        case .nameZA: return "Name Z–A"
+        case .recentlyPlayed: return "Recently Played"
+        case .mostPlayed: return "Most Played"
+        }
+    }
+}
+
+private enum XMBConsoleFilter: Int, CaseIterable {
+    case libraryOnly = 0
+    case allSystems
+    case playedSystems
+
+    var title: String {
+        switch self {
+        case .libraryOnly: return "Library Systems"
+        case .allSystems: return "All Systems"
+        case .playedSystems: return "Played Systems"
+        }
+    }
+}
+
 private struct XMBGameItem {
     let id: String
     let displayName: String
     let gameType: GameType
     let totalPlayDuration: Double
+    let latestPlayDate: Date?
+    let importDate: Date
+    let hasSaveData: Bool
 
     init?(game: Game) {
         guard !game.isInvalidated else { return nil }
@@ -615,6 +685,9 @@ private struct XMBGameItem {
         displayName = resolvedName.isEmpty ? game.name : resolvedName
         gameType = game.effectiveGameType
         totalPlayDuration = game.totalPlayDuration.isFinite ? max(0, game.totalPlayDuration) : 0
+        latestPlayDate = game.latestPlayDate
+        importDate = game.importDate
+        hasSaveData = game.isSaveExtsts
     }
 }
 
@@ -653,6 +726,10 @@ final class XMBHomeViewController: BaseViewController {
     private static let showHintsDefaultsKey = "ManicXMB.showControllerHints"
     private static let profileNameDefaultsKey = "ManicXMB.profileName"
     private static let profileStatusDefaultsKey = "ManicXMB.profileStatus"
+    private static let gameSortDefaultsKey = "ManicXMB.gameSort"
+    private static let gameFilterDefaultsKey = "ManicXMB.gameFilter"
+    private static let consoleSortDefaultsKey = "ManicXMB.consoleSort"
+    private static let consoleFilterDefaultsKey = "ManicXMB.consoleFilter"
 
     private var sections: [XMBSection] = []
     private var selectedSectionIndex = 0
@@ -668,8 +745,28 @@ final class XMBHomeViewController: BaseViewController {
     private var pendingLibraryRefresh = false
     private var isRefreshingLibrary = false
     private var libraryRefreshWorkItem: DispatchWorkItem?
-    private var touchSelectedGameID: String?
     private var pendingSectionTransitionDirection: CGFloat = 0
+    private var consoleIconObserver: NSObjectProtocol?
+
+    private var gameSort: XMBGameSort {
+        get { XMBGameSort(rawValue: UserDefaults.standard.integer(forKey: Self.gameSortDefaultsKey)) ?? .nameAZ }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: Self.gameSortDefaultsKey) }
+    }
+
+    private var gameFilter: XMBGameFilter {
+        get { XMBGameFilter(rawValue: UserDefaults.standard.integer(forKey: Self.gameFilterDefaultsKey)) ?? .all }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: Self.gameFilterDefaultsKey) }
+    }
+
+    private var consoleSort: XMBConsoleSort {
+        get { XMBConsoleSort(rawValue: UserDefaults.standard.integer(forKey: Self.consoleSortDefaultsKey)) ?? .systemDefault }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: Self.consoleSortDefaultsKey) }
+    }
+
+    private var consoleFilter: XMBConsoleFilter {
+        get { XMBConsoleFilter(rawValue: UserDefaults.standard.integer(forKey: Self.consoleFilterDefaultsKey)) ?? .libraryOnly }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: Self.consoleFilterDefaultsKey) }
+    }
 
     private var coverMode: XMBCoverMode {
         get {
@@ -701,11 +798,19 @@ final class XMBHomeViewController: BaseViewController {
         return label
     }()
 
+    private lazy var gameOptionsButton: UIButton = makeXMBOptionsButton(symbol: "line.3.horizontal.decrease.circle", title: "Games") { [weak self] in
+        self?.refreshViewOptionMenus()
+    }
+
+    private lazy var consoleOptionsButton: UIButton = makeXMBOptionsButton(symbol: "arrow.up.arrow.down.circle", title: "Systems") { [weak self] in
+        self?.refreshViewOptionMenus()
+    }
+
     private let sectionScrollView: UIScrollView = {
         let scrollView = UIScrollView()
         scrollView.showsHorizontalScrollIndicator = false
-        scrollView.alwaysBounceHorizontal = false
-        scrollView.isScrollEnabled = false
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.isScrollEnabled = true
         scrollView.clipsToBounds = false
         scrollView.decelerationRate = .fast
         return scrollView
@@ -772,8 +877,8 @@ final class XMBHomeViewController: BaseViewController {
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.showsVerticalScrollIndicator = false
-        collectionView.alwaysBounceVertical = false
-        collectionView.isScrollEnabled = false
+        collectionView.alwaysBounceVertical = true
+        collectionView.isScrollEnabled = true
         collectionView.clipsToBounds = true
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.register(XMBGameRowCell.self, forCellWithReuseIdentifier: XMBGameRowCell.reuseIdentifier)
@@ -938,6 +1043,13 @@ final class XMBHomeViewController: BaseViewController {
         observeGames()
         updateClock()
         applyControllerHintVisibility()
+        refreshViewOptionMenus()
+
+        consoleIconObserver = NotificationCenter.default.addObserver(forName: .xmbConsoleIconsDidChange,
+                                                                     object: nil,
+                                                                     queue: .main) { [weak self] _ in
+            self?.refreshSectionButtonImages()
+        }
 
         clockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.updateClock()
@@ -948,6 +1060,9 @@ final class XMBHomeViewController: BaseViewController {
         libraryRefreshWorkItem?.cancel()
         gameToken = nil
         clockTimer?.invalidate()
+        if let consoleIconObserver {
+            NotificationCenter.default.removeObserver(consoleIconObserver)
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -1040,6 +1155,16 @@ final class XMBHomeViewController: BaseViewController {
             make.trailing.equalTo(view.safeAreaLayoutGuide).offset(-20)
         }
 
+        let optionsStack = UIStackView(arrangedSubviews: [consoleOptionsButton, gameOptionsButton])
+        optionsStack.axis = .horizontal
+        optionsStack.alignment = .center
+        optionsStack.spacing = 6
+        view.addSubview(optionsStack)
+        optionsStack.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
+            make.centerY.equalTo(dateLabel)
+        }
+
         view.addSubview(selectedSectionGlow)
         selectedSectionGlow.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
@@ -1047,6 +1172,7 @@ final class XMBHomeViewController: BaseViewController {
         }
 
         view.addSubview(sectionScrollView)
+        sectionScrollView.delegate = self
         sectionScrollView.snp.makeConstraints { make in
             sectionCenterConstraint = make.centerY.equalToSuperview().offset(-40).constraint
             make.leading.trailing.equalTo(view.safeAreaLayoutGuide)
@@ -1342,6 +1468,88 @@ final class XMBHomeViewController: BaseViewController {
         return label
     }
 
+    private func makeXMBOptionsButton(symbol: String,
+                                      title: String,
+                                      menuWillOpen: @escaping () -> Void) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = safeSystemImage(symbol)
+        configuration.title = title
+        configuration.imagePadding = 5
+        configuration.baseForegroundColor = UIColor.white.withAlphaComponent(0.76)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7)
+
+        let button = UIButton(configuration: configuration)
+        button.backgroundColor = UIColor.black.withAlphaComponent(0.10)
+        button.layer.cornerRadius = 10
+        button.showsMenuAsPrimaryAction = true
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.addAction(UIAction { _ in menuWillOpen() }, for: .menuActionTriggered)
+        button.onFocusChange = { [weak button] focused in
+            UIView.animate(withDuration: 0.14) {
+                button?.backgroundColor = focused
+                    ? UIColor.white.withAlphaComponent(0.14)
+                    : UIColor.black.withAlphaComponent(0.10)
+                button?.transform = focused ? CGAffineTransform(scaleX: 1.04, y: 1.04) : .identity
+            }
+        }
+        return button
+    }
+
+    private func refreshViewOptionMenus() {
+        let selectedGameSort = gameSort
+        let selectedGameFilter = gameFilter
+        let gameSortActions = XMBGameSort.allCases.map { value in
+            UIAction(title: value.title,
+                     state: value == selectedGameSort ? .on : .off) { [weak self] _ in
+                guard let self else { return }
+                self.gameSort = value
+                self.refreshViewOptionMenus()
+                self.updateSelectedSection(animated: true, restoreFocus: false)
+            }
+        }
+        let gameFilterActions = XMBGameFilter.allCases.map { value in
+            UIAction(title: value.title,
+                     state: value == selectedGameFilter ? .on : .off) { [weak self] _ in
+                guard let self else { return }
+                self.gameFilter = value
+                self.refreshViewOptionMenus()
+                self.updateSelectedSection(animated: true, restoreFocus: false)
+            }
+        }
+        gameOptionsButton.menu = UIMenu(title: "Game View",
+                                        children: [
+                                            UIMenu(title: "Sort", options: .displayInline, children: gameSortActions),
+                                            UIMenu(title: "Filter", options: .displayInline, children: gameFilterActions)
+                                        ])
+
+        let selectedConsoleSort = consoleSort
+        let selectedConsoleFilter = consoleFilter
+        let consoleSortActions = XMBConsoleSort.allCases.map { value in
+            UIAction(title: value.title,
+                     state: value == selectedConsoleSort ? .on : .off) { [weak self] _ in
+                guard let self else { return }
+                self.consoleSort = value
+                self.refreshViewOptionMenus()
+                self.rebuildSectionsAndContent()
+            }
+        }
+        let consoleFilterActions = XMBConsoleFilter.allCases.map { value in
+            UIAction(title: value.title,
+                     state: value == selectedConsoleFilter ? .on : .off) { [weak self] _ in
+                guard let self else { return }
+                self.consoleFilter = value
+                self.refreshViewOptionMenus()
+                self.rebuildSectionsAndContent()
+            }
+        }
+        consoleOptionsButton.menu = UIMenu(title: "System View",
+                                           children: [
+                                               UIMenu(title: "Sort", options: .displayInline, children: consoleSortActions),
+                                               UIMenu(title: "Filter", options: .displayInline, children: consoleFilterActions)
+                                           ])
+    }
+
     private func makeProfileMenuButton(title: String,
                                        subtitle: String,
                                        symbol: String,
@@ -1502,11 +1710,56 @@ final class XMBHomeViewController: BaseViewController {
             : UserDefaults.standard.string(forKey: Self.selectedSectionDefaultsKey)
 
         let availableTypes = Set(snapshot.map(\.gameType))
-        var orderedTypes = System.allGameTypes.filter { availableTypes.contains($0) }
-        let extraTypes = availableTypes
-            .filter { !orderedTypes.contains($0) }
-            .sorted { $0.localizedShortName.localizedCaseInsensitiveCompare($1.localizedShortName) == .orderedAscending }
-        orderedTypes.append(contentsOf: extraTypes)
+        var orderedTypes: [GameType]
+
+        switch consoleFilter {
+        case .libraryOnly:
+            orderedTypes = System.allGameTypes.filter { availableTypes.contains($0) }
+            let extras = availableTypes
+                .filter { !orderedTypes.contains($0) }
+                .sorted { $0.localizedShortName.localizedCaseInsensitiveCompare($1.localizedShortName) == .orderedAscending }
+            orderedTypes.append(contentsOf: extras)
+
+        case .allSystems:
+            orderedTypes = System.allGameTypes
+            let extras = availableTypes
+                .filter { !orderedTypes.contains($0) }
+                .sorted { $0.localizedShortName.localizedCaseInsensitiveCompare($1.localizedShortName) == .orderedAscending }
+            orderedTypes.append(contentsOf: extras)
+
+        case .playedSystems:
+            orderedTypes = System.allGameTypes.filter { gameType in
+                snapshot.contains { $0.gameType == gameType && $0.totalPlayDuration > 0 }
+            }
+            let extras = availableTypes
+                .filter { type in
+                    !orderedTypes.contains(type) &&
+                    snapshot.contains { $0.gameType == type && $0.totalPlayDuration > 0 }
+                }
+                .sorted { $0.localizedShortName.localizedCaseInsensitiveCompare($1.localizedShortName) == .orderedAscending }
+            orderedTypes.append(contentsOf: extras)
+        }
+
+        switch consoleSort {
+        case .systemDefault:
+            break
+        case .nameAZ:
+            orderedTypes.sort {
+                $0.localizedShortName.localizedCaseInsensitiveCompare($1.localizedShortName) == .orderedAscending
+            }
+        case .nameZA:
+            orderedTypes.sort {
+                $0.localizedShortName.localizedCaseInsensitiveCompare($1.localizedShortName) == .orderedDescending
+            }
+        case .recentlyPlayed:
+            orderedTypes.sort {
+                latestPlayDate(for: $0, in: snapshot) > latestPlayDate(for: $1, in: snapshot)
+            }
+        case .mostPlayed:
+            orderedTypes.sort {
+                totalPlayTime(for: $0, in: snapshot) > totalPlayTime(for: $1, in: snapshot)
+            }
+        }
 
         var rebuilt = [
             XMBSection(kind: .profile, title: "Profile", symbol: "person.crop.circle.fill")
@@ -1541,6 +1794,7 @@ final class XMBHomeViewController: BaseViewController {
 
         updateSelectedSection(animated: false, restoreFocus: false)
         refreshProfile()
+        refreshViewOptionMenus()
     }
 
     private func rebuildSectionButtons() {
@@ -1645,9 +1899,7 @@ final class XMBHomeViewController: BaseViewController {
 
         switch section.kind {
         case .console(let gameType):
-            games = libraryGames
-                .filter { $0.gameType == gameType }
-                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+            games = filteredAndSortedGames(for: gameType)
             showGames = true
             showProfileMenu = false
             showAction = false
@@ -1709,7 +1961,6 @@ final class XMBHomeViewController: BaseViewController {
 
         let initialIndex = games.isEmpty ? 0 : rememberedIndexForCurrentSection()
         gameColumnLayout.focusedItemIndex = initialIndex
-        touchSelectedGameID = games.indices.contains(initialIndex) ? games[initialIndex].id : nil
         collectionView.reloadData()
         updateGameColumnInsets()
 
@@ -1749,6 +2000,48 @@ final class XMBHomeViewController: BaseViewController {
                 }
             }
         }
+    }
+
+    private func filteredAndSortedGames(for gameType: GameType) -> [XMBGameItem] {
+        var result = libraryGames.filter { $0.gameType == gameType }
+
+        switch gameFilter {
+        case .all:
+            break
+        case .played:
+            result = result.filter { $0.totalPlayDuration > 0 }
+        case .unplayed:
+            result = result.filter { $0.totalPlayDuration <= 0 }
+        case .hasSave:
+            result = result.filter(\.hasSaveData)
+        }
+
+        switch gameSort {
+        case .nameAZ:
+            result.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        case .nameZA:
+            result.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedDescending }
+        case .recentlyPlayed:
+            result.sort { ($0.latestPlayDate ?? .distantPast) > ($1.latestPlayDate ?? .distantPast) }
+        case .mostPlayed:
+            result.sort { $0.totalPlayDuration > $1.totalPlayDuration }
+        case .recentlyAdded:
+            result.sort { $0.importDate > $1.importDate }
+        }
+        return result
+    }
+
+    private func totalPlayTime(for gameType: GameType, in snapshot: [XMBGameItem]) -> Double {
+        snapshot.lazy
+            .filter { $0.gameType == gameType }
+            .reduce(0) { $0 + $1.totalPlayDuration }
+    }
+
+    private func latestPlayDate(for gameType: GameType, in snapshot: [XMBGameItem]) -> Date {
+        snapshot.lazy
+            .filter { $0.gameType == gameType }
+            .compactMap(\.latestPlayDate)
+            .max() ?? .distantPast
     }
 
     private func rememberCurrentGameIndex() {
@@ -1896,6 +2189,12 @@ final class XMBHomeViewController: BaseViewController {
     private func updateFocusedGame(gameID: String) {
         guard let index = games.firstIndex(where: { $0.id == gameID }) else { return }
         updateFocusedGame(index: index)
+    }
+
+    private func openGameDetails(gameID: String) {
+        let controller = XMBGameDetailViewController(gameID: gameID)
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
     }
 
     private func activateGame(at index: Int) {
@@ -2099,6 +2398,12 @@ final class XMBHomeViewController: BaseViewController {
         present(alert, animated: true)
     }
 
+    private func openConsoleIconSettings() {
+        let controller = XMBConsoleIconSettingsViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
+
     @objc private func coverModeChanged(_ sender: UISegmentedControl) {
         coverMode = XMBCoverMode(rawValue: sender.selectedSegmentIndex) ?? .original
         collectionView.reloadData()
@@ -2152,9 +2457,17 @@ final class XMBHomeViewController: BaseViewController {
         case .profile:
             return profileRailAvatarImage() ?? safeSystemImage(section.symbol)
         case .console(let gameType):
-            return XMBSystemIconFactory.image(for: gameType)
+            return XMBConsoleIconStore.image(for: gameType)
         default:
             return safeSystemImage(section.symbol)
+        }
+    }
+
+    private func refreshSectionButtonImages() {
+        for (index, section) in sections.enumerated() where sectionButtons.indices.contains(index) {
+            guard var configuration = sectionButtons[index].configuration else { continue }
+            configuration.image = sectionImage(for: section)
+            sectionButtons[index].configuration = configuration
         }
     }
 
@@ -2227,7 +2540,7 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
             })
         ]
         cell.onFocusConfirm = { [weak self] in
-            self?.activateGame(gameID: gameID)
+            self?.openGameDetails(gameID: gameID)
             return true
         }
 
@@ -2236,18 +2549,60 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard games.indices.contains(indexPath.item) else { return }
-        let gameID = games[indexPath.item].id
+        updateFocusedGame(index: indexPath.item)
+        openGameDetails(gameID: games[indexPath.item].id)
+    }
 
-        if touchSelectedGameID == gameID {
-            activateGame(gameID: gameID)
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        finishTouchScroll(on: scrollView)
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            finishTouchScroll(on: scrollView)
+        }
+    }
+
+    private func finishTouchScroll(on scrollView: UIScrollView) {
+        if scrollView === sectionScrollView {
+            guard !sections.isEmpty else { return }
+            sectionScrollView.layoutIfNeeded()
+            let centerX = sectionScrollView.bounds.midX
+            let nearest = sectionButtons.enumerated().min { lhs, rhs in
+                let lhsMid = lhs.element.convert(lhs.element.bounds, to: sectionScrollView).midX
+                let rhsMid = rhs.element.convert(rhs.element.bounds, to: sectionScrollView).midX
+                return abs(lhsMid - centerX) < abs(rhsMid - centerX)
+            }
+            guard let nearest, nearest.offset != selectedSectionIndex else {
+                scrollSelectedSectionIntoView(animated: true)
+                return
+            }
+            rememberCurrentGameIndex()
+            pendingSectionTransitionDirection = nearest.offset > selectedSectionIndex ? 1 : -1
+            selectedSectionIndex = nearest.offset
+            updateSelectedSection(animated: true, restoreFocus: false)
             return
         }
 
-        touchSelectedGameID = gameID
-        updateFocusedGame(gameID: gameID)
-        collectionView.indexPathsForVisibleItems.forEach { visiblePath in
-            (collectionView.cellForItem(at: visiblePath) as? XMBGameRowCell)?
-                .setXMBFocused(visiblePath.item == indexPath.item)
+        guard scrollView === collectionView,
+              !games.isEmpty,
+              sections.indices.contains(selectedSectionIndex),
+              case .console = sections[selectedSectionIndex].kind else { return }
+
+        collectionView.layoutIfNeeded()
+        let rowHeight: CGFloat = coverMode == .square ? 52 : 58
+        let targetY = collectionView.contentOffset.y + collectionView.contentInset.top + rowHeight * 0.5
+        let nearest = collectionView.indexPathsForVisibleItems.compactMap { indexPath -> (IndexPath, CGFloat)? in
+            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
+            return (indexPath, abs(attributes.frame.midY - targetY))
+        }.min { $0.1 < $1.1 }
+
+        if let indexPath = nearest?.0 {
+            updateFocusedGame(index: indexPath.item)
+            collectionView.indexPathsForVisibleItems.forEach { visiblePath in
+                (collectionView.cellForItem(at: visiblePath) as? XMBGameRowCell)?
+                    .setXMBFocused(visiblePath.item == indexPath.item)
+            }
         }
     }
 
@@ -2374,7 +2729,19 @@ private enum XMBSystemIconFactory {
             }
         }
 
-        return image.withRenderingMode(.alwaysTemplate)
+        let labeled = UIGraphicsImageRenderer(size: size).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+            let label = String(name.prefix(5))
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .right
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedSystemFont(ofSize: 5.5, weight: .bold),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.88),
+                .paragraphStyle: paragraph
+            ]
+            label.draw(in: CGRect(x: 18, y: 27, width: 26, height: 7), withAttributes: attributes)
+        }
+        return labeled.withRenderingMode(.alwaysOriginal)
     }
 
     private static func family(for name: String) -> Family {
@@ -2564,6 +2931,532 @@ private final class XMBGameRowCell: UICollectionViewCell {
     }
 }
 
+// MARK: - Console icon customization
+
+private enum XMBConsoleIconStore {
+    private static var directoryURL: URL? {
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let directory = documents.appendingPathComponent("XMBProfile/ConsoleIcons", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private static func safeName(for gameType: GameType) -> String {
+        let raw = gameType.rawValue
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        return raw.unicodeScalars.map { allowed.contains($0) ? String($0) : "_" }.joined()
+    }
+
+    static func customURL(for gameType: GameType) -> URL? {
+        directoryURL?.appendingPathComponent(safeName(for: gameType)).appendingPathExtension("png")
+    }
+
+    static func image(for gameType: GameType) -> UIImage {
+        if let url = customURL(for: gameType),
+           let data = try? Data(contentsOf: url),
+           let image = UIImage(data: data) {
+            return image.withRenderingMode(.alwaysOriginal)
+        }
+        if let brand = gameType.brandImage {
+            return brand.withRenderingMode(.alwaysOriginal)
+        }
+        return XMBSystemIconFactory.image(for: gameType)
+    }
+
+    static func save(_ image: UIImage, for gameType: GameType) -> Bool {
+        guard let url = customURL(for: gameType),
+              let data = image.pngData() else { return false }
+        do {
+            try data.write(to: url, options: .atomic)
+            NotificationCenter.default.post(name: .xmbConsoleIconsDidChange, object: gameType)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    static func reset(_ gameType: GameType) {
+        if let url = customURL(for: gameType) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        NotificationCenter.default.post(name: .xmbConsoleIconsDidChange, object: gameType)
+    }
+}
+
+private final class XMBConsoleIconSettingsViewController: UIViewController {
+    private let backgroundView = XMBWaveBackgroundView()
+    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let gameTypes = System.allGameTypes
+    private var pendingGameType: GameType?
+
+    private lazy var closeButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.left")
+        configuration.title = "Back"
+        configuration.imagePadding = 6
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        return button
+    }()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        view.addSubview(backgroundView)
+        backgroundView.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        view.addSubview(closeButton)
+        closeButton.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
+        }
+
+        let title = UILabel()
+        title.text = "Console Icons"
+        title.textColor = .white
+        title.font = .systemFont(ofSize: 25, weight: .semibold)
+        view.addSubview(title)
+        title.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalTo(closeButton)
+        }
+
+        tableView.backgroundColor = .clear
+        tableView.separatorColor = UIColor.white.withAlphaComponent(0.08)
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.rowHeight = 68
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "iconCell")
+        view.addSubview(tableView)
+        tableView.snp.makeConstraints { make in
+            make.top.equalTo(closeButton.snp.bottom).offset(12)
+            make.leading.trailing.bottom.equalTo(view.safeAreaLayoutGuide)
+        }
+    }
+
+    @objc private func closePressed() {
+        dismiss(animated: true)
+    }
+
+    private func chooseIcon(for gameType: GameType, sourceView: UIView) {
+        let sheet = UIAlertController(title: gameType.localizedName,
+                                      message: "Choose a custom XMB icon or restore the console's default icon.",
+                                      preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: "Choose Image", style: .default) { [weak self] _ in
+            self?.pendingGameType = gameType
+            var configuration = PHPickerConfiguration()
+            configuration.filter = .images
+            configuration.selectionLimit = 1
+            let picker = PHPickerViewController(configuration: configuration)
+            picker.delegate = self
+            self?.present(picker, animated: true)
+        })
+        sheet.addAction(UIAlertAction(title: "Restore Default", style: .destructive) { [weak self] _ in
+            XMBConsoleIconStore.reset(gameType)
+            self?.tableView.reloadData()
+        })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = sourceView
+            popover.sourceRect = sourceView.bounds
+        }
+        present(sheet, animated: true)
+    }
+}
+
+extension XMBConsoleIconSettingsViewController: UITableViewDataSource, UITableViewDelegate {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        gameTypes.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "iconCell", for: indexPath)
+        let gameType = gameTypes[indexPath.row]
+        var configuration = cell.defaultContentConfiguration()
+        configuration.image = XMBConsoleIconStore.image(for: gameType)
+        configuration.imageProperties.maximumSize = CGSize(width: 42, height: 34)
+        configuration.text = gameType.localizedName
+        configuration.secondaryText = "Tap to customize"
+        configuration.textProperties.color = .white
+        configuration.secondaryTextProperties.color = UIColor.white.withAlphaComponent(0.54)
+        cell.contentConfiguration = configuration
+        cell.backgroundColor = .clear
+        cell.selectionStyle = .none
+        cell.accessoryType = .disclosureIndicator
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard gameTypes.indices.contains(indexPath.row),
+              let cell = tableView.cellForRow(at: indexPath) else { return }
+        chooseIcon(for: gameTypes[indexPath.row], sourceView: cell)
+    }
+}
+
+extension XMBConsoleIconSettingsViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let gameType = pendingGameType,
+              let provider = results.first?.itemProvider,
+              provider.canLoadObject(ofClass: UIImage.self) else {
+            pendingGameType = nil
+            return
+        }
+
+        provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+            guard let self, let image = object as? UIImage else { return }
+            DispatchQueue.main.async {
+                _ = XMBConsoleIconStore.save(image, for: gameType)
+                self.pendingGameType = nil
+                self.tableView.reloadData()
+            }
+        }
+    }
+}
+
+// MARK: - XMB game details
+
+private final class XMBGameDetailViewController: UIViewController {
+    private let gameID: String
+    private let backgroundView = XMBWaveBackgroundView()
+    private let bannerView = UIImageView()
+    private let bannerDimView = UIView()
+    private let scrollView = UIScrollView()
+    private let contentView = UIView()
+    private let coverView = UIImageView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let synopsisLabel = UILabel()
+    private let metadataLabel = UILabel()
+    private let statsLabel = UILabel()
+
+    private lazy var closeButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.left")
+        configuration.title = "Back"
+        configuration.imagePadding = 6
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        return button
+    }()
+
+    private lazy var playButton: UIButton = {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Play"
+        configuration.image = UIImage(systemName: "play.fill")
+        configuration.imagePadding = 8
+        configuration.baseForegroundColor = .white
+        configuration.baseBackgroundColor = UIColor.systemBlue.withAlphaComponent(0.84)
+        configuration.cornerStyle = .capsule
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(playPressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.playPressed()
+            return true
+        }
+        return button
+    }()
+
+    private lazy var moreButton: UIButton = {
+        var configuration = UIButton.Configuration.gray()
+        configuration.title = "More Options"
+        configuration.image = UIImage(systemName: "ellipsis.circle")
+        configuration.imagePadding = 7
+        configuration.baseForegroundColor = .white
+        configuration.background.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(morePressed), for: .touchUpInside)
+        return button
+    }()
+
+    init(gameID: String) {
+        self.gameID = gameID
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        view.addSubview(backgroundView)
+        backgroundView.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        bannerView.contentMode = .scaleAspectFill
+        bannerView.clipsToBounds = true
+        bannerView.alpha = 0.78
+        view.addSubview(bannerView)
+        bannerView.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview()
+            make.height.equalToSuperview().multipliedBy(0.48)
+        }
+
+        bannerDimView.backgroundColor = UIColor.black.withAlphaComponent(0.42)
+        view.addSubview(bannerDimView)
+        bannerDimView.snp.makeConstraints { $0.edges.equalTo(bannerView) }
+
+        view.addSubview(closeButton)
+        closeButton.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
+        }
+
+        view.addSubview(scrollView)
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.snp.makeConstraints { make in
+            make.top.equalTo(closeButton.snp.bottom).offset(10)
+            make.leading.trailing.bottom.equalTo(view.safeAreaLayoutGuide)
+        }
+
+        scrollView.addSubview(contentView)
+        contentView.snp.makeConstraints { make in
+            make.edges.equalTo(scrollView.contentLayoutGuide)
+            make.width.equalTo(scrollView.frameLayoutGuide)
+        }
+
+        setupContent()
+        loadGame()
+    }
+
+    private func setupContent() {
+        coverView.contentMode = .scaleAspectFit
+        coverView.clipsToBounds = true
+        coverView.layer.cornerRadius = 8
+        coverView.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 29, weight: .bold)
+        titleLabel.numberOfLines = 2
+        titleLabel.layer.shadowColor = UIColor.black.cgColor
+        titleLabel.layer.shadowOpacity = 0.50
+        titleLabel.layer.shadowRadius = 4
+
+        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.70)
+        subtitleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        subtitleLabel.numberOfLines = 2
+
+        synopsisLabel.textColor = UIColor.white.withAlphaComponent(0.86)
+        synopsisLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        synopsisLabel.numberOfLines = 0
+
+        metadataLabel.textColor = UIColor.white.withAlphaComponent(0.72)
+        metadataLabel.font = .systemFont(ofSize: 12.5, weight: .medium)
+        metadataLabel.numberOfLines = 0
+
+        statsLabel.textColor = UIColor.white.withAlphaComponent(0.78)
+        statsLabel.font = .systemFont(ofSize: 12.5, weight: .medium)
+        statsLabel.numberOfLines = 0
+
+        contentView.addSubview(coverView)
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(subtitleLabel)
+        contentView.addSubview(playButton)
+        contentView.addSubview(moreButton)
+
+        coverView.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(24)
+            make.top.equalToSuperview().offset(18)
+            make.width.equalTo(118)
+            make.height.equalTo(166)
+        }
+
+        titleLabel.snp.makeConstraints { make in
+            make.leading.equalTo(coverView.snp.trailing).offset(20)
+            make.trailing.equalToSuperview().offset(-24)
+            make.top.equalTo(coverView).offset(10)
+        }
+
+        subtitleLabel.snp.makeConstraints { make in
+            make.leading.trailing.equalTo(titleLabel)
+            make.top.equalTo(titleLabel.snp.bottom).offset(6)
+        }
+
+        let actionStack = UIStackView(arrangedSubviews: [playButton, moreButton])
+        actionStack.axis = .horizontal
+        actionStack.spacing = 10
+        actionStack.distribution = .fillEqually
+        contentView.addSubview(actionStack)
+        actionStack.snp.makeConstraints { make in
+            make.leading.equalTo(titleLabel)
+            make.top.equalTo(subtitleLabel.snp.bottom).offset(18)
+            make.width.equalTo(320).priority(.high)
+            make.trailing.lessThanOrEqualToSuperview().offset(-24)
+            make.height.equalTo(44)
+        }
+
+        let synopsisCard = makeCard()
+        let metadataCard = makeCard()
+        contentView.addSubview(synopsisCard)
+        contentView.addSubview(metadataCard)
+
+        synopsisCard.snp.makeConstraints { make in
+            make.top.equalTo(coverView.snp.bottom).offset(22)
+            make.leading.trailing.equalToSuperview().inset(24)
+        }
+
+        let synopsisTitle = sectionTitle("Synopsis")
+        synopsisCard.addSubview(synopsisTitle)
+        synopsisCard.addSubview(synopsisLabel)
+        synopsisTitle.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview().inset(16)
+        }
+        synopsisLabel.snp.makeConstraints { make in
+            make.top.equalTo(synopsisTitle.snp.bottom).offset(9)
+            make.leading.trailing.bottom.equalToSuperview().inset(16)
+        }
+
+        metadataCard.snp.makeConstraints { make in
+            make.top.equalTo(synopsisCard.snp.bottom).offset(12)
+            make.leading.trailing.equalTo(synopsisCard)
+            make.bottom.equalToSuperview().offset(-28)
+        }
+
+        let detailsTitle = sectionTitle("Game Details")
+        metadataCard.addSubview(detailsTitle)
+        metadataCard.addSubview(metadataLabel)
+        metadataCard.addSubview(statsLabel)
+        detailsTitle.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview().inset(16)
+        }
+        metadataLabel.snp.makeConstraints { make in
+            make.top.equalTo(detailsTitle.snp.bottom).offset(9)
+            make.leading.trailing.equalToSuperview().inset(16)
+        }
+        statsLabel.snp.makeConstraints { make in
+            make.top.equalTo(metadataLabel.snp.bottom).offset(12)
+            make.leading.trailing.bottom.equalToSuperview().inset(16)
+        }
+    }
+
+    private func makeCard() -> UIView {
+        let view = UIView()
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.28)
+        view.layer.cornerRadius = 15
+        view.layer.borderWidth = 1
+        view.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
+        return view
+    }
+
+    private func sectionTitle(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 16, weight: .semibold)
+        return label
+    }
+
+    private func loadGame() {
+        guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+              !game.isInvalidated,
+              !game.isDeleted else {
+            dismiss(animated: true)
+            return
+        }
+
+        let displayName = game.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        titleLabel.text = displayName.isEmpty ? game.name : displayName
+        subtitleLabel.text = game.gameType.localizedName
+
+        bannerView.image = game.bannerImage
+        if bannerView.image == nil {
+            bannerView.alpha = 0
+        }
+
+        coverView.setGameCover(game: game, size: CGSize(width: 236, height: 332)) { [weak coverView] _ in
+            coverView?.contentMode = .scaleAspectFit
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+
+        let total = game.totalPlayDuration > 0
+            ? Date.timeDuration(milliseconds: Int(game.totalPlayDuration))
+            : "Never played"
+        let latestSession = game.latestPlayDuration > 0
+            ? Date.timeDuration(milliseconds: Int(game.latestPlayDuration))
+            : "—"
+        let lastPlayed = game.latestPlayDate.map { formatter.string(from: $0) } ?? "Never"
+        let imported = formatter.string(from: game.importDate)
+
+        statsLabel.text = """
+        Total playtime  \(total)
+        Last played  \(lastPlayed)
+        Last session  \(latestSession)
+        Added to library  \(imported)
+        """
+
+        if let stored = GameMetadata.getGameMetadata(game: game) {
+            applyMetadata(stored)
+        } else {
+            synopsisLabel.text = "Loading game description…"
+            metadataLabel.text = "Metadata is being matched from ManicEMU's local game database."
+            let query = titleLabel.text ?? game.name
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let metadata = GameMetadataKit.searchGameInfo(displayName: query).first
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.applyMetadata(metadata)
+                }
+            }
+        }
+    }
+
+    private func applyMetadata(_ metadata: GameMetadata?) {
+        guard let metadata else {
+            synopsisLabel.text = "No synopsis is available in the local ManicEMU metadata database for this game."
+            metadataLabel.text = "Developer  —\nPublisher  —\nGenre  —\nRelease  —\nRegion  —\nRating  —"
+            return
+        }
+
+        synopsisLabel.text = metadata.overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "No synopsis is available for this title."
+            : metadata.overview
+
+        func value(_ text: String) -> String {
+            text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : text
+        }
+
+        metadataLabel.text = """
+        Developer  \(value(metadata.developer))
+        Publisher  \(value(metadata.publisher))
+        Genre  \(value(metadata.genre))
+        Release  \(metadata.releaseDateDisplay)
+        Region  \(value(metadata.region))
+        Rating  \(metadata.esrpDisplay)
+        """
+    }
+
+    @objc private func closePressed() {
+        dismiss(animated: true)
+    }
+
+    @objc private func playPressed() {
+        let id = gameID
+        dismiss(animated: true) {
+            guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: id),
+                  !game.isInvalidated,
+                  !game.isDeleted else { return }
+            game.handleTapAction(forceQuick: true)
+        }
+    }
+
+    @objc private func morePressed() {
+        guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+              !game.isInvalidated,
+              !game.isDeleted else { return }
+        GameInfoView.show(game: game)
+    }
+}
+
 // MARK: - XMB profile details
 
 private final class XMBProfileDetailsViewController: UIViewController {
@@ -2656,6 +3549,10 @@ private final class XMBProfileDetailsViewController: UIViewController {
 
     private lazy var historyButton = makeButton(title: "Play History", symbol: "clock.arrow.circlepath") {
         _ = PlayHistoryView.show()
+    }
+
+    private lazy var consoleIconsButton = makeButton(title: "Console Icons", symbol: "square.grid.3x3.fill") { [weak self] in
+        self?.openConsoleIconSettings()
     }
 
     private lazy var coverModeControl: UISegmentedControl = {
@@ -2780,6 +3677,7 @@ private final class XMBProfileDetailsViewController: UIViewController {
         let hintsLabel = makeSmallLabel("Show controller instructions")
         preferencesCard.addSubview(coverLabel)
         preferencesCard.addSubview(hintsLabel)
+        preferencesCard.addSubview(consoleIconsButton)
 
         preferencesTitle.snp.makeConstraints { make in
             make.top.leading.trailing.equalToSuperview().inset(16)
@@ -2800,11 +3698,16 @@ private final class XMBProfileDetailsViewController: UIViewController {
         hintsLabel.snp.makeConstraints { make in
             make.top.equalTo(coverLabel.snp.bottom).offset(24)
             make.leading.equalTo(coverLabel)
-            make.bottom.equalToSuperview().offset(-18)
         }
         hintsSwitch.snp.makeConstraints { make in
             make.centerY.equalTo(hintsLabel)
             make.trailing.equalToSuperview().offset(-16)
+        }
+        consoleIconsButton.snp.makeConstraints { make in
+            make.top.equalTo(hintsLabel.snp.bottom).offset(18)
+            make.leading.trailing.equalToSuperview().inset(16)
+            make.height.equalTo(44)
+            make.bottom.equalToSuperview().offset(-16)
         }
 
         themeCard.snp.makeConstraints { make in
