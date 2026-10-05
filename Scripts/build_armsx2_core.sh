@@ -63,6 +63,32 @@ fi
 rm -rf "$OUTPUT/ARMSX2Core.framework"
 ditto "$FRAMEWORK" "$OUTPUT/ARMSX2Core.framework"
 
+echo "Validating embedded Metal shader library..."
+FOUND_METALLIB=0
+FOUND_WASTE_TIME=0
+while IFS= read -r METALLIB; do
+  FOUND_METALLIB=1
+  echo "Checking Metal library: $METALLIB"
+  if strings "$METALLIB" | grep -Fq "waste_time"; then
+    FOUND_WASTE_TIME=1
+    break
+  fi
+done < <(find "$OUTPUT/ARMSX2Core.framework" -type f -name '*.metallib' -print)
+
+if [[ "$FOUND_METALLIB" -ne 1 ]]; then
+  echo "error: ARMSX2Core.framework contains no .metallib" >&2
+  find "$OUTPUT/ARMSX2Core.framework" -maxdepth 3 -type f -print >&2 || true
+  exit 1
+fi
+
+if [[ "$FOUND_WASTE_TIME" -ne 1 ]]; then
+  echo "error: ARMSX2 Metal library does not contain required waste_time kernel" >&2
+  find "$OUTPUT/ARMSX2Core.framework" -type f -name '*.metallib' -print >&2 || true
+  exit 1
+fi
+
+echo "Verified ARMSX2 Metal library contains waste_time."
+
 echo "Embedded core framework:"
 du -sh "$OUTPUT/ARMSX2Core.framework"
 find "$OUTPUT/ARMSX2Core.framework" -maxdepth 2 -type f -print | head -80
