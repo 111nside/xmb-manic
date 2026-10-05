@@ -78,12 +78,12 @@ def main() -> None:
     text = replace_once(
         text,
         '\tNSString* path = [[NSBundle mainBundle] pathForResource:name ofType:@"metallib"];',
-        '\tconst char* embeddedBundlePath = getenv("ARMSX2_EMBEDDED_BUNDLE_PATH");\\n'
-        '\tNSBundle* shaderBundle = (embeddedBundlePath && embeddedBundlePath[0])\\n'
-        '\t\t? [NSBundle bundleWithPath:[NSString stringWithUTF8String:embeddedBundlePath]]\\n'
-        '\t\t: [NSBundle mainBundle];\\n'
-        '\tNSString* path = [shaderBundle pathForResource:name ofType:@"metallib"];\\n'
-        '\tif (embeddedBundlePath && embeddedBundlePath[0])\\n'
+        '\tconst char* embeddedBundlePath = getenv("ARMSX2_EMBEDDED_BUNDLE_PATH");\n'
+        '\tNSBundle* shaderBundle = (embeddedBundlePath && embeddedBundlePath[0])\n'
+        '\t\t? [NSBundle bundleWithPath:[NSString stringWithUTF8String:embeddedBundlePath]]\n'
+        '\t\t: [NSBundle mainBundle];\n'
+        '\tNSString* path = [shaderBundle pathForResource:name ofType:@"metallib"];\n'
+        '\tif (embeddedBundlePath && embeddedBundlePath[0])\n'
         '\t\tConsole.WriteLn("[Embedded] Metal library %@ path=%@", name, path ?: @"<missing>");',
         "load Metal shaders from embedded framework bundle",
     )
