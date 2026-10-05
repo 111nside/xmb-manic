@@ -931,6 +931,12 @@ final class XMBHomeViewController: BaseViewController {
         self?.openPS2MemoryCards()
     }
 
+    private lazy var ps2DiagnosticsButton = makeProfileMenuButton(title: "PS2 Crash Log",
+                                                                  subtitle: "View or share the last native PS2 launch log",
+                                                                  symbol: "doc.text.magnifyingglass") { [weak self] in
+        self?.openPS2Diagnostics()
+    }
+
     private lazy var gameLibrarySettingsButton = makeProfileMenuButton(title: "Game Library View",
                                                                         subtitle: "Sort and filter games",
                                                                         symbol: "line.3.horizontal.decrease.circle") { [weak self] in
@@ -1295,6 +1301,7 @@ final class XMBHomeViewController: BaseViewController {
         let profileMenuStack = UIStackView(arrangedSubviews: [
             profileDetailsButton,
             ps2MemoryCardsButton,
+            ps2DiagnosticsButton,
             gameLibrarySettingsButton,
             consoleLibrarySettingsButton
         ])
@@ -1307,7 +1314,7 @@ final class XMBHomeViewController: BaseViewController {
             make.edges.equalTo(profileMenuContainerView.contentLayoutGuide)
             make.width.equalTo(profileMenuContainerView.frameLayoutGuide)
         }
-        [profileDetailsButton, ps2MemoryCardsButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
+        [profileDetailsButton, ps2MemoryCardsButton, ps2DiagnosticsButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
             $0.snp.makeConstraints { $0.height.equalTo(54) }
         }
 
@@ -2560,6 +2567,12 @@ final class XMBHomeViewController: BaseViewController {
 
     private func openPS2MemoryCards() {
         let controller = XMBPS2MemoryCardViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
+
+    private func openPS2Diagnostics() {
+        let controller = XMBPS2DiagnosticsViewController()
         controller.modalPresentationStyle = .fullScreen
         present(controller, animated: true)
     }
@@ -4441,6 +4454,177 @@ extension XMBProfileDetailsViewController: PHPickerViewControllerDelegate {
                 self.loadAvatar()
             }
         }
+    }
+}
+
+// MARK: - PS2 crash diagnostics
+
+private final class XMBPS2DiagnosticsViewController: UIViewController {
+    private let backgroundView = XMBWaveBackgroundView()
+    private let textView = UITextView()
+
+    private lazy var closeButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.left")
+        configuration.title = "Back"
+        configuration.imagePadding = 6
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.closePressed()
+            return true
+        }
+        return button
+    }()
+
+    private lazy var shareButton: UIButton = {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Share Log"
+        configuration.image = UIImage(systemName: "square.and.arrow.up")
+        configuration.imagePadding = 7
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(sharePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.sharePressed()
+            return true
+        }
+        return button
+    }()
+
+    private lazy var clearButton: UIButton = {
+        var configuration = UIButton.Configuration.gray()
+        configuration.title = "Clear"
+        configuration.image = UIImage(systemName: "trash")
+        configuration.imagePadding = 7
+        configuration.baseForegroundColor = .white
+        configuration.background.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(clearPressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.clearPressed()
+            return true
+        }
+        return button
+    }()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        view.addSubview(backgroundView)
+        backgroundView.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        view.addSubview(closeButton)
+        closeButton.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
+        }
+
+        let titleLabel = UILabel()
+        titleLabel.text = "PS2 Crash Log"
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 25, weight: .semibold)
+        view.addSubview(titleLabel)
+        titleLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalTo(closeButton)
+        }
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "Persistent launch checkpoints survive a native crash. After a crash, reopen ManicEMU and share this file."
+        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.64)
+        subtitleLabel.font = .systemFont(ofSize: 12.5, weight: .regular)
+        subtitleLabel.numberOfLines = 2
+        subtitleLabel.textAlignment = .center
+        view.addSubview(subtitleLabel)
+        subtitleLabel.snp.makeConstraints { make in
+            make.top.equalTo(titleLabel.snp.bottom).offset(6)
+            make.leading.trailing.equalTo(view.safeAreaLayoutGuide).inset(28)
+        }
+
+        let actions = UIStackView(arrangedSubviews: [shareButton, clearButton])
+        actions.axis = .horizontal
+        actions.spacing = 10
+        actions.distribution = .fillEqually
+        view.addSubview(actions)
+        actions.snp.makeConstraints { make in
+            make.top.equalTo(subtitleLabel.snp.bottom).offset(12)
+            make.centerX.equalToSuperview()
+            make.width.equalTo(360).priority(.high)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(24)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
+            make.height.equalTo(42)
+        }
+
+        textView.backgroundColor = UIColor.black.withAlphaComponent(0.30)
+        textView.textColor = UIColor.white.withAlphaComponent(0.86)
+        textView.font = UIFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.layer.cornerRadius = 14
+        textView.layer.borderWidth = 1
+        textView.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
+        textView.textContainerInset = UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+        view.addSubview(textView)
+        textView.snp.makeConstraints { make in
+            make.top.equalTo(actions.snp.bottom).offset(12)
+            make.leading.trailing.equalTo(view.safeAreaLayoutGuide).inset(20)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-12)
+        }
+
+        backgroundView.applyTheme(.current)
+        reloadLog()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ExternalInputDispatch.sink = .focusKit
+        FocusSystem.shared.isEnabled = true
+        pushOverlayFocusContext { [weak self] context in
+            context.autoFocusOnActivate = true
+            context.preferredFocusView = { [weak self] in self?.shareButton }
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if hasFocusContext { popFocusContext() }
+    }
+
+    private func reloadLog() {
+        textView.text = ARMSX2EmbeddedCore.diagnosticLogText()
+        let bottom = NSRange(location: max(0, textView.text.utf16.count - 1), length: 0)
+        textView.scrollRangeToVisible(bottom)
+    }
+
+    @objc private func closePressed() {
+        dismiss(animated: true)
+    }
+
+    @objc private func sharePressed() {
+        guard let url = ARMSX2EmbeddedCore.diagnosticLogURL else {
+            UIView.makeToast(message: "Could not create the PS2 diagnostic file")
+            return
+        }
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = shareButton
+            popover.sourceRect = shareButton.bounds
+        }
+        present(controller, animated: true)
+    }
+
+    @objc private func clearPressed() {
+        ARMSX2EmbeddedCore.clearDiagnosticLog()
+        reloadLog()
     }
 }
 

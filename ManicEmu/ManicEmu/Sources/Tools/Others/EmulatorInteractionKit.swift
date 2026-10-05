@@ -299,9 +299,195 @@ private struct ARMSX2Game: Decodable {
 }
 
 
+
+// MARK: - Persistent PS2 launch diagnostics
+
+private enum PS2DiagnosticLog {
+    private static let lock = NSLock()
+    private static let formatter = ISO8601DateFormatter()
+    private static let logFileName = "manic-ps2-crash.log"
+    private static let markerFileName = "manic-ps2-active-session.txt"
+    private static let maximumLogBytes: UInt64 = 1_500_000
+    private static var exceptionHandlerInstalled = false
+
+    private static var logsDirectoryURL: URL? {
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return documents.appendingPathComponent("ARMSX2/logs", isDirectory: true)
+    }
+
+    static var logURL: URL? {
+        logsDirectoryURL?.appendingPathComponent(logFileName)
+    }
+
+    private static var markerURL: URL? {
+        logsDirectoryURL?.appendingPathComponent(markerFileName)
+    }
+
+    static func installCrashHooks() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !exceptionHandlerInstalled else { return }
+        exceptionHandlerInstalled = true
+        NSSetUncaughtExceptionHandler(manicPS2UncaughtExceptionHandler)
+    }
+
+    static func recoverPreviousSessionIfNeeded() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let markerURL,
+              FileManager.default.fileExists(atPath: markerURL.path),
+              let data = try? Data(contentsOf: markerURL),
+              let marker = String(data: data, encoding: .utf8),
+              !marker.isEmpty else { return }
+
+        appendUnlocked("RECOVERY previous PS2 session ended unexpectedly. Last checkpoint: \(marker.trimmingCharacters(in: .whitespacesAndNewlines))")
+        try? FileManager.default.removeItem(at: markerURL)
+    }
+
+    static func begin(game: Game) {
+        installCrashHooks()
+        recoverPreviousSessionIfNeeded()
+
+        let fileSize: UInt64 = {
+            guard let value = try? FileManager.default.attributesOfItem(atPath: game.romUrl.path)[.size] as? NSNumber else {
+                return 0
+            }
+            return value?.uint64Value ?? 0
+        }()
+
+        log("========== PS2 SESSION BEGIN ==========")
+        log("app_version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?") build=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")")
+        log("ios=\(UIDevice.current.systemName) \(UIDevice.current.systemVersion) device=\(UIDevice.current.model)")
+        log("game_id=\(game.id)")
+        log("game_name=\(game.displayName)")
+        log("rom=\(game.romUrl.lastPathComponent) ext=\(game.romUrl.pathExtension.lowercased()) bytes=\(fileSize)")
+        log("game_jit_preference=\(game.jit)")
+        checkpoint("session-begin")
+    }
+
+    static func log(_ message: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        appendUnlocked(message)
+    }
+
+    static func checkpoint(_ step: String) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let stamp = "\(formatter.string(from: Date())) | \(step)\n"
+        if let markerURL {
+            ensureDirectoryUnlocked()
+            try? stamp.data(using: .utf8)?.write(to: markerURL, options: .atomic)
+        }
+        appendUnlocked("CHECKPOINT \(step)")
+    }
+
+    static func end(clean: Bool, reason: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        appendUnlocked("SESSION END clean=\(clean) reason=\(reason)")
+        if clean, let markerURL {
+            try? FileManager.default.removeItem(at: markerURL)
+        }
+        appendUnlocked("========== PS2 SESSION END ==========")
+    }
+
+    static func recordUncaughtException(_ exception: NSException) {
+        lock.lock()
+        defer { lock.unlock() }
+        appendUnlocked("UNCAUGHT NSException name=\(exception.name.rawValue) reason=\(exception.reason ?? "nil")")
+        if !exception.callStackSymbols.isEmpty {
+            appendUnlocked("exception_backtrace=\(exception.callStackSymbols.joined(separator: " | "))")
+        }
+    }
+
+    static func text(maxCharacters: Int = 140_000) -> String {
+        recoverPreviousSessionIfNeeded()
+        guard let logURL,
+              let data = try? Data(contentsOf: logURL),
+              let full = String(data: data, encoding: .utf8) else {
+            return "No PS2 diagnostic log exists yet. Launch a PS2 game once, then reopen this screen."
+        }
+        if full.count <= maxCharacters { return full }
+        return "…older log content trimmed…\n" + String(full.suffix(maxCharacters))
+    }
+
+    static func ensureExportFile() -> URL? {
+        recoverPreviousSessionIfNeeded()
+        if let logURL, !FileManager.default.fileExists(atPath: logURL.path) {
+            log("PS2 diagnostics file created manually.")
+        }
+        return logURL
+    }
+
+    static func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let logURL { try? FileManager.default.removeItem(at: logURL) }
+        if let markerURL { try? FileManager.default.removeItem(at: markerURL) }
+    }
+
+    private static func ensureDirectoryUnlocked() {
+        guard let directory = logsDirectoryURL else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    private static func rotateIfNeededUnlocked() {
+        guard let logURL,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: logURL.path),
+              let size = (attrs[.size] as? NSNumber)?.uint64Value,
+              size > maximumLogBytes else { return }
+
+        let oldURL = logURL.deletingLastPathComponent().appendingPathComponent("manic-ps2-crash.previous.log")
+        try? FileManager.default.removeItem(at: oldURL)
+        try? FileManager.default.moveItem(at: logURL, to: oldURL)
+    }
+
+    private static func appendUnlocked(_ message: String) {
+        ensureDirectoryUnlocked()
+        rotateIfNeededUnlocked()
+        guard let logURL else { return }
+
+        let line = "[\(formatter.string(from: Date()))] \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+
+        do {
+            let handle = try FileHandle(forWritingTo: logURL)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            // Diagnostics must never make a launch fail.
+        }
+    }
+}
+
+private func manicPS2UncaughtExceptionHandler(_ exception: NSException) {
+    PS2DiagnosticLog.recordUncaughtException(exception)
+}
+
 // MARK: - Embedded ARMSX2 bridge
 
 enum ARMSX2EmbeddedCore {
+    static var diagnosticLogURL: URL? {
+        PS2DiagnosticLog.ensureExportFile()
+    }
+
+    static func diagnosticLogText() -> String {
+        PS2DiagnosticLog.text()
+    }
+
+    static func clearDiagnosticLog() {
+        PS2DiagnosticLog.clear()
+    }
+
     private static func prepare() -> Bool {
 #if canImport(ARMSX2Core)
         return ARMSX2EmbeddedRuntime.prepare()
@@ -393,24 +579,45 @@ enum ARMSX2EmbeddedCore {
             return false
         }
 
-        guard prepare() else {
+        PS2DiagnosticLog.begin(game: game)
+        PS2DiagnosticLog.checkpoint("startGame.before-prepare")
+        let prepared = prepare()
+        PS2DiagnosticLog.log("prepare_result=(prepared)")
+        PS2DiagnosticLog.checkpoint("startGame.after-prepare")
+        guard prepared else {
+            PS2DiagnosticLog.end(clean: true, reason: "prepare returned false")
             UIView.makeToast(message: "Could not initialize the embedded ARMSX2 core")
             return true
         }
 
-        guard ARMSX2Bridge.hasBIOS() else {
+        let biosName = ARMSX2Bridge.defaultBIOSName()
+        let biosAvailable = ARMSX2Bridge.hasBIOS()
+        let validBIOS = ARMSX2Bridge.availableBIOSInfos().filter { $0.valid }.map(.fileName)
+        PS2DiagnosticLog.log("bios_available=(biosAvailable) default_bios=(biosName) valid_bios_files=(validBIOS)")
+        PS2DiagnosticLog.checkpoint("startGame.after-bios-check")
+        guard biosAvailable else {
+            PS2DiagnosticLog.end(clean: true, reason: "BIOS missing")
             UIView.makeToast(message: "A PS2 BIOS is required before starting this game")
             return true
         }
 
-        guard ARMSX2Bridge.canResolveISO(game.romUrl.path) else {
+        PS2DiagnosticLog.checkpoint("startGame.before-canResolveISO")
+        let canResolve = ARMSX2Bridge.canResolveISO(game.romUrl.path)
+        PS2DiagnosticLog.log("canResolveISO=(canResolve)")
+        PS2DiagnosticLog.checkpoint("startGame.after-canResolveISO")
+        guard canResolve else {
+            PS2DiagnosticLog.end(clean: true, reason: "ISO could not be resolved")
             UIView.makeToast(message: "ARMSX2 could not read this PS2 game image")
             return true
         }
 
+        let jitAvailable = ARMSX2Bridge.isJITAvailable()
+        PS2DiagnosticLog.log("jit_preference=(game.jit) jit_available=(jitAvailable)")
+        PS2DiagnosticLog.checkpoint("startGame.after-jit-check")
+
         // PS2 can boot through ARMSX2's interpreter without a JIT grant.
         // JIT is an opt-in per-game acceleration, not a hard launch requirement.
-        if game.jit && !ARMSX2Bridge.isJITAvailable() {
+        if game.jit && !jitAvailable {
 #if SIDE_LOAD
             acquireJITAndLaunch(gameID: game.id)
 #else
@@ -429,6 +636,7 @@ enum ARMSX2EmbeddedCore {
 #if canImport(ARMSX2Core)
     private static func acquireJITAndLaunch(gameID: String) {
 #if SIDE_LOAD
+        PS2DiagnosticLog.checkpoint("jit-acquire.begin")
         if StikJITManager.shared.jitLaunchMode == .externalDebugger {
             if !StikJITHostCoordinator.shared.openExternalDebugger() {
                 UIView.makeToast(message: R.string.localizable.notInstall("StikDebug"))
@@ -440,6 +648,8 @@ enum ARMSX2EmbeddedCore {
         StikJITHostCoordinator.shared.acquireNow { ok, message in
             DispatchQueue.main.async {
                 UIView.hideLoading()
+                PS2DiagnosticLog.log("jit-acquire.callback ok=(ok) message=(message ?? "nil")")
+                PS2DiagnosticLog.checkpoint("jit-acquire.callback")
 
                 guard ok else {
                     UIView.makeAlert(
@@ -462,6 +672,7 @@ enum ARMSX2EmbeddedCore {
     }
 
     private static func launchPreparedGame(gameID: String) {
+        PS2DiagnosticLog.checkpoint("launchPreparedGame.enter")
         guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
               !game.isInvalidated,
               !game.isDeleted,
@@ -469,6 +680,8 @@ enum ARMSX2EmbeddedCore {
               game.isRomExtsts else { return }
 
         let useJIT = game.jit && ARMSX2Bridge.isJITAvailable()
+        PS2DiagnosticLog.log("launchPreparedGame useJIT=(useJIT)")
+        PS2DiagnosticLog.checkpoint("launchPreparedGame.before-cpu-settings")
 
         ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: Int32(useJIT ? 2 : 1))
         ARMSX2Bridge.setINIBool("EmuCore/CPU", key: "UseArm64Dynarec", value: useJIT)
@@ -482,10 +695,14 @@ enum ARMSX2EmbeddedCore {
             ARMSX2Bridge.setINIBool("EmuCore/Speedhacks", key: "vuThread", value: false)
         }
         ARMSX2Bridge.flushINISettings()
+        PS2DiagnosticLog.checkpoint("launchPreparedGame.after-cpu-settings")
 
         let controller = ARMSX2EmbeddedGameViewController(game: game)
         controller.modalPresentationStyle = .fullScreen
-        topViewController(appController: true)?.present(controller, animated: true)
+        PS2DiagnosticLog.checkpoint("launchPreparedGame.before-present-controller")
+        topViewController(appController: true)?.present(controller, animated: true) {
+            PS2DiagnosticLog.checkpoint("launchPreparedGame.controller-presented")
+        }
     }
 #endif
 }
@@ -515,8 +732,13 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        PS2DiagnosticLog.checkpoint("gameVC.viewDidLoad.enter")
 
-        guard ARMSX2EmbeddedRuntime.prepare() else {
+        PS2DiagnosticLog.checkpoint("gameVC.viewDidLoad.before-runtime-prepare")
+        let runtimePrepared = ARMSX2EmbeddedRuntime.prepare()
+        PS2DiagnosticLog.log("gameVC runtime_prepare_result=(runtimePrepared)")
+        PS2DiagnosticLog.checkpoint("gameVC.viewDidLoad.after-runtime-prepare")
+        guard runtimePrepared else {
             UIView.makeToast(message: "Could not initialize the embedded ARMSX2 core")
             dismiss(animated: true)
             return
@@ -526,13 +748,22 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         // The native render surface stays attached to ARMSX2's SDL-created window.
         let center = NotificationCenter.default
         vmObservers = [
+            center.addObserver(forName: Notification.Name("ARMSX2iOSRequestVMBoot"), object: nil, queue: .main) { _ in
+                PS2DiagnosticLog.checkpoint("notification.ARMSX2iOSRequestVMBoot")
+            },
+            center.addObserver(forName: Notification.Name("ARMSX2iOSEnterGameScreen"), object: nil, queue: .main) { _ in
+                PS2DiagnosticLog.checkpoint("notification.ARMSX2iOSEnterGameScreen")
+            },
             center.addObserver(forName: Notification.Name("ARMSX2iOSVMDidShutdown"), object: nil, queue: .main) { [weak self] _ in
+                PS2DiagnosticLog.checkpoint("notification.ARMSX2iOSVMDidShutdown")
                 self?.closeAfterVMStops()
             },
             center.addObserver(forName: Notification.Name("ARMSX2iOSReturnToMenu"), object: nil, queue: .main) { [weak self] _ in
+                PS2DiagnosticLog.checkpoint("notification.ARMSX2iOSReturnToMenu")
                 self?.closeAfterVMStops()
             }
         ]
+        PS2DiagnosticLog.checkpoint("gameVC.viewDidLoad.observers-installed")
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -542,15 +773,22 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         // engine consume those same D-pad events while a PS2 VM is active.
         FocusSystem.shared.isEnabled = false
 
+        PS2DiagnosticLog.checkpoint("gameVC.viewDidAppear.enter")
         guard !hasBooted,
               let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
               !game.isInvalidated,
               game.isRomExtsts else { return }
 
+        PS2DiagnosticLog.checkpoint("gameVC.before-showGameWindow")
         ARMSX2EmbeddedRuntime.showGameWindow()
+        PS2DiagnosticLog.checkpoint("gameVC.after-showGameWindow")
 
         hasBooted = true
-        if !ARMSX2EmbeddedRuntime.bootISO(atPath: game.romUrl.path) {
+        PS2DiagnosticLog.checkpoint("gameVC.before-bootISO")
+        let bootAccepted = ARMSX2EmbeddedRuntime.bootISO(atPath: game.romUrl.path)
+        PS2DiagnosticLog.log("bootISO_return=(bootAccepted)")
+        PS2DiagnosticLog.checkpoint("gameVC.after-bootISO")
+        if !bootAccepted {
             hasBooted = false
             UIView.makeToast(message: "ARMSX2 could not start this PS2 game")
             closeAfterVMStops()
@@ -559,6 +797,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        PS2DiagnosticLog.log("gameVC.viewWillDisappear isBeingDismissed=(isBeingDismissed) navDismissed=(navigationController?.isBeingDismissed == true)")
         FocusSystem.shared.isEnabled = true
         ExternalInputDispatch.sink = .focusKit
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
@@ -571,16 +810,22 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     private func closeAfterVMStops() {
         guard !isClosing else { return }
         isClosing = true
+        PS2DiagnosticLog.checkpoint("gameVC.closeAfterVMStops")
         FocusSystem.shared.isEnabled = true
         ExternalInputDispatch.sink = .focusKit
         ARMSX2EmbeddedRuntime.hideGameWindow()
         ApplicationSceneDelegate.applicationWindow?.makeKeyAndVisible()
         if presentingViewController != nil {
-            dismiss(animated: true)
+            dismiss(animated: true) {
+                PS2DiagnosticLog.end(clean: true, reason: "VM stopped / returned to menu")
+            }
+        } else {
+            PS2DiagnosticLog.end(clean: true, reason: "VM stopped without presenter")
         }
     }
 
     deinit {
+        PS2DiagnosticLog.log("gameVC.deinit")
         vmObservers.forEach(NotificationCenter.default.removeObserver)
         ARMSX2EmbeddedRuntime.stop()
         ARMSX2EmbeddedRuntime.hideGameWindow()
