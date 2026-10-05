@@ -413,7 +413,7 @@ enum ARMSX2EmbeddedCore {
             UIView.makeAlert(
                 title: "PS2 requires JIT",
                 detail: "ARMSX2's normal iOS game-launch path requires an active JIT grant. Enable JIT for this PS2 game before starting it.",
-                cancelTitle: R.string.localizable.cancelTitle(),
+                cancelTitle: "Cancel",
                 confirmTitle: R.string.localizable.enableJIT(),
                 confirmAction: {
                     guard let liveGame = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
