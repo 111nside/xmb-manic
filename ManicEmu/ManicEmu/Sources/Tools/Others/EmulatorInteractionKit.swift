@@ -8,6 +8,7 @@
 
 
 import IceCream
+import GameController
 
 #if canImport(ARMSX2Core)
 import ARMSX2Core
