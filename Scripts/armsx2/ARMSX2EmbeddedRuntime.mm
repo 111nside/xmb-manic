@@ -243,6 +243,51 @@ static BOOL ARMSX2EmbeddedPrepareOnMain(void)
     return YES;
 }
 
++ (BOOL)bootBIOSBrowser
+{
+    if (![self prepare])
+        return NO;
+
+    if (![ARMSX2Bridge hasBIOS]) {
+        Console.Warning("[Embedded] Cannot boot PS2 BIOS browser: no valid BIOS is configured");
+        return NO;
+    }
+
+    void (^prepareAndRequestBoot)(void) = ^{
+        // Boot with no disc and Fast Boot disabled. This enters the real PS2 BIOS
+        // Browser/System Configuration UI, including the Memory Card screen.
+        [ARMSX2Bridge setINIString:@"GameISO" key:@"BootISO" value:@""];
+        [ARMSX2Bridge setINIBool:@"GameISO" key:@"FastBoot" value:NO];
+        [ARMSX2Bridge setINIBool:@"EmuCore" key:@"EnableFastBoot" value:NO];
+        [ARMSX2Bridge flushINISettings];
+
+        UIWindow *window = g_embeddedSceneDelegate.window;
+        UIView *rootView = window.rootViewController.view;
+        UIView *gameView = [ARMSX2Bridge gameRenderView];
+        [rootView layoutIfNeeded];
+        [gameView layoutIfNeeded];
+        Console.WriteLn("[Embedded] PS2 BIOS browser boot request root=%p game=%p window=%p game_size=%.0fx%.0f",
+                        rootView,
+                        gameView,
+                        window,
+                        gameView.bounds.size.width,
+                        gameView.bounds.size.height);
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            Console.WriteLn("[Embedded] Posting PS2 BIOS browser VM boot request");
+            [ARMSX2Bridge requestVMBootLoadingLastSaveState:NO];
+        });
+    };
+
+    if ([NSThread isMainThread])
+        prepareAndRequestBoot();
+    else
+        dispatch_async(dispatch_get_main_queue(), prepareAndRequestBoot);
+
+    return YES;
+}
+
 + (void)stop
 {
     [ARMSX2Bridge requestVMStop];
