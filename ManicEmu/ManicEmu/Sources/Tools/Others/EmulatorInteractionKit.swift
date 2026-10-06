@@ -1239,7 +1239,10 @@ private final class ARMSX2TouchControlsView: UIView {
             start.bottomAnchor.constraint(equalTo: select.bottomAnchor),
             start.widthAnchor.constraint(equalToConstant: 62), start.heightAnchor.constraint(equalTo: select.heightAnchor),
 
-            menuButton.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -10),
+            // Keep the pause/quick-menu control clear of the R1/R2 shoulder cluster.
+            // Centering it in the top safe area also stays symmetrical with the
+            // native-style virtual pad and works across compact landscape widths.
+            menuButton.centerXAnchor.constraint(equalTo: guide.centerXAnchor),
             menuButton.topAnchor.constraint(equalTo: guide.topAnchor, constant: 8),
             menuButton.widthAnchor.constraint(equalToConstant: 44),
             menuButton.heightAnchor.constraint(equalToConstant: 44)
