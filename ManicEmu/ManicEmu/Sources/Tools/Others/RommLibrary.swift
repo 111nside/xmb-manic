@@ -127,6 +127,67 @@ final class RommLibrary {
         linkedGameIds(serviceId: "\(service.id)").count
     }
 
+    /// Makes a linked RomM game locally available immediately before launch.
+    /// Existing local games are untouched. Remote files are streamed to a temporary
+    /// URL first and atomically moved into Manic's normal ROM location so every
+    /// emulator core can keep using its existing local-file launch path.
+    @MainActor
+    func prepareGameForLaunch(_ game: Game) async -> Bool {
+        let destination = game.romUrl
+        if FileManager.default.fileExists(atPath: destination.path) {
+            markRemoteGameUsed(game)
+            return true
+        }
+
+        guard let romId = game.rommRomId,
+              let serviceId = game.rommServiceId,
+              let client = makeClient(serviceId: serviceId) else {
+            return false
+        }
+
+        do {
+            let remote = try await client.rom(id: romId)
+            guard let request = client.romContentRequest(romID: romId, fileName: remote.fs_name) else {
+                Log.debug("[RemoteCache] invalid content request game=\(game.fileName) romId=\(romId)")
+                return false
+            }
+
+            Log.debug("[RemoteCache] materialize start game=\(game.fileName) remote=\(remote.fs_name) bytes=\(remote.fs_size_bytes ?? -1)")
+            UIView.makeToast(message: "Downloading \(game.name)…")
+
+            let temporaryURL = try await client.downloadFile(for: request)
+            let fm = FileManager.default
+            try fm.createDirectory(at: destination.deletingLastPathComponent(),
+                                   withIntermediateDirectories: true)
+            if fm.fileExists(atPath: destination.path) {
+                try fm.removeItem(at: destination)
+            }
+            try fm.moveItem(at: temporaryURL, to: destination)
+
+            if game.gameType == .ps1 && game.fileExtension.lowercased() == "bin" {
+                game.ensurePS1BinCueSheet()
+            }
+            markRemoteGameUsed(game)
+            let bytes = (try? fm.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.int64Value ?? -1
+            Log.debug("[RemoteCache] materialize complete game=\(game.fileName) bytes=\(bytes)")
+            return true
+        } catch {
+            Log.debug("[RemoteCache] materialize failed game=\(game.fileName) error=\(error)")
+            UIView.makeToast(message: "Remote game download failed")
+            return false
+        }
+    }
+
+    private static let remoteCacheUsageKey = "ManicRemoteGameCacheUsage"
+
+    @MainActor
+    private func markRemoteGameUsed(_ game: Game) {
+        guard game.rommRomId != nil, game.rommServiceId != nil else { return }
+        var usage = UserDefaults.standard.dictionary(forKey: Self.remoteCacheUsageKey) as? [String: Double] ?? [:]
+        usage[game.id] = Date().timeIntervalSince1970
+        UserDefaults.standard.set(usage, forKey: Self.remoteCacheUsageKey)
+    }
+
     func pull(service: ImportService) async -> TransferSummary {
         await transfer(service: service, direction: .pull)
     }
