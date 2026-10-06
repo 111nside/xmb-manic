@@ -1444,4 +1444,448 @@ private final class ARMSX2VirtualStickView: UIView {
         }
     }
 }
+
+// MARK: - ARMSX2-style embedded quick menu
+
+private final class ARMSX2EmbeddedQuickMenuViewController: UIViewController {
+    var onExitGame: (() -> Void)?
+    var onVirtualPadVisibilityChanged: ((Bool) -> Void)?
+
+    private static var osdPreset = 0
+    private static var virtualPadVisible = true
+    private static var fullScreenEnabled = false
+
+    private let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+    private let stack = UIStackView()
+    private var resumed = false
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.42)
+
+        let dismissTap = UITapGestureRecognizer(target: self, action: #selector(backdropTapped(_:)))
+        dismissTap.cancelsTouchesInView = false
+        view.addGestureRecognizer(dismissTap)
+
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.layer.cornerRadius = 22
+        card.clipsToBounds = true
+        card.layer.borderWidth = 1
+        card.layer.borderColor = UIColor.white.withAlphaComponent(0.12).cgColor
+        view.addSubview(card)
+
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.showsVerticalScrollIndicator = false
+        card.contentView.addSubview(scroll)
+
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 8
+        scroll.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            card.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            card.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            card.widthAnchor.constraint(lessThanOrEqualToConstant: 640),
+            card.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.82),
+            card.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.82),
+
+            scroll.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: card.contentView.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor),
+
+            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -18),
+            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 18),
+            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -18),
+            stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -36)
+        ])
+
+        buildMenu()
+        ARMSX2Bridge.setVMPaused(true)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if !resumed {
+            ARMSX2Bridge.setVMPaused(false)
+        }
+    }
+
+    private func buildMenu() {
+        stack.addArrangedSubview(makeHeader())
+
+        stack.addArrangedSubview(makeSectionTitle("Quick Actions"))
+        stack.addArrangedSubview(makeRow(
+            title: "OSD",
+            subtitle: "Cycle ARMSX2 performance overlay",
+            symbol: "speedometer"
+        ) { [weak self] in self?.cycleOSD() })
+
+        stack.addArrangedSubview(makeRow(
+            title: "Virtual Pad",
+            subtitle: Self.virtualPadVisible ? "On" : "Off",
+            symbol: "gamecontroller"
+        ) { [weak self] in self?.toggleVirtualPad() })
+
+        stack.addArrangedSubview(makeRow(
+            title: "Full Screen",
+            subtitle: Self.fullScreenEnabled ? "On" : "Off",
+            symbol: "arrow.up.left.and.arrow.down.right"
+        ) { [weak self] in self?.toggleFullScreen() })
+
+        stack.addArrangedSubview(makeRow(
+            title: "Speed / Fast Forward",
+            subtitle: "100% to 500%",
+            symbol: "forward.fill"
+        ) { [weak self] in self?.showSpeedMenu() })
+
+        stack.addArrangedSubview(makeSectionTitle("This Game"))
+        stack.addArrangedSubview(makeRow(
+            title: "ARMSX2 Game Settings",
+            subtitle: "View the current settings ARMSX2 is using",
+            symbol: "slider.horizontal.3"
+        ) { [weak self] in self?.showCurrentGameSettings() })
+
+        stack.addArrangedSubview(makeRow(
+            title: "Save / Load States",
+            subtitle: "Manage PCSX2 state slots",
+            symbol: "square.stack.3d.up.fill"
+        ) { [weak self] in self?.showSaveStateSlots() })
+
+        stack.addArrangedSubview(makeRow(
+            title: "Change Disc",
+            subtitle: "Insert another PS2 image without leaving the game",
+            symbol: "opticaldisc"
+        ) { [weak self] in self?.showDiscPicker() })
+
+        stack.addArrangedSubview(makeRow(
+            title: "Eject Disc",
+            subtitle: ARMSX2Bridge.discInDriveName() ?? "No disc",
+            symbol: "eject.fill"
+        ) { [weak self] in self?.ejectDisc() })
+
+        stack.addArrangedSubview(makeSectionTitle("Reset & Exit"))
+
+        let exit = makeRow(
+            title: "Stop Game",
+            subtitle: "Exit back to the Manic XMB",
+            symbol: "stop.fill",
+            destructive: true
+        ) { [weak self] in self?.confirmExit() }
+        stack.addArrangedSubview(exit)
+
+        let resume = UIButton(type: .system)
+        var config = UIButton.Configuration.filled()
+        config.title = "Resume"
+        config.image = UIImage(systemName: "play.fill")
+        config.imagePadding = 8
+        config.baseForegroundColor = .white
+        config.background.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.92)
+        config.cornerStyle = .capsule
+        resume.configuration = config
+        resume.heightAnchor.constraint(equalToConstant: 48).isActive = true
+        resume.addTarget(self, action: #selector(resumePressed), for: .touchUpInside)
+        stack.addArrangedSubview(resume)
+    }
+
+    private func makeHeader() -> UIView {
+        let container = UIView()
+        let title = UILabel()
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.text = "Paused"
+        title.textColor = .white
+        title.font = .systemFont(ofSize: 26, weight: .semibold)
+
+        let subtitle = UILabel()
+        subtitle.translatesAutoresizingMaskIntoConstraints = false
+        subtitle.text = "ARMSX2 Quick Menu"
+        subtitle.textColor = UIColor.white.withAlphaComponent(0.58)
+        subtitle.font = .systemFont(ofSize: 12.5, weight: .medium)
+
+        container.addSubview(title)
+        container.addSubview(subtitle)
+        NSLayoutConstraint.activate([
+            title.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+            title.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
+            title.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
+            subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 2),
+            subtitle.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+        ])
+        return container
+    }
+
+    private func makeSectionTitle(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.textColor = UIColor.white.withAlphaComponent(0.62)
+        label.font = .systemFont(ofSize: 12, weight: .semibold)
+        label.heightAnchor.constraint(greaterThanOrEqualToConstant: 24).isActive = true
+        return label
+    }
+
+    private func makeRow(title: String,
+                         subtitle: String,
+                         symbol: String,
+                         destructive: Bool = false,
+                         action: @escaping () -> Void) -> UIButton {
+        var config = UIButton.Configuration.gray()
+        config.title = title
+        config.subtitle = subtitle
+        config.image = UIImage(systemName: symbol)
+        config.imagePlacement = .leading
+        config.imagePadding = 12
+        config.titleAlignment = .leading
+        config.baseForegroundColor = destructive ? UIColor.systemRed : .white
+        config.background.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        config.cornerStyle = .large
+        config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 13, bottom: 10, trailing: 13)
+
+        let button = UIButton(configuration: config)
+        button.contentHorizontalAlignment = .leading
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 54).isActive = true
+        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        return button
+    }
+
+    @objc private func backdropTapped(_ recognizer: UITapGestureRecognizer) {
+        let point = recognizer.location(in: view)
+        if !card.frame.contains(point) {
+            resumePressed()
+        }
+    }
+
+    @objc private func resumePressed() {
+        guard !resumed else { return }
+        resumed = true
+        ARMSX2Bridge.setVMPaused(false)
+        dismiss(animated: true)
+    }
+
+    private func cycleOSD() {
+        Self.osdPreset = (Self.osdPreset + 1) % 4
+        ARMSX2Bridge.applyOsdPreset(Int32(Self.osdPreset))
+        UIView.makeToast(message: "ARMSX2 OSD: \(["Off", "Simple", "Detail", "Full"][Self.osdPreset])")
+    }
+
+    private func toggleVirtualPad() {
+        Self.virtualPadVisible.toggle()
+        onVirtualPadVisibilityChanged?(Self.virtualPadVisible)
+        rebuildMenu()
+    }
+
+    private func toggleFullScreen() {
+        Self.fullScreenEnabled.toggle()
+        ARMSX2Bridge.setFullScreen(Self.fullScreenEnabled)
+        rebuildMenu()
+    }
+
+    private func rebuildMenu() {
+        stack.arrangedSubviews.forEach {
+            stack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        buildMenu()
+    }
+
+    private func showSpeedMenu() {
+        let alert = UIAlertController(title: "Speed / Fast Forward", message: nil, preferredStyle: .actionSheet)
+        for percent in [100, 150, 200, 300, 500] {
+            alert.addAction(UIAlertAction(title: "\(percent)%", style: .default) { _ in
+                if percent == 100 {
+                    ARMSX2Bridge.setRuntimeFastForward(enabled: false, speedPercent: Int32(percent))
+                    ARMSX2Bridge.setRuntimeEmulationSpeedPercent(Int32(percent))
+                } else {
+                    ARMSX2Bridge.setRuntimeFastForward(enabled: true, speedPercent: Int32(percent))
+                }
+                UIView.makeToast(message: "Emulation speed: \(percent)%")
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        presentActionSheet(alert)
+    }
+
+    private func showCurrentGameSettings() {
+        guard let settings = ARMSX2Bridge.gameSettingsForCurrentGame(), !settings.isEmpty else {
+            UIView.makeToast(message: "ARMSX2 game settings are not ready yet")
+            return
+        }
+
+        let text = settings.keys.sorted().map { key in
+            let value = settings[key].map { String(describing: $0) } ?? "—"
+            return "\(key): \(value)"
+        }.joined(separator: "\n")
+
+        let controller = ARMSX2SettingsSnapshotViewController(text: text)
+        controller.modalPresentationStyle = .formSheet
+        present(controller, animated: true)
+    }
+
+    private func showSaveStateSlots() {
+        let slots = ARMSX2Bridge.saveStateSlots()
+            .filter { $0.slot >= 0 }
+            .sorted { $0.slot < $1.slot }
+
+        guard !slots.isEmpty else {
+            UIView.makeToast(message: "Save states are not ready yet")
+            return
+        }
+
+        let alert = UIAlertController(title: "Save / Load States", message: "Choose a slot", preferredStyle: .actionSheet)
+        for info in slots.prefix(10) {
+            let state = info.occupied ? "Saved" : "Empty"
+            alert.addAction(UIAlertAction(title: "Slot \(info.slot + 1) — \(state)", style: .default) { [weak self] _ in
+                self?.showSaveStateActions(info)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        presentActionSheet(alert)
+    }
+
+    private func showSaveStateActions(_ info: ARMSX2SaveStateSlotInfo) {
+        let alert = UIAlertController(title: "Slot \(info.slot + 1)", message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
+            ARMSX2Bridge.saveState(toSlot: info.slot) { saved, _ in
+                DispatchQueue.main.async {
+                    UIView.makeToast(message: saved ? "State saved" : "Could not save state")
+                }
+            }
+        })
+
+        if info.occupied {
+            alert.addAction(UIAlertAction(title: "Load", style: .default) { _ in
+                ARMSX2Bridge.loadState(
+                    fromSlot: info.slot,
+                    expectedModified: info.modifiedDate,
+                    keepingUndo: false
+                ) { loaded, _ in
+                    DispatchQueue.main.async {
+                        UIView.makeToast(message: loaded ? "State loaded" : "Could not load state")
+                    }
+                }
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        presentActionSheet(alert)
+    }
+
+    private func showDiscPicker() {
+        let games = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
+            .filter { $0.effectiveGameType == .ps2 && $0.isRomExtsts }
+            .map { game -> (name: String, path: String) in
+                let display = game.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (display.isEmpty ? game.name : display, game.romUrl.path)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        guard !games.isEmpty else {
+            UIView.makeToast(message: "No PS2 disc images are available")
+            return
+        }
+
+        let alert = UIAlertController(title: "Change Disc", message: "Insert Disc (No Reboot)", preferredStyle: .actionSheet)
+        for game in games {
+            alert.addAction(UIAlertAction(title: game.name, style: .default) { _ in
+                ARMSX2Bridge.changeDisc(toISO: game.path) { success in
+                    DispatchQueue.main.async {
+                        UIView.makeToast(message: success ? "\(game.name) inserted" : "Could not change discs")
+                    }
+                }
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        presentActionSheet(alert)
+    }
+
+    private func ejectDisc() {
+        ARMSX2Bridge.ejectDisc { success in
+            DispatchQueue.main.async {
+                UIView.makeToast(message: success ? "Disc ejected" : "Could not eject the disc")
+            }
+        }
+    }
+
+    private func confirmExit() {
+        let alert = UIAlertController(
+            title: "Stop Game?",
+            message: "This stops the PS2 VM and returns to the Manic XMB.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Stop", style: .destructive) { [weak self] _ in
+            guard let self else { return }
+            self.resumed = true
+            self.dismiss(animated: true) {
+                self.onExitGame?()
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    private func presentActionSheet(_ alert: UIAlertController) {
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = card
+            popover.sourceRect = CGRect(x: card.bounds.midX, y: card.bounds.midY, width: 1, height: 1)
+        }
+        present(alert, animated: true)
+    }
+}
+
+private final class ARMSX2SettingsSnapshotViewController: UIViewController {
+    private let text: String
+
+    init(text: String) {
+        self.text = text
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "ARMSX2 Game Settings"
+        titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
+
+        let textView = UITextView()
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.text = text
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.isEditable = false
+        textView.backgroundColor = .clear
+
+        let done = UIButton(type: .system)
+        done.translatesAutoresizingMaskIntoConstraints = false
+        done.setTitle("Done", for: .normal)
+        done.addTarget(self, action: #selector(donePressed), for: .touchUpInside)
+
+        view.addSubview(titleLabel)
+        view.addSubview(textView)
+        view.addSubview(done)
+
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 18),
+            titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            done.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -18),
+            done.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            textView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 14),
+            textView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -14),
+            textView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            textView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+        ])
+    }
+
+    @objc private func donePressed() {
+        dismiss(animated: true)
+    }
+}
+
 #endif
