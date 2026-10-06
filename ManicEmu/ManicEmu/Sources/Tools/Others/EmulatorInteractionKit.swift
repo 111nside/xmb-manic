@@ -1261,21 +1261,60 @@ private final class ARMSX2TouchControlsView: UIView {
 }
 
 private final class ARMSX2TouchPadButton: UIButton {
+    enum Style {
+        case dpad
+        case face(UIColor)
+        case shoulder
+        case system
+    }
+
     private let padButton: ARMSX2PadButton
+    private let style: Style
     private var pressed = false
 
-    init(title: String, padButton: ARMSX2PadButton, compact: Bool) {
+    init(title: String, padButton: ARMSX2PadButton, style: Style) {
         self.padButton = padButton
+        self.style = style
         super.init(frame: .zero)
 
         setTitle(title, for: .normal)
-        setTitleColor(.white, for: .normal)
-        titleLabel?.font = .systemFont(ofSize: compact ? 10.5 : 18, weight: .bold)
-        backgroundColor = UIColor.black.withAlphaComponent(compact ? 0.40 : 0.34)
-        layer.cornerRadius = compact ? 12 : 21
+        titleLabel?.font = .systemFont(
+            ofSize: {
+                switch style {
+                case .face: return 23
+                case .dpad: return 16
+                case .shoulder: return 11
+                case .system: return 9.5
+                }
+            }(),
+            weight: .semibold
+        )
+
+        switch style {
+        case .face(let color):
+            setTitleColor(color, for: .normal)
+            backgroundColor = UIColor.black.withAlphaComponent(0.16)
+            layer.borderColor = color.withAlphaComponent(0.60).cgColor
+            layer.cornerRadius = 25
+        case .dpad:
+            setTitleColor(.white, for: .normal)
+            backgroundColor = UIColor.black.withAlphaComponent(0.30)
+            layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+            layer.cornerRadius = 13
+        case .shoulder:
+            setTitleColor(.white, for: .normal)
+            backgroundColor = UIColor.black.withAlphaComponent(0.32)
+            layer.borderColor = UIColor.white.withAlphaComponent(0.22).cgColor
+            layer.cornerRadius = 12
+        case .system:
+            setTitleColor(UIColor.white.withAlphaComponent(0.92), for: .normal)
+            backgroundColor = UIColor.black.withAlphaComponent(0.28)
+            layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
+            layer.cornerRadius = 10
+        }
+
         layer.borderWidth = 1
-        layer.borderColor = UIColor.white.withAlphaComponent(0.26).cgColor
-        alpha = 0.76
+        alpha = 0.82
 
         addTarget(self, action: #selector(pressInput), for: .touchDown)
         addTarget(self, action: #selector(releaseInputAction), for: [.touchUpInside, .touchUpOutside, .touchCancel])
@@ -1293,7 +1332,13 @@ private final class ARMSX2TouchPadButton: UIButton {
                        delay: 0,
                        options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.alpha = 1
-            self.transform = CGAffineTransform(scaleX: 0.94, y: 0.94)
+            self.transform = CGAffineTransform(scaleX: 0.91, y: 0.91)
+            switch self.style {
+            case .face(let color):
+                self.backgroundColor = color.withAlphaComponent(0.24)
+            default:
+                self.backgroundColor = UIColor.white.withAlphaComponent(0.24)
+            }
         }
     }
 
@@ -1306,11 +1351,22 @@ private final class ARMSX2TouchPadButton: UIButton {
             ARMSX2Bridge.setPadButton(padButton, pressed: false)
             pressed = false
         }
+
         UIView.animate(withDuration: 0.08,
                        delay: 0,
                        options: [.beginFromCurrentState, .allowUserInteraction]) {
-            self.alpha = 0.76
+            self.alpha = 0.82
             self.transform = .identity
+            switch self.style {
+            case .face:
+                self.backgroundColor = UIColor.black.withAlphaComponent(0.16)
+            case .dpad:
+                self.backgroundColor = UIColor.black.withAlphaComponent(0.30)
+            case .shoulder:
+                self.backgroundColor = UIColor.black.withAlphaComponent(0.32)
+            case .system:
+                self.backgroundColor = UIColor.black.withAlphaComponent(0.28)
+            }
         }
     }
 }
