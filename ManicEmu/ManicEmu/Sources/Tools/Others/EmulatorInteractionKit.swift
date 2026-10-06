@@ -567,6 +567,31 @@ enum ARMSX2EmbeddedCore {
 #endif
     }
 
+    /// Opens the original PS2 BIOS Browser with no disc inserted. This is the
+    /// authentic Memory Card / System Configuration screen from the console.
+    @discardableResult
+    static func openMemoryCardBrowser() -> Bool {
+#if canImport(ARMSX2Core)
+        guard prepare() else {
+            UIView.makeToast(message: "Could not initialize the embedded ARMSX2 core")
+            return false
+        }
+        guard ARMSX2Bridge.hasBIOS() else {
+            UIView.makeToast(message: "A PS2 BIOS is required to open the PS2 Browser")
+            return false
+        }
+
+        _ = configureCPUForCurrentJIT()
+        let controller = ARMSX2EmbeddedGameViewController(memoryCardBrowser: true)
+        controller.modalPresentationStyle = .fullScreen
+        topViewController(appController: true)?.present(controller, animated: true)
+        return true
+#else
+        UIView.makeToast(message: "PS2 support is not available in this build")
+        return false
+#endif
+    }
+
     /// Returns true when ManicEMU took ownership of the launch.
     @discardableResult
     static func startGame(_ game: Game) -> Bool {
@@ -669,6 +694,31 @@ enum ARMSX2EmbeddedCore {
 #endif
     }
 
+    @discardableResult
+    private static func configureCPUForCurrentJIT() -> Bool {
+        // If iOS already granted executable memory, always use ARMSX2's ARM64
+        // recompilers. The old per-game JIT flag could leave EE/IOP/VU/Fastmem
+        // disabled even though JIT was active, producing the startup warnings.
+        let useJIT = ARMSX2Bridge.isJITAvailable()
+        PS2DiagnosticLog.log("configureCPU useJIT=\(useJIT)")
+        PS2DiagnosticLog.checkpoint("cpu-settings.begin")
+
+        ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: Int32(useJIT ? 2 : 1))
+        ARMSX2Bridge.setINIBool("EmuCore/CPU", key: "UseArm64Dynarec", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableEE", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableIOP", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: useJIT)
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: useJIT)
+        ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: useJIT)
+        if !useJIT {
+            ARMSX2Bridge.setINIBool("EmuCore/Speedhacks", key: "vuThread", value: false)
+        }
+        ARMSX2Bridge.flushINISettings()
+        PS2DiagnosticLog.checkpoint("cpu-settings.end")
+        return useJIT
+    }
+
     private static func launchPreparedGame(gameID: String) {
         PS2DiagnosticLog.checkpoint("launchPreparedGame.enter")
         guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
@@ -677,23 +727,8 @@ enum ARMSX2EmbeddedCore {
               game.gameType == .ps2,
               game.isRomExtsts else { return }
 
-        let useJIT = game.jit && ARMSX2Bridge.isJITAvailable()
+        let useJIT = configureCPUForCurrentJIT()
         PS2DiagnosticLog.log("launchPreparedGame useJIT=\(useJIT)")
-        PS2DiagnosticLog.checkpoint("launchPreparedGame.before-cpu-settings")
-
-        ARMSX2Bridge.setINIInt("EmuCore/CPU", key: "CoreType", value: Int32(useJIT ? 2 : 1))
-        ARMSX2Bridge.setINIBool("EmuCore/CPU", key: "UseArm64Dynarec", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableEE", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableIOP", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: useJIT)
-        ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: true)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: useJIT)
-        if !useJIT {
-            ARMSX2Bridge.setINIBool("EmuCore/Speedhacks", key: "vuThread", value: false)
-        }
-        ARMSX2Bridge.flushINISettings()
-        PS2DiagnosticLog.checkpoint("launchPreparedGame.after-cpu-settings")
 
         let controller = ARMSX2EmbeddedGameViewController(game: game)
         controller.modalPresentationStyle = .fullScreen
@@ -709,13 +744,25 @@ enum ARMSX2EmbeddedCore {
 /// Minimal native host for the ARMSX2 render surface. XMB remains the frontend;
 /// ARMSX2's standalone SwiftUI library/menu is not presented.
 private final class ARMSX2EmbeddedGameViewController: UIViewController {
-    private let gameID: String
+    private enum BootMode {
+        case game(String)
+        case memoryCardBrowser
+    }
+
+    private let bootMode: BootMode
     private var hasBooted = false
     private var isClosing = false
     private var vmObservers: [NSObjectProtocol] = []
+    private var touchControlsView: ARMSX2TouchControlsView?
 
     init(game: Game) {
-        self.gameID = game.id
+        self.bootMode = .game(game.id)
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationCapturesStatusBarAppearance = true
+    }
+
+    init(memoryCardBrowser: Bool) {
+        self.bootMode = .memoryCardBrowser
         super.init(nibName: nil, bundle: nil)
         modalPresentationCapturesStatusBarAppearance = true
     }
@@ -772,24 +819,84 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         FocusSystem.shared.isEnabled = false
 
         PS2DiagnosticLog.checkpoint("gameVC.viewDidAppear.enter")
-        guard !hasBooted,
-              let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
-              !game.isInvalidated,
-              game.isRomExtsts else { return }
+        guard !hasBooted else {
+            installTouchControlsIfNeeded()
+            return
+        }
 
         PS2DiagnosticLog.checkpoint("gameVC.before-showGameWindow")
         ARMSX2EmbeddedRuntime.showGameWindow()
         PS2DiagnosticLog.checkpoint("gameVC.after-showGameWindow")
+        installTouchControlsIfNeeded()
 
         hasBooted = true
-        PS2DiagnosticLog.checkpoint("gameVC.before-bootISO")
-        let bootAccepted = ARMSX2EmbeddedRuntime.bootISO(atPath: game.romUrl.path)
-        PS2DiagnosticLog.log("bootISO_return=\(bootAccepted)")
-        PS2DiagnosticLog.checkpoint("gameVC.after-bootISO")
+        let bootAccepted: Bool
+        switch bootMode {
+        case .game(let gameID):
+            guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+                  !game.isInvalidated,
+                  game.isRomExtsts else {
+                hasBooted = false
+                UIView.makeToast(message: "The PS2 game file is no longer available")
+                closeAfterVMStops()
+                return
+            }
+            PS2DiagnosticLog.checkpoint("gameVC.before-bootISO")
+            bootAccepted = ARMSX2EmbeddedRuntime.bootISO(atPath: game.romUrl.path)
+            PS2DiagnosticLog.log("bootISO_return=\(bootAccepted)")
+            PS2DiagnosticLog.checkpoint("gameVC.after-bootISO")
+
+        case .memoryCardBrowser:
+            PS2DiagnosticLog.checkpoint("gameVC.before-bootBIOSBrowser")
+            bootAccepted = ARMSX2EmbeddedRuntime.bootBIOSBrowser()
+            PS2DiagnosticLog.log("bootBIOSBrowser_return=\(bootAccepted)")
+            PS2DiagnosticLog.checkpoint("gameVC.after-bootBIOSBrowser")
+        }
+
         if !bootAccepted {
             hasBooted = false
-            UIView.makeToast(message: "ARMSX2 could not start this PS2 game")
+            UIView.makeToast(message: "ARMSX2 could not start the PS2")
             closeAfterVMStops()
+        }
+    }
+
+    private func installTouchControlsIfNeeded() {
+        let renderView = ARMSX2Bridge.gameRenderView()
+        guard let hostView = renderView.window?.rootViewController?.view ?? renderView.superview else { return }
+
+        if let touchControlsView, touchControlsView.superview === hostView {
+            hostView.bringSubviewToFront(touchControlsView)
+            return
+        }
+
+        touchControlsView?.releaseAllInputs()
+        touchControlsView?.removeFromSuperview()
+
+        let controls = ARMSX2TouchControlsView()
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        controls.onExit = { [weak self] in
+            self?.requestExitFromTouchControls()
+        }
+        hostView.addSubview(controls)
+        NSLayoutConstraint.activate([
+            controls.leadingAnchor.constraint(equalTo: hostView.leadingAnchor),
+            controls.trailingAnchor.constraint(equalTo: hostView.trailingAnchor),
+            controls.topAnchor.constraint(equalTo: hostView.topAnchor),
+            controls.bottomAnchor.constraint(equalTo: hostView.bottomAnchor)
+        ])
+        hostView.bringSubviewToFront(controls)
+        touchControlsView = controls
+    }
+
+    private func requestExitFromTouchControls() {
+        guard !isClosing else { return }
+        PS2DiagnosticLog.checkpoint("gameVC.touch-exit-requested")
+        ARMSX2EmbeddedRuntime.stop()
+
+        // Normally ARMSX2 posts VMDidShutdown/ReturnToMenu. Keep a short fallback
+        // so the player can always return to XMB even if a title hangs while stopping.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            self?.closeAfterVMStops()
         }
     }
 
@@ -811,6 +918,9 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         PS2DiagnosticLog.checkpoint("gameVC.closeAfterVMStops")
         FocusSystem.shared.isEnabled = true
         ExternalInputDispatch.sink = .focusKit
+        touchControlsView?.releaseAllInputs()
+        touchControlsView?.removeFromSuperview()
+        touchControlsView = nil
         ARMSX2EmbeddedRuntime.hideGameWindow()
         ApplicationSceneDelegate.applicationWindow?.makeKeyAndVisible()
         if presentingViewController != nil {
@@ -824,9 +934,311 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
 
     deinit {
         PS2DiagnosticLog.log("gameVC.deinit")
+        touchControlsView?.releaseAllInputs()
+        touchControlsView?.removeFromSuperview()
         vmObservers.forEach(NotificationCenter.default.removeObserver)
         ARMSX2EmbeddedRuntime.stop()
         ARMSX2EmbeddedRuntime.hideGameWindow()
+    }
+}
+
+// MARK: - Embedded PS2 touch controller
+
+private final class ARMSX2TouchControlsView: UIView {
+    var onExit: (() -> Void)?
+
+    private var padButtons: [ARMSX2TouchPadButton] = []
+    private let leftStick = ARMSX2VirtualStickView(left: true)
+    private let rightStick = ARMSX2VirtualStickView(left: false)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        setupControls()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        // Leave the center of the game screen transparent to ARMSX2. Only the
+        // visible controller elements consume touches.
+        for child in subviews where !child.isHidden && child.alpha > 0.01 {
+            let converted = convert(point, to: child)
+            if child.point(inside: converted, with: event) {
+                return true
+            }
+        }
+        return false
+    }
+
+    func releaseAllInputs() {
+        padButtons.forEach { $0.releaseInput() }
+        leftStick.reset()
+        rightStick.reset()
+    }
+
+    private func setupControls() {
+        let dpad = UIView()
+        dpad.translatesAutoresizingMaskIntoConstraints = false
+        dpad.backgroundColor = .clear
+        addSubview(dpad)
+
+        let up = makePadButton("▲", .up)
+        let down = makePadButton("▼", .down)
+        let left = makePadButton("◀", .left)
+        let right = makePadButton("▶", .right)
+        [up, down, left, right].forEach(dpad.addSubview)
+
+        let face = UIView()
+        face.translatesAutoresizingMaskIntoConstraints = false
+        face.backgroundColor = .clear
+        addSubview(face)
+
+        let triangle = makePadButton("△", .triangle)
+        let cross = makePadButton("✕", .cross)
+        let square = makePadButton("□", .square)
+        let circle = makePadButton("○", .circle)
+        [triangle, cross, square, circle].forEach(face.addSubview)
+
+        let l2 = makePadButton("L2", .l2, compact: true)
+        let l1 = makePadButton("L1", .l1, compact: true)
+        let r1 = makePadButton("R1", .r1, compact: true)
+        let r2 = makePadButton("R2", .r2, compact: true)
+        [l2, l1, r1, r2].forEach(addSubview)
+
+        let select = makePadButton("SELECT", .select, compact: true)
+        let start = makePadButton("START", .start, compact: true)
+        [select, start].forEach(addSubview)
+
+        leftStick.translatesAutoresizingMaskIntoConstraints = false
+        rightStick.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(leftStick)
+        addSubview(rightStick)
+
+        let exit = UIButton(type: .system)
+        exit.translatesAutoresizingMaskIntoConstraints = false
+        exit.setTitle("Exit", for: .normal)
+        exit.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        exit.tintColor = .white
+        exit.setTitleColor(.white, for: .normal)
+        exit.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
+        exit.backgroundColor = UIColor.black.withAlphaComponent(0.48)
+        exit.layer.cornerRadius = 17
+        exit.layer.borderWidth = 1
+        exit.layer.borderColor = UIColor.white.withAlphaComponent(0.24).cgColor
+        exit.addTarget(self, action: #selector(exitPressed), for: .touchUpInside)
+        addSubview(exit)
+
+        let guide = safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            dpad.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
+            dpad.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -14),
+            dpad.widthAnchor.constraint(equalToConstant: 122),
+            dpad.heightAnchor.constraint(equalToConstant: 122),
+
+            up.widthAnchor.constraint(equalToConstant: 43), up.heightAnchor.constraint(equalToConstant: 43),
+            up.centerXAnchor.constraint(equalTo: dpad.centerXAnchor), up.topAnchor.constraint(equalTo: dpad.topAnchor),
+            down.widthAnchor.constraint(equalTo: up.widthAnchor), down.heightAnchor.constraint(equalTo: up.heightAnchor),
+            down.centerXAnchor.constraint(equalTo: dpad.centerXAnchor), down.bottomAnchor.constraint(equalTo: dpad.bottomAnchor),
+            left.widthAnchor.constraint(equalTo: up.widthAnchor), left.heightAnchor.constraint(equalTo: up.heightAnchor),
+            left.leadingAnchor.constraint(equalTo: dpad.leadingAnchor), left.centerYAnchor.constraint(equalTo: dpad.centerYAnchor),
+            right.widthAnchor.constraint(equalTo: up.widthAnchor), right.heightAnchor.constraint(equalTo: up.heightAnchor),
+            right.trailingAnchor.constraint(equalTo: dpad.trailingAnchor), right.centerYAnchor.constraint(equalTo: dpad.centerYAnchor),
+
+            face.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+            face.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -14),
+            face.widthAnchor.constraint(equalToConstant: 122),
+            face.heightAnchor.constraint(equalToConstant: 122),
+
+            triangle.widthAnchor.constraint(equalToConstant: 47), triangle.heightAnchor.constraint(equalToConstant: 47),
+            triangle.centerXAnchor.constraint(equalTo: face.centerXAnchor), triangle.topAnchor.constraint(equalTo: face.topAnchor),
+            cross.widthAnchor.constraint(equalTo: triangle.widthAnchor), cross.heightAnchor.constraint(equalTo: triangle.heightAnchor),
+            cross.centerXAnchor.constraint(equalTo: face.centerXAnchor), cross.bottomAnchor.constraint(equalTo: face.bottomAnchor),
+            square.widthAnchor.constraint(equalTo: triangle.widthAnchor), square.heightAnchor.constraint(equalTo: triangle.heightAnchor),
+            square.leadingAnchor.constraint(equalTo: face.leadingAnchor), square.centerYAnchor.constraint(equalTo: face.centerYAnchor),
+            circle.widthAnchor.constraint(equalTo: triangle.widthAnchor), circle.heightAnchor.constraint(equalTo: triangle.heightAnchor),
+            circle.trailingAnchor.constraint(equalTo: face.trailingAnchor), circle.centerYAnchor.constraint(equalTo: face.centerYAnchor),
+
+            leftStick.leadingAnchor.constraint(equalTo: dpad.trailingAnchor, constant: 13),
+            leftStick.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -24),
+            leftStick.widthAnchor.constraint(equalToConstant: 86),
+            leftStick.heightAnchor.constraint(equalToConstant: 86),
+
+            rightStick.trailingAnchor.constraint(equalTo: face.leadingAnchor, constant: -13),
+            rightStick.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -24),
+            rightStick.widthAnchor.constraint(equalToConstant: 86),
+            rightStick.heightAnchor.constraint(equalToConstant: 86),
+
+            l2.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
+            l2.topAnchor.constraint(equalTo: guide.topAnchor, constant: 12),
+            l2.widthAnchor.constraint(equalToConstant: 56), l2.heightAnchor.constraint(equalToConstant: 36),
+            l1.leadingAnchor.constraint(equalTo: l2.trailingAnchor, constant: 8),
+            l1.centerYAnchor.constraint(equalTo: l2.centerYAnchor),
+            l1.widthAnchor.constraint(equalTo: l2.widthAnchor), l1.heightAnchor.constraint(equalTo: l2.heightAnchor),
+
+            r2.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+            r2.topAnchor.constraint(equalTo: guide.topAnchor, constant: 12),
+            r2.widthAnchor.constraint(equalToConstant: 56), r2.heightAnchor.constraint(equalToConstant: 36),
+            r1.trailingAnchor.constraint(equalTo: r2.leadingAnchor, constant: -8),
+            r1.centerYAnchor.constraint(equalTo: r2.centerYAnchor),
+            r1.widthAnchor.constraint(equalTo: r2.widthAnchor), r1.heightAnchor.constraint(equalTo: r2.heightAnchor),
+
+            select.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -7),
+            select.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -12),
+            select.widthAnchor.constraint(equalToConstant: 68), select.heightAnchor.constraint(equalToConstant: 32),
+            start.leadingAnchor.constraint(equalTo: centerXAnchor, constant: 7),
+            start.bottomAnchor.constraint(equalTo: select.bottomAnchor),
+            start.widthAnchor.constraint(equalTo: select.widthAnchor), start.heightAnchor.constraint(equalTo: select.heightAnchor),
+
+            exit.centerXAnchor.constraint(equalTo: centerXAnchor),
+            exit.topAnchor.constraint(equalTo: guide.topAnchor, constant: 10),
+            exit.widthAnchor.constraint(equalToConstant: 82),
+            exit.heightAnchor.constraint(equalToConstant: 34)
+        ])
+    }
+
+    private func makePadButton(_ title: String,
+                               _ button: ARMSX2PadButton,
+                               compact: Bool = false) -> ARMSX2TouchPadButton {
+        let control = ARMSX2TouchPadButton(title: title, padButton: button, compact: compact)
+        control.translatesAutoresizingMaskIntoConstraints = false
+        padButtons.append(control)
+        return control
+    }
+
+    @objc private func exitPressed() {
+        onExit?()
+    }
+}
+
+private final class ARMSX2TouchPadButton: UIButton {
+    private let padButton: ARMSX2PadButton
+    private var pressed = false
+
+    init(title: String, padButton: ARMSX2PadButton, compact: Bool) {
+        self.padButton = padButton
+        super.init(frame: .zero)
+
+        setTitle(title, for: .normal)
+        setTitleColor(.white, for: .normal)
+        titleLabel?.font = .systemFont(ofSize: compact ? 10.5 : 18, weight: .bold)
+        backgroundColor = UIColor.black.withAlphaComponent(compact ? 0.40 : 0.34)
+        layer.cornerRadius = compact ? 12 : 21
+        layer.borderWidth = 1
+        layer.borderColor = UIColor.white.withAlphaComponent(0.26).cgColor
+        alpha = 0.76
+
+        addTarget(self, action: #selector(pressInput), for: .touchDown)
+        addTarget(self, action: #selector(releaseInputAction), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func pressInput() {
+        guard !pressed else { return }
+        pressed = true
+        ARMSX2Bridge.setPadButton(padButton, pressed: true)
+        UIView.animate(withDuration: 0.06,
+                       delay: 0,
+                       options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.alpha = 1
+            self.transform = CGAffineTransform(scaleX: 0.94, y: 0.94)
+        }
+    }
+
+    @objc private func releaseInputAction() {
+        releaseInput()
+    }
+
+    func releaseInput() {
+        if pressed {
+            ARMSX2Bridge.setPadButton(padButton, pressed: false)
+            pressed = false
+        }
+        UIView.animate(withDuration: 0.08,
+                       delay: 0,
+                       options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.alpha = 0.76
+            self.transform = .identity
+        }
+    }
+}
+
+private final class ARMSX2VirtualStickView: UIView {
+    private let isLeft: Bool
+    private let knob = UIView()
+
+    init(left: Bool) {
+        self.isLeft = left
+        super.init(frame: .zero)
+
+        backgroundColor = UIColor.black.withAlphaComponent(0.24)
+        layer.cornerRadius = 43
+        layer.borderWidth = 1
+        layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+
+        knob.translatesAutoresizingMaskIntoConstraints = false
+        knob.backgroundColor = UIColor.white.withAlphaComponent(0.30)
+        knob.layer.cornerRadius = 18
+        knob.layer.borderWidth = 1
+        knob.layer.borderColor = UIColor.white.withAlphaComponent(0.30).cgColor
+        addSubview(knob)
+        NSLayoutConstraint.activate([
+            knob.centerXAnchor.constraint(equalTo: centerXAnchor),
+            knob.centerYAnchor.constraint(equalTo: centerYAnchor),
+            knob.widthAnchor.constraint(equalToConstant: 36),
+            knob.heightAnchor.constraint(equalToConstant: 36)
+        ])
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.maximumNumberOfTouches = 1
+        addGestureRecognizer(pan)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+        let location = recognizer.location(in: self)
+        let radius = max(1, min(bounds.width, bounds.height) * 0.5 - 12)
+        var x = (location.x - bounds.midX) / radius
+        var y = (location.y - bounds.midY) / radius
+        let magnitude = hypot(x, y)
+        if magnitude > 1 {
+            x /= magnitude
+            y /= magnitude
+        }
+
+        switch recognizer.state {
+        case .began, .changed:
+            let knobTravel = min(bounds.width, bounds.height) * 0.24
+            knob.transform = CGAffineTransform(translationX: x * knobTravel, y: y * knobTravel)
+            if isLeft {
+                ARMSX2Bridge.setLeftStickX(Float(x), y: Float(y))
+            } else {
+                ARMSX2Bridge.setRightStickX(Float(x), y: Float(y))
+            }
+        default:
+            reset()
+        }
+    }
+
+    func reset() {
+        if isLeft {
+            ARMSX2Bridge.setLeftStickX(0, y: 0)
+        } else {
+            ARMSX2Bridge.setRightStickX(0, y: 0)
+        }
+        UIView.animate(withDuration: 0.10,
+                       delay: 0,
+                       options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.knob.transform = .identity
+        }
     }
 }
 #endif
