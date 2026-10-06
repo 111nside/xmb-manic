@@ -475,6 +475,13 @@ private func manicPS2UncaughtExceptionHandler(_ exception: NSException) {
 // MARK: - Embedded ARMSX2 bridge
 
 enum ARMSX2EmbeddedCore {
+#if canImport(ARMSX2Core)
+    // Keep the UIKit host alive for the entire native PS2 session. ARMSX2 renders
+    // through its own UIWindow, so relying only on the presenting hierarchy can
+    // allow the Manic host controller to disappear during window/lifecycle churn.
+    private static var activeGameController: ARMSX2EmbeddedGameViewController?
+#endif
+
     static var diagnosticLogURL: URL? {
         PS2DiagnosticLog.ensureExportFile()
     }
@@ -582,10 +589,24 @@ enum ARMSX2EmbeddedCore {
             return false
         }
 
+        guard activeGameController == nil else {
+            UIView.makeToast(message: "A PS2 session is already running")
+            return true
+        }
+
+        guard let presenter = topViewController(appController: true) else {
+            UIView.makeToast(message: "Could not open the PS2 Browser")
+            return false
+        }
+
         _ = configureCPUForCurrentJIT()
         let controller = ARMSX2EmbeddedGameViewController(memoryCardBrowser: true)
         controller.modalPresentationStyle = .fullScreen
-        topViewController(appController: true)?.present(controller, animated: true)
+        controller.onClosed = {
+            ARMSX2EmbeddedCore.activeGameController = nil
+        }
+        activeGameController = controller
+        presenter.present(controller, animated: true)
         return true
 #else
         UIView.makeToast(message: "PS2 support is not available in this build")
@@ -728,13 +749,28 @@ enum ARMSX2EmbeddedCore {
               game.gameType == .ps2,
               game.isRomExtsts else { return }
 
+        guard activeGameController == nil else {
+            PS2DiagnosticLog.log("launchPreparedGame ignored because another PS2 host controller is active")
+            return
+        }
+
+        guard let presenter = topViewController(appController: true) else {
+            PS2DiagnosticLog.end(clean: true, reason: "No presenter for PS2 host controller")
+            UIView.makeToast(message: "Could not open the PS2 game screen")
+            return
+        }
+
         let useJIT = configureCPUForCurrentJIT()
         PS2DiagnosticLog.log("launchPreparedGame useJIT=\(useJIT)")
 
         let controller = ARMSX2EmbeddedGameViewController(game: game)
         controller.modalPresentationStyle = .fullScreen
+        controller.onClosed = {
+            ARMSX2EmbeddedCore.activeGameController = nil
+        }
+        activeGameController = controller
         PS2DiagnosticLog.checkpoint("launchPreparedGame.before-present-controller")
-        topViewController(appController: true)?.present(controller, animated: true) {
+        presenter.present(controller, animated: true) {
             PS2DiagnosticLog.checkpoint("launchPreparedGame.controller-presented")
         }
     }
@@ -745,6 +781,8 @@ enum ARMSX2EmbeddedCore {
 /// Minimal native host for the ARMSX2 render surface. XMB remains the frontend;
 /// ARMSX2's standalone SwiftUI library/menu is not presented.
 private final class ARMSX2EmbeddedGameViewController: UIViewController {
+    var onClosed: (() -> Void)?
+
     private enum BootMode {
         case game(String)
         case memoryCardBrowser
@@ -789,7 +827,11 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         PS2DiagnosticLog.checkpoint("gameVC.viewDidLoad.after-runtime-prepare")
         guard runtimePrepared else {
             UIView.makeToast(message: "Could not initialize the embedded ARMSX2 core")
-            dismiss(animated: true)
+            let closed = onClosed
+            onClosed = nil
+            dismiss(animated: true) {
+                closed?()
+            }
             return
         }
 
@@ -983,11 +1025,15 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         gameplayHostView = nil
         ARMSX2EmbeddedRuntime.hideGameWindow()
         ApplicationSceneDelegate.applicationWindow?.makeKeyAndVisible()
+        let closed = onClosed
+        onClosed = nil
         if presentingViewController != nil {
             dismiss(animated: true) {
+                closed?()
                 PS2DiagnosticLog.end(clean: true, reason: "VM stopped / returned to menu")
             }
         } else {
+            closed?()
             PS2DiagnosticLog.end(clean: true, reason: "VM stopped without presenter")
         }
     }
@@ -1492,7 +1538,11 @@ private final class ARMSX2EmbeddedQuickMenuViewController: UIViewController {
             card.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             card.widthAnchor.constraint(lessThanOrEqualToConstant: 640),
             card.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.82),
-            card.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.82),
+
+            // UIScrollView content does not give its container an intrinsic height.
+            // Give the quick-menu card a real frame instead of only a max-height;
+            // otherwise Auto Layout can collapse it to 0pt while the VM still pauses.
+            card.heightAnchor.constraint(equalTo: view.safeAreaLayoutGuide.heightAnchor, multiplier: 0.82),
 
             scroll.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor),
