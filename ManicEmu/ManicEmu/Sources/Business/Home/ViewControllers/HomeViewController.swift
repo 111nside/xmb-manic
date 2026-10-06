@@ -700,6 +700,98 @@ private struct XMBGameItem {
     }
 }
 
+private final class XMBProfileMenuButton: UIButton {
+    private let symbolView = UIImageView()
+    private let primaryLabel = UILabel()
+    private let secondaryLabel = UILabel()
+    private let symbolPlate = UIView()
+
+    init(title: String, subtitle: String, image: UIImage?) {
+        super.init(frame: .zero)
+
+        backgroundColor = .clear
+        layer.cornerRadius = 11
+        clipsToBounds = false
+
+        symbolPlate.translatesAutoresizingMaskIntoConstraints = false
+        symbolPlate.backgroundColor = UIColor.white.withAlphaComponent(0.07)
+        symbolPlate.layer.cornerRadius = 17
+        symbolPlate.layer.borderWidth = 1
+        symbolPlate.layer.borderColor = UIColor.white.withAlphaComponent(0.10).cgColor
+        symbolPlate.isUserInteractionEnabled = false
+        addSubview(symbolPlate)
+
+        symbolView.translatesAutoresizingMaskIntoConstraints = false
+        symbolView.image = image
+        symbolView.tintColor = UIColor.white.withAlphaComponent(0.92)
+        symbolView.contentMode = .scaleAspectFit
+        symbolView.isUserInteractionEnabled = false
+        addSubview(symbolView)
+
+        primaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        primaryLabel.text = title
+        primaryLabel.font = .systemFont(ofSize: 15.5, weight: .semibold)
+        primaryLabel.textColor = .white
+        primaryLabel.lineBreakMode = .byTruncatingTail
+        primaryLabel.isUserInteractionEnabled = false
+        addSubview(primaryLabel)
+
+        secondaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        secondaryLabel.text = subtitle
+        secondaryLabel.font = .systemFont(ofSize: 11.25, weight: .regular)
+        secondaryLabel.textColor = UIColor.white.withAlphaComponent(0.56)
+        secondaryLabel.lineBreakMode = .byTruncatingTail
+        secondaryLabel.isUserInteractionEnabled = false
+        addSubview(secondaryLabel)
+
+        NSLayoutConstraint.activate([
+            // Keep every submenu icon directly on the same vertical axis as the
+            // selected Profile icon in the horizontal XMB rail.
+            symbolPlate.centerXAnchor.constraint(equalTo: centerXAnchor),
+            symbolPlate.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbolPlate.widthAnchor.constraint(equalToConstant: 34),
+            symbolPlate.heightAnchor.constraint(equalToConstant: 34),
+
+            symbolView.centerXAnchor.constraint(equalTo: symbolPlate.centerXAnchor),
+            symbolView.centerYAnchor.constraint(equalTo: symbolPlate.centerYAnchor),
+            symbolView.widthAnchor.constraint(equalToConstant: 19),
+            symbolView.heightAnchor.constraint(equalToConstant: 19),
+
+            primaryLabel.leadingAnchor.constraint(equalTo: symbolPlate.trailingAnchor, constant: 15),
+            primaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -7),
+
+            secondaryLabel.leadingAnchor.constraint(equalTo: primaryLabel.leadingAnchor),
+            secondaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            secondaryLabel.topAnchor.constraint(equalTo: primaryLabel.bottomAnchor, constant: 2)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setSubtitle(_ text: String) {
+        secondaryLabel.text = text
+    }
+
+    func setXMBFocused(_ focused: Bool) {
+        UIView.animate(withDuration: 0.14,
+                       delay: 0,
+                       options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+            self.backgroundColor = focused ? UIColor.white.withAlphaComponent(0.085) : .clear
+            self.symbolPlate.backgroundColor = focused
+                ? UIColor.white.withAlphaComponent(0.15)
+                : UIColor.white.withAlphaComponent(0.07)
+            self.symbolPlate.transform = focused
+                ? CGAffineTransform(scaleX: 1.08, y: 1.08)
+                : .identity
+            self.primaryLabel.alpha = focused ? 1.0 : 0.88
+            self.secondaryLabel.alpha = focused ? 0.90 : 0.72
+        }
+    }
+}
+
 final class XMBHomeViewController: BaseViewController {
     private enum SectionKind: Equatable {
         case profile
@@ -825,7 +917,7 @@ final class XMBHomeViewController: BaseViewController {
         scrollView.alwaysBounceHorizontal = true
         scrollView.isScrollEnabled = true
         scrollView.clipsToBounds = false
-        scrollView.decelerationRate = .normal
+        scrollView.decelerationRate = UIScrollView.DecelerationRate(rawValue: 0.994)
         return scrollView
     }()
 
@@ -892,7 +984,7 @@ final class XMBHomeViewController: BaseViewController {
         collectionView.showsVerticalScrollIndicator = false
         collectionView.alwaysBounceVertical = true
         collectionView.isScrollEnabled = true
-        collectionView.decelerationRate = .normal
+        collectionView.decelerationRate = UIScrollView.DecelerationRate(rawValue: 0.994)
         collectionView.clipsToBounds = true
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.register(XMBGameRowCell.self, forCellWithReuseIdentifier: XMBGameRowCell.reuseIdentifier)
@@ -925,16 +1017,10 @@ final class XMBHomeViewController: BaseViewController {
         self?.openProfileDetails()
     }
 
-    private lazy var ps2MemoryCardsButton = makeProfileMenuButton(title: "PS2 Memory Card Data",
-                                                                  subtitle: "Browse saves and original PS2 3D icons",
+    private lazy var ps2MemoryCardsButton = makeProfileMenuButton(title: "PS2 Memory Cards",
+                                                                  subtitle: "Open the original PS2 Browser / Memory Card screen",
                                                                   symbol: "memorychip.fill") { [weak self] in
         self?.openPS2MemoryCards()
-    }
-
-    private lazy var ps2DiagnosticsButton = makeProfileMenuButton(title: "PS2 Crash Log",
-                                                                  subtitle: "View or share the last native PS2 launch log",
-                                                                  symbol: "doc.text.magnifyingglass") { [weak self] in
-        self?.openPS2Diagnostics()
     }
 
     private lazy var gameLibrarySettingsButton = makeProfileMenuButton(title: "Game Library View",
@@ -1301,7 +1387,6 @@ final class XMBHomeViewController: BaseViewController {
         let profileMenuStack = UIStackView(arrangedSubviews: [
             profileDetailsButton,
             ps2MemoryCardsButton,
-            ps2DiagnosticsButton,
             gameLibrarySettingsButton,
             consoleLibrarySettingsButton
         ])
@@ -1314,8 +1399,8 @@ final class XMBHomeViewController: BaseViewController {
             make.edges.equalTo(profileMenuContainerView.contentLayoutGuide)
             make.width.equalTo(profileMenuContainerView.frameLayoutGuide)
         }
-        [profileDetailsButton, ps2MemoryCardsButton, ps2DiagnosticsButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
-            $0.snp.makeConstraints { $0.height.equalTo(54) }
+        [profileDetailsButton, ps2MemoryCardsButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
+            $0.snp.makeConstraints { $0.height.equalTo(58) }
         }
 
         view.addSubview(actionContainerView)
@@ -1612,45 +1697,15 @@ final class XMBHomeViewController: BaseViewController {
     private func makeProfileMenuButton(title: String,
                                        subtitle: String,
                                        symbol: String,
-                                       action: @escaping () -> Void) -> UIButton {
-        var configuration = UIButton.Configuration.plain()
-        configuration.title = title
-        configuration.subtitle = subtitle
-        configuration.image = safeSystemImage(symbol)
-        configuration.imagePlacement = .leading
-        configuration.imagePadding = 14
-        configuration.baseForegroundColor = .white
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
-        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var outgoing = incoming
-            outgoing.font = .systemFont(ofSize: 16, weight: .semibold)
-            return outgoing
-        }
-        configuration.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var outgoing = incoming
-            outgoing.font = .systemFont(ofSize: 11.5, weight: .regular)
-            outgoing.foregroundColor = UIColor.white.withAlphaComponent(0.56)
-            return outgoing
-        }
-
-        let button = UIButton(configuration: configuration)
-        button.contentHorizontalAlignment = .leading
-        button.titleLabel?.textAlignment = .left
+                                       action: @escaping () -> Void) -> XMBProfileMenuButton {
+        let button = XMBProfileMenuButton(title: title,
+                                          subtitle: subtitle,
+                                          image: safeSystemImage(symbol))
         button.isFocusable = true
         button.enableFocusEffects = false
-        button.layer.cornerRadius = 10
-
-        let applyFocus: (Bool) -> Void = { [weak button] focused in
-            guard let button else { return }
-            UIView.animate(withDuration: 0.16,
-                           delay: 0,
-                           options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
-                button.backgroundColor = focused ? UIColor.white.withAlphaComponent(0.10) : .clear
-                button.transform = focused ? CGAffineTransform(scaleX: 1.025, y: 1.025) : .identity
-                button.alpha = focused ? 1.0 : 0.84
-            }
+        button.onFocusChange = { [weak button] focused in
+            button?.setXMBFocused(focused)
         }
-        button.onFocusChange = applyFocus
         button.onFocusConfirm = {
             action()
             return true
@@ -1946,10 +2001,10 @@ final class XMBHomeViewController: BaseViewController {
                 button.layer.shadowRadius = selected ? 12 : 0
             }
             if animated {
-                UIView.animate(withDuration: 0.24,
+                UIView.animate(withDuration: 0.19,
                                delay: 0,
-                               usingSpringWithDamping: 0.82,
-                               initialSpringVelocity: 0.2,
+                               usingSpringWithDamping: 0.90,
+                               initialSpringVelocity: 0.15,
                                options: [.beginFromCurrentState, .allowUserInteraction],
                                animations: visualChanges)
             } else {
@@ -2146,10 +2201,8 @@ final class XMBHomeViewController: BaseViewController {
     }
 
     private func refreshProfileMenuSettingsLabels() {
-        func update(_ button: UIButton, subtitle: String) {
-            guard var configuration = button.configuration else { return }
-            configuration.subtitle = subtitle
-            button.configuration = configuration
+        func update(_ button: XMBProfileMenuButton, subtitle: String) {
+            button.setSubtitle(subtitle)
         }
         update(gameLibrarySettingsButton,
                subtitle: "Sort: \(gameSort.title)  •  Filter: \(gameFilter.title)")
@@ -2272,6 +2325,41 @@ final class XMBHomeViewController: BaseViewController {
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
         if !animated {
             updateGameFocusFromScroll()
+        }
+    }
+
+    private func settleGameAfterTouch() {
+        guard !games.isEmpty, gameRowStride > 0 else { return }
+        let raw = (collectionView.contentOffset.y + collectionView.contentInset.top) / gameRowStride
+        let index = min(max(Int(raw.rounded()), 0), games.count - 1)
+        let minY = -collectionView.contentInset.top
+        let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + collectionView.contentInset.bottom)
+        let targetY = min(max(CGFloat(index) * gameRowStride - collectionView.contentInset.top, minY), maxY)
+
+        UIView.animate(withDuration: 0.17,
+                       delay: 0,
+                       options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+            self.collectionView.contentOffset = CGPoint(x: 0, y: targetY)
+        } completion: { _ in
+            self.gameColumnLayout.focusPosition = CGFloat(index)
+            self.updateGameFocusFromScroll()
+        }
+    }
+
+    private func settleSelectedSectionAfterTouch() {
+        guard sectionButtons.indices.contains(selectedSectionIndex),
+              sectionScrollView.bounds.width > 0 else { return }
+        sectionScrollView.layoutIfNeeded()
+        let button = sectionButtons[selectedSectionIndex]
+        let minX = -sectionScrollView.adjustedContentInset.left
+        let maxX = max(minX,
+                       sectionScrollView.contentSize.width - sectionScrollView.bounds.width + sectionScrollView.adjustedContentInset.right)
+        let targetX = min(max(button.frame.midX - sectionScrollView.bounds.width * 0.5, minX), maxX)
+
+        UIView.animate(withDuration: 0.17,
+                       delay: 0,
+                       options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+            self.sectionScrollView.contentOffset = CGPoint(x: targetX, y: self.sectionScrollView.contentOffset.y)
         }
     }
 
@@ -2566,15 +2654,7 @@ final class XMBHomeViewController: BaseViewController {
     }
 
     private func openPS2MemoryCards() {
-        let controller = XMBPS2MemoryCardViewController()
-        controller.modalPresentationStyle = .fullScreen
-        present(controller, animated: true)
-    }
-
-    private func openPS2Diagnostics() {
-        let controller = XMBPS2DiagnosticsViewController()
-        controller.modalPresentationStyle = .fullScreen
-        present(controller, animated: true)
+        _ = ARMSX2EmbeddedCore.openMemoryCardBrowser()
     }
 
     private func updateClock() {
@@ -2686,7 +2766,16 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard games.indices.contains(indexPath.item) else { return }
-        updateFocusedGame(index: indexPath.item)
+        let highlightedIndex = rememberedIndexForCurrentSection()
+        collectionView.deselectItem(at: indexPath, animated: false)
+
+        if indexPath.item != highlightedIndex {
+            // Touch mirrors controller focus: the first tap only moves the XMB
+            // highlight. A second tap on the highlighted title opens its menu.
+            updateFocusedGame(index: indexPath.item)
+            return
+        }
+
         openGameDetails(gameID: games[indexPath.item].id)
     }
 
@@ -2729,26 +2818,10 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
     func scrollViewWillEndDragging(_ scrollView: UIScrollView,
                                    withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        if scrollView === sectionScrollView, !sectionButtons.isEmpty {
-            let predictedCenter = targetContentOffset.pointee.x + sectionScrollView.bounds.width * 0.5
-            if let nearest = sectionButtons.min(by: {
-                abs($0.frame.midX - predictedCenter) < abs($1.frame.midX - predictedCenter)
-            }) {
-                let minX = -sectionScrollView.adjustedContentInset.left
-                let maxX = max(minX,
-                               sectionScrollView.contentSize.width - sectionScrollView.bounds.width + sectionScrollView.adjustedContentInset.right)
-                targetContentOffset.pointee.x = min(max(nearest.frame.midX - sectionScrollView.bounds.width * 0.5, minX), maxX)
-            }
-            return
-        }
-
-        if scrollView === collectionView, !games.isEmpty, gameRowStride > 0 {
-            let predicted = (targetContentOffset.pointee.y + collectionView.contentInset.top) / gameRowStride
-            let index = min(max(Int(predicted.rounded()), 0), games.count - 1)
-            let minY = -collectionView.contentInset.top
-            let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + collectionView.contentInset.bottom)
-            targetContentOffset.pointee.y = min(max(CGFloat(index) * gameRowStride - collectionView.contentInset.top, minY), maxY)
-        }
+        // Do not replace UIKit's predicted destination. Fast finger flicks should
+        // keep their momentum and visibly travel through systems/games instead of
+        // jumping directly to a forced nearest item. We only perform a short settle
+        // after deceleration has naturally finished.
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
@@ -2771,9 +2844,7 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
     private func finishTouchScroll(on scrollView: UIScrollView) {
         if scrollView === sectionScrollView {
             isTouchScrollingSections = false
-            // The predicted target is already centered by scrollViewWillEndDragging.
-            // Correct any sub-point residue without launching a second long snap.
-            scrollSelectedSectionIntoView(animated: true)
+            settleSelectedSectionAfterTouch()
             return
         }
 
@@ -2781,6 +2852,7 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
             isTouchScrollingGames = false
             isProgrammaticGameScroll = false
             updateGameFocusFromScroll()
+            settleGameAfterTouch()
         }
     }
 
@@ -3035,13 +3107,13 @@ private final class XMBGameRowCell: UICollectionViewCell {
             self.detailLabel.textColor = focused
                 ? UIColor.white.withAlphaComponent(0.68)
                 : UIColor.white.withAlphaComponent(0.50)
-            self.coverView.layer.borderWidth = focused ? 1.5 : 0
-            self.coverView.layer.borderColor = UIColor.white.withAlphaComponent(0.82).cgColor
+            self.coverView.layer.borderWidth = focused ? 1.0 : 0
+            self.coverView.layer.borderColor = UIColor.white.withAlphaComponent(0.78).cgColor
             self.coverView.layer.shadowColor = UIColor.systemCyan.cgColor
-            self.coverView.layer.shadowOpacity = focused ? 0.42 : 0
-            self.coverView.layer.shadowRadius = focused ? 7 : 0
+            self.coverView.layer.shadowOpacity = focused ? 0.30 : 0
+            self.coverView.layer.shadowRadius = focused ? 4 : 0
             self.coverView.transform = focused
-                ? CGAffineTransform(scaleX: 1.08, y: 1.08)
+                ? CGAffineTransform(scaleX: 1.035, y: 1.035)
                 : .identity
             self.transform = .identity
         }
@@ -3719,7 +3791,7 @@ private final class XMBGameDetailViewController: UIViewController {
             make.leading.trailing.equalToSuperview().inset(24)
         }
 
-        let synopsisTitle = sectionTitle("Synopsis")
+        let synopsisTitle = sectionTitle("Overview")
         synopsisCard.addSubview(synopsisTitle)
         synopsisCard.addSubview(synopsisLabel)
         synopsisTitle.snp.makeConstraints { make in
@@ -3814,14 +3886,41 @@ private final class XMBGameDetailViewController: UIViewController {
         if let stored = GameMetadata.getGameMetadata(game: game) {
             applyMetadata(stored)
         } else {
-            synopsisLabel.text = "Loading game description…"
+            synopsisLabel.text = "Loading overview…"
             metadataLabel.text = "Metadata is being matched from ManicEMU's local game database."
-            let query = titleLabel.text ?? game.name
+
+            // ROM names often contain region/revision tags which make a single fuzzy
+            // search miss an otherwise present overview. Try the display name, the
+            // library name and a cleaned filename, then prefer a result with overview text.
+            let displayed = titleLabel.text ?? game.name
+            let libraryName = game.name
+            let romName = game.romUrl.deletingPathExtension().lastPathComponent
+            let cleanedROMName = romName
+                .replacingOccurrences(of: #"\s*[\(\[].*?[\)\]]"#,
+                                      with: "",
+                                      options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let queries = Array(Set([displayed, libraryName, cleanedROMName]))
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let metadata = GameMetadataKit.searchGameInfo(displayName: query).first
+                var best: GameMetadata?
+                for query in queries {
+                    let matches = GameMetadataKit.searchGameInfo(displayName: query)
+                    if let withOverview = matches.first(where: {
+                        !$0.overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    }) {
+                        best = withOverview
+                        break
+                    }
+                    if best == nil {
+                        best = matches.first
+                    }
+                }
+
                 DispatchQueue.main.async {
                     guard let self else { return }
-                    self.applyMetadata(metadata)
+                    self.applyMetadata(best)
                 }
             }
         }
@@ -3829,13 +3928,13 @@ private final class XMBGameDetailViewController: UIViewController {
 
     private func applyMetadata(_ metadata: GameMetadata?) {
         guard let metadata else {
-            synopsisLabel.text = "No synopsis is available in the local ManicEMU metadata database for this game."
+            synopsisLabel.text = "No overview is available in the local ManicEMU metadata database for this game."
             metadataLabel.text = "Developer  —\nPublisher  —\nGenre  —\nRelease  —\nRegion  —\nRating  —"
             return
         }
 
         synopsisLabel.text = metadata.overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "No synopsis is available for this title."
+            ? "No overview is available for this title."
             : metadata.overview
 
         func value(_ text: String) -> String {
