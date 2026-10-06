@@ -293,6 +293,30 @@ final class RommClient {
         return try Self.jsonDecoder.decode([T].self, from: payload)
     }
 
+    func romContentRequest(romID: Int, fileName: String) -> URLRequest? {
+        let encodedName = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fileName
+        return request(path: "\(RomApiStub)/\(romID)/content/\(encodedName)")
+    }
+
+    /// Streams a large remote file to URLSession's temporary storage instead of
+    /// loading an entire ROM/disc image into memory.
+    func downloadFile(for request: URLRequest) async throws -> URL {
+        let url = request.url?.absoluteString ?? "?"
+        Log.debug("[RomM HTTP] DOWNLOAD \(url)")
+        let (temporaryURL, response) = try await session.download(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard 200..<300 ~= http.statusCode else {
+            Log.debug("[RomM HTTP] ← \(http.statusCode) DOWNLOAD \(url)")
+            throw URLError(http.statusCode == 401 || http.statusCode == 403
+                           ? .userAuthenticationRequired
+                           : .badServerResponse)
+        }
+        Log.debug("[RomM HTTP] ← \(http.statusCode) DOWNLOAD \(url)")
+        return temporaryURL
+    }
+
     func data(for request: URLRequest) async throws -> Data {
         let url = request.url?.absoluteString ?? "?"
         Log.debug("[RomM HTTP] \(request.httpMethod ?? "GET") \(url)")
