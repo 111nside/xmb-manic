@@ -731,8 +731,15 @@ enum ARMSX2EmbeddedCore {
         ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableIOP", value: useJIT)
         ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: useJIT)
         ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: useJIT)
-        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: useJIT)
-        ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: useJIT)
+
+        // Stability isolation: the latest device logs die immediately after entering
+        // ARM64 recompiled code, before the next main-thread heartbeat. Keep all JIT
+        // recompilers enabled, but force vtlb fastmem off so we can distinguish a
+        // fastmem fault-handler crash from an EE/IOP/VU JIT crash.
+        let useFastmem = false
+        ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: useFastmem)
+        ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: useFastmem)
+        PS2DiagnosticLog.log("configureCPU fastmem=\(useFastmem) isolation_test=true")
         if !useJIT {
             ARMSX2Bridge.setINIBool("EmuCore/Speedhacks", key: "vuThread", value: false)
         }
