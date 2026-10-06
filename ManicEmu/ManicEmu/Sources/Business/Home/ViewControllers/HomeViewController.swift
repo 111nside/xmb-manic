@@ -700,6 +700,84 @@ private struct XMBGameItem {
     }
 }
 
+private enum XMBOverviewWebSource {
+    static let defaultsKey = "ManicXMB.overviewURLTemplate"
+    static let defaultTemplate = "https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+
+    static var template: String {
+        let saved = UserDefaults.standard.string(forKey: defaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return saved?.isEmpty == false ? saved! : defaultTemplate
+    }
+
+    static func saveTemplate(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: defaultsKey)
+        }
+    }
+
+    static func fetch(title: String, completion: @escaping (String?) -> Void) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+
+        let encoded = trimmedTitle.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? trimmedTitle
+        var urlString = template
+        if urlString.contains("{title}") {
+            urlString = urlString.replacingOccurrences(of: "{title}", with: encoded)
+        } else {
+            urlString += (urlString.contains("?") ? "&" : "?") + "title=" + encoded
+        }
+
+        guard let url = URL(string: urlString) else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.setValue("application/json,text/html;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            guard let data,
+                  let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            let text = extractOverview(from: data)
+            DispatchQueue.main.async { completion(text) }
+        }.resume()
+    }
+
+    private static func extractOverview(from data: Data) -> String? {
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["overview", "description", "extract", "summary"] {
+                if let value = json[key] as? String,
+                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return value.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+        }
+
+        guard let html = String(data: data, encoding: .utf8) else { return nil }
+        let pattern = #"<meta[^>]+(?:name|property)=[\"'](?:description|og:description)[\"'][^>]+content=[\"']([^\"']+)[\"']"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+        return String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 private final class XMBProfileMenuButton: UIButton {
     private let symbolView = UIImageView()
     private let primaryLabel = UILabel()
