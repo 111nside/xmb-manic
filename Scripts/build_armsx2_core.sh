@@ -69,7 +69,9 @@ FOUND_WASTE_TIME=0
 while IFS= read -r METALLIB; do
   FOUND_METALLIB=1
   echo "Checking Metal library: $METALLIB"
-  if strings "$METALLIB" | grep -Fq "waste_time"; then
+  METAL_STRINGS="$RUNNER_TEMP/armsx2-metallib-strings.txt"
+  strings "$METALLIB" > "$METAL_STRINGS"
+  if grep -Fq "waste_time" "$METAL_STRINGS"; then
     FOUND_WASTE_TIME=1
     break
   fi
