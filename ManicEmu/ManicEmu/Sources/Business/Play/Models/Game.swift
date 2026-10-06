@@ -1663,6 +1663,21 @@ return URL(fileURLWithPath: path.appendingPathComponent("data/00000001/"))
     }
     
     func handleTapAction(forceQuick: Bool = false, saveState: GameSaveState? = nil) {
+        // A linked remote game is allowed to remain in the library without its
+        // large ROM/disc image being permanently stored on this device. Resolve
+        // it into Manic's normal local path immediately before the existing
+        // launch flow, keeping every emulator core unaware of remote storage.
+        if !isRomExtsts, rommRomId != nil, rommServiceId != nil {
+            Task { @MainActor in
+                guard await RommLibrary.shared.prepareGameForLaunch(self) else { return }
+                self.handlePreparedTapAction(forceQuick: forceQuick, saveState: saveState)
+            }
+            return
+        }
+        handlePreparedTapAction(forceQuick: forceQuick, saveState: saveState)
+    }
+
+    private func handlePreparedTapAction(forceQuick: Bool, saveState: GameSaveState?) {
         if isNDSHomeMenuGame {
             let biosCompletion = gameType.isNDSBiosComplete()
             if (id == Game.DsHomeMenuPrimaryKey && !biosCompletion.isDSComplete) ||
