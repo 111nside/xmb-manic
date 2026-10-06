@@ -796,6 +796,8 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     private weak var gameplayHostView: UIView?
     private var gameplayTapRecognizer: UITapGestureRecognizer?
     private var externalControllerConnected = false
+    private var diagnosticHeartbeatTimer: Timer?
+    private var diagnosticHeartbeatSequence = 0
 
     init(game: Game) {
         self.bootMode = .game(game.id)
@@ -858,6 +860,24 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
             },
             center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
                 self?.refreshExternalControllerState()
+            },
+            center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in
+                PS2DiagnosticLog.checkpoint("app.didReceiveMemoryWarning")
+            },
+            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
+                PS2DiagnosticLog.checkpoint("app.willResignActive")
+            },
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                PS2DiagnosticLog.checkpoint("app.didEnterBackground")
+            },
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+                PS2DiagnosticLog.checkpoint("app.willEnterForeground")
+            },
+            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                PS2DiagnosticLog.checkpoint("app.didBecomeActive")
+            },
+            center.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+                PS2DiagnosticLog.checkpoint("app.willTerminate")
             }
         ]
         refreshExternalControllerState()
@@ -874,6 +894,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         PS2DiagnosticLog.checkpoint("gameVC.viewDidAppear.enter")
         guard !hasBooted else {
             installTouchControlsIfNeeded()
+            startDiagnosticHeartbeatIfNeeded()
             return
         }
 
@@ -881,6 +902,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         ARMSX2EmbeddedRuntime.showGameWindow()
         PS2DiagnosticLog.checkpoint("gameVC.after-showGameWindow")
         installTouchControlsIfNeeded()
+        startDiagnosticHeartbeatIfNeeded()
 
         hasBooted = true
         let bootAccepted: Bool
@@ -951,6 +973,49 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         touchControlsView = controls
     }
 
+    private func startDiagnosticHeartbeatIfNeeded() {
+        guard diagnosticHeartbeatTimer == nil, !isClosing else { return }
+        diagnosticHeartbeatSequence = 0
+        recordDiagnosticHeartbeat()
+
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.recordDiagnosticHeartbeat()
+        }
+        diagnosticHeartbeatTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopDiagnosticHeartbeat() {
+        diagnosticHeartbeatTimer?.invalidate()
+        diagnosticHeartbeatTimer = nil
+    }
+
+    private func recordDiagnosticHeartbeat() {
+        guard !isClosing else { return }
+        diagnosticHeartbeatSequence += 1
+
+        let state: String
+        switch UIApplication.shared.applicationState {
+        case .active:
+            state = "active"
+        case .inactive:
+            state = "inactive"
+        case .background:
+            state = "background"
+        @unknown default:
+            state = "unknown"
+        }
+
+        let renderView = ARMSX2Bridge.gameRenderView()
+        let window = renderView.window
+        let size = renderView.bounds.size
+        PS2DiagnosticLog.checkpoint(
+            "gameVC.heartbeat seq=\(diagnosticHeartbeatSequence) app=\(state) " +
+            "window_present=\(window != nil) window_hidden=\(window?.isHidden ?? true) " +
+            "render=\(Int(size.width))x\(Int(size.height))"
+        )
+    }
+
     private func refreshExternalControllerState() {
         let connected = !GCController.controllers().isEmpty
         guard externalControllerConnected != connected || touchControlsView != nil else {
@@ -1003,6 +1068,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         FocusSystem.shared.isEnabled = true
         ExternalInputDispatch.sink = .focusKit
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            stopDiagnosticHeartbeat()
             ARMSX2EmbeddedRuntime.stop()
             ARMSX2EmbeddedRuntime.hideGameWindow()
             ApplicationSceneDelegate.applicationWindow?.makeKeyAndVisible()
@@ -1012,6 +1078,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     private func closeAfterVMStops() {
         guard !isClosing else { return }
         isClosing = true
+        stopDiagnosticHeartbeat()
         PS2DiagnosticLog.checkpoint("gameVC.closeAfterVMStops")
         FocusSystem.shared.isEnabled = true
         ExternalInputDispatch.sink = .focusKit
@@ -1039,6 +1106,7 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     }
 
     deinit {
+        stopDiagnosticHeartbeat()
         PS2DiagnosticLog.log("gameVC.deinit")
         touchControlsView?.releaseAllInputs()
         touchControlsView?.removeFromSuperview()
