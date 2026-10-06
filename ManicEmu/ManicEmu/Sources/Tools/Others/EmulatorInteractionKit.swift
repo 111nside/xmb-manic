@@ -1773,7 +1773,7 @@ private final class ARMSX2EmbeddedQuickMenuViewController: UIViewController {
     }
 
     private func showDiscPicker() {
-        let games = Array(Database.realm.objects(Game.self).where { $0.isDeleted == false })
+        let games = Array(Database.realm.objects(Game.self).where { !$0.isDeleted })
             .filter { $0.effectiveGameType == .ps2 && $0.isRomExtsts }
             .map { game -> (name: String, path: String) in
                 let display = game.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
