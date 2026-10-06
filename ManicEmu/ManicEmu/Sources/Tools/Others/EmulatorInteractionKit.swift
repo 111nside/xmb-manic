@@ -1008,11 +1008,16 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
 // MARK: - Embedded PS2 touch controller
 
 private final class ARMSX2TouchControlsView: UIView {
-    var onExit: (() -> Void)?
+    var onMenu: (() -> Void)?
 
     private var padButtons: [ARMSX2TouchPadButton] = []
+    private var gameplayControls: [UIView] = []
     private let leftStick = ARMSX2VirtualStickView(left: true)
     private let rightStick = ARMSX2VirtualStickView(left: false)
+    private let menuButton = UIButton(type: .system)
+    private var externalControllerConnected = false
+    private var userVirtualPadVisible = true
+    private var menuHideWorkItem: DispatchWorkItem?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1025,8 +1030,7 @@ private final class ARMSX2TouchControlsView: UIView {
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        // Leave the center of the game screen transparent to ARMSX2. Only the
-        // visible controller elements consume touches.
+        // Gameplay remains touch-transparent except for visible controls/menu.
         for child in subviews where !child.isHidden && child.alpha > 0.01 {
             let converted = convert(point, to: child)
             if child.point(inside: converted, with: event) {
@@ -1036,72 +1040,152 @@ private final class ARMSX2TouchControlsView: UIView {
         return false
     }
 
+    func setExternalControllerConnected(_ connected: Bool) {
+        externalControllerConnected = connected
+        updateVirtualPadVisibility(animated: true)
+
+        // Match native ARMSX2: with a physical controller the virtual pad goes away
+        // and the pause button is hidden until the game surface is tapped.
+        if connected {
+            menuHideWorkItem?.cancel()
+            menuButton.isHidden = true
+            menuButton.alpha = 0
+        } else {
+            menuHideWorkItem?.cancel()
+            menuButton.isHidden = false
+            menuButton.alpha = 1
+        }
+    }
+
+    func setUserVirtualPadVisible(_ visible: Bool) {
+        userVirtualPadVisible = visible
+        updateVirtualPadVisibility(animated: true)
+    }
+
+    func revealMenuButtonBriefly() {
+        guard externalControllerConnected else {
+            menuButton.isHidden = false
+            menuButton.alpha = 1
+            return
+        }
+
+        menuHideWorkItem?.cancel()
+        menuButton.isHidden = false
+        UIView.animate(withDuration: 0.12,
+                       delay: 0,
+                       options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.menuButton.alpha = 1
+        }
+
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.externalControllerConnected else { return }
+            UIView.animate(withDuration: 0.18,
+                           delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction]) {
+                self.menuButton.alpha = 0
+            } completion: { _ in
+                if self.externalControllerConnected {
+                    self.menuButton.isHidden = true
+                }
+            }
+        }
+        menuHideWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: item)
+    }
+
     func releaseAllInputs() {
         padButtons.forEach { $0.releaseInput() }
         leftStick.reset()
         rightStick.reset()
     }
 
+    private func updateVirtualPadVisibility(animated: Bool) {
+        let visible = userVirtualPadVisible && !externalControllerConnected
+        if !visible {
+            releaseAllInputs()
+        }
+
+        let changes = {
+            self.gameplayControls.forEach {
+                $0.alpha = visible ? 1 : 0
+                $0.isHidden = !visible
+            }
+        }
+
+        if animated && visible {
+            gameplayControls.forEach {
+                $0.isHidden = false
+                $0.alpha = 0
+            }
+            UIView.animate(withDuration: 0.16,
+                           delay: 0,
+                           options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
+                           animations: changes)
+        } else {
+            changes()
+        }
+    }
+
+    private func registerGameplayControl(_ view: UIView) {
+        gameplayControls.append(view)
+        addSubview(view)
+    }
+
     private func setupControls() {
         let dpad = UIView()
         dpad.translatesAutoresizingMaskIntoConstraints = false
         dpad.backgroundColor = .clear
-        addSubview(dpad)
+        registerGameplayControl(dpad)
 
-        let up = makePadButton("▲", .up)
-        let down = makePadButton("▼", .down)
-        let left = makePadButton("◀", .left)
-        let right = makePadButton("▶", .right)
+        let up = makePadButton("▲", .up, style: .dpad)
+        let down = makePadButton("▼", .down, style: .dpad)
+        let left = makePadButton("◀", .left, style: .dpad)
+        let right = makePadButton("▶", .right, style: .dpad)
         [up, down, left, right].forEach(dpad.addSubview)
 
         let face = UIView()
         face.translatesAutoresizingMaskIntoConstraints = false
         face.backgroundColor = .clear
-        addSubview(face)
+        registerGameplayControl(face)
 
-        let triangle = makePadButton("△", .triangle)
-        let cross = makePadButton("✕", .cross)
-        let square = makePadButton("□", .square)
-        let circle = makePadButton("○", .circle)
+        let triangle = makePadButton("△", .triangle, style: .face(.systemGreen))
+        let cross = makePadButton("✕", .cross, style: .face(.systemBlue))
+        let square = makePadButton("□", .square, style: .face(.systemPink))
+        let circle = makePadButton("○", .circle, style: .face(.systemRed))
         [triangle, cross, square, circle].forEach(face.addSubview)
 
-        let l2 = makePadButton("L2", .L2, compact: true)
-        let l1 = makePadButton("L1", .L1, compact: true)
-        let r1 = makePadButton("R1", .R1, compact: true)
-        let r2 = makePadButton("R2", .R2, compact: true)
-        [l2, l1, r1, r2].forEach(addSubview)
+        let l2 = makePadButton("L2", .L2, style: .shoulder)
+        let l1 = makePadButton("L1", .L1, style: .shoulder)
+        let r1 = makePadButton("R1", .R1, style: .shoulder)
+        let r2 = makePadButton("R2", .R2, style: .shoulder)
+        [l2, l1, r1, r2].forEach(registerGameplayControl)
 
-        let select = makePadButton("SELECT", .select, compact: true)
-        let start = makePadButton("START", .start, compact: true)
-        [select, start].forEach(addSubview)
+        let select = makePadButton("SEL", .select, style: .system)
+        let start = makePadButton("START", .start, style: .system)
+        [select, start].forEach(registerGameplayControl)
 
         leftStick.translatesAutoresizingMaskIntoConstraints = false
         rightStick.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(leftStick)
-        addSubview(rightStick)
+        registerGameplayControl(leftStick)
+        registerGameplayControl(rightStick)
 
-        let exit = UIButton(type: .system)
-        exit.translatesAutoresizingMaskIntoConstraints = false
-        exit.setTitle("Exit", for: .normal)
-        exit.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        exit.tintColor = .white
-        exit.setTitleColor(.white, for: .normal)
-        exit.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
-        exit.backgroundColor = UIColor.black.withAlphaComponent(0.48)
-        exit.layer.cornerRadius = 17
-        exit.layer.borderWidth = 1
-        exit.layer.borderColor = UIColor.white.withAlphaComponent(0.24).cgColor
-        exit.addTarget(self, action: #selector(exitPressed), for: .touchUpInside)
-        addSubview(exit)
+        menuButton.translatesAutoresizingMaskIntoConstraints = false
+        menuButton.setImage(UIImage(systemName: "pause.circle.fill"), for: .normal)
+        menuButton.tintColor = .white
+        menuButton.backgroundColor = UIColor.black.withAlphaComponent(0.40)
+        menuButton.layer.cornerRadius = 22
+        menuButton.accessibilityLabel = "Pause Menu"
+        menuButton.addTarget(self, action: #selector(menuPressed), for: .touchUpInside)
+        addSubview(menuButton)
 
         let guide = safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            dpad.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
-            dpad.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -14),
-            dpad.widthAnchor.constraint(equalToConstant: 122),
-            dpad.heightAnchor.constraint(equalToConstant: 122),
+            dpad.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 18),
+            dpad.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -12),
+            dpad.widthAnchor.constraint(equalToConstant: 132),
+            dpad.heightAnchor.constraint(equalToConstant: 132),
 
-            up.widthAnchor.constraint(equalToConstant: 43), up.heightAnchor.constraint(equalToConstant: 43),
+            up.widthAnchor.constraint(equalToConstant: 48), up.heightAnchor.constraint(equalToConstant: 48),
             up.centerXAnchor.constraint(equalTo: dpad.centerXAnchor), up.topAnchor.constraint(equalTo: dpad.topAnchor),
             down.widthAnchor.constraint(equalTo: up.widthAnchor), down.heightAnchor.constraint(equalTo: up.heightAnchor),
             down.centerXAnchor.constraint(equalTo: dpad.centerXAnchor), down.bottomAnchor.constraint(equalTo: dpad.bottomAnchor),
@@ -1110,12 +1194,12 @@ private final class ARMSX2TouchControlsView: UIView {
             right.widthAnchor.constraint(equalTo: up.widthAnchor), right.heightAnchor.constraint(equalTo: up.heightAnchor),
             right.trailingAnchor.constraint(equalTo: dpad.trailingAnchor), right.centerYAnchor.constraint(equalTo: dpad.centerYAnchor),
 
-            face.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
-            face.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -14),
-            face.widthAnchor.constraint(equalToConstant: 122),
-            face.heightAnchor.constraint(equalToConstant: 122),
+            face.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -18),
+            face.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -12),
+            face.widthAnchor.constraint(equalToConstant: 132),
+            face.heightAnchor.constraint(equalToConstant: 132),
 
-            triangle.widthAnchor.constraint(equalToConstant: 47), triangle.heightAnchor.constraint(equalToConstant: 47),
+            triangle.widthAnchor.constraint(equalToConstant: 50), triangle.heightAnchor.constraint(equalToConstant: 50),
             triangle.centerXAnchor.constraint(equalTo: face.centerXAnchor), triangle.topAnchor.constraint(equalTo: face.topAnchor),
             cross.widthAnchor.constraint(equalTo: triangle.widthAnchor), cross.heightAnchor.constraint(equalTo: triangle.heightAnchor),
             cross.centerXAnchor.constraint(equalTo: face.centerXAnchor), cross.bottomAnchor.constraint(equalTo: face.bottomAnchor),
@@ -1124,55 +1208,55 @@ private final class ARMSX2TouchControlsView: UIView {
             circle.widthAnchor.constraint(equalTo: triangle.widthAnchor), circle.heightAnchor.constraint(equalTo: triangle.heightAnchor),
             circle.trailingAnchor.constraint(equalTo: face.trailingAnchor), circle.centerYAnchor.constraint(equalTo: face.centerYAnchor),
 
-            leftStick.leadingAnchor.constraint(equalTo: dpad.trailingAnchor, constant: 13),
-            leftStick.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -24),
-            leftStick.widthAnchor.constraint(equalToConstant: 86),
-            leftStick.heightAnchor.constraint(equalToConstant: 86),
+            leftStick.leadingAnchor.constraint(equalTo: dpad.trailingAnchor, constant: 10),
+            leftStick.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -20),
+            leftStick.widthAnchor.constraint(equalToConstant: 88),
+            leftStick.heightAnchor.constraint(equalToConstant: 88),
 
-            rightStick.trailingAnchor.constraint(equalTo: face.leadingAnchor, constant: -13),
-            rightStick.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -24),
-            rightStick.widthAnchor.constraint(equalToConstant: 86),
-            rightStick.heightAnchor.constraint(equalToConstant: 86),
+            rightStick.trailingAnchor.constraint(equalTo: face.leadingAnchor, constant: -10),
+            rightStick.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -20),
+            rightStick.widthAnchor.constraint(equalToConstant: 88),
+            rightStick.heightAnchor.constraint(equalToConstant: 88),
 
-            l2.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
+            l2.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 18),
             l2.topAnchor.constraint(equalTo: guide.topAnchor, constant: 12),
-            l2.widthAnchor.constraint(equalToConstant: 56), l2.heightAnchor.constraint(equalToConstant: 36),
+            l2.widthAnchor.constraint(equalToConstant: 66), l2.heightAnchor.constraint(equalToConstant: 38),
             l1.leadingAnchor.constraint(equalTo: l2.trailingAnchor, constant: 8),
             l1.centerYAnchor.constraint(equalTo: l2.centerYAnchor),
             l1.widthAnchor.constraint(equalTo: l2.widthAnchor), l1.heightAnchor.constraint(equalTo: l2.heightAnchor),
 
-            r2.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+            r2.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -18),
             r2.topAnchor.constraint(equalTo: guide.topAnchor, constant: 12),
-            r2.widthAnchor.constraint(equalToConstant: 56), r2.heightAnchor.constraint(equalToConstant: 36),
+            r2.widthAnchor.constraint(equalToConstant: 66), r2.heightAnchor.constraint(equalToConstant: 38),
             r1.trailingAnchor.constraint(equalTo: r2.leadingAnchor, constant: -8),
             r1.centerYAnchor.constraint(equalTo: r2.centerYAnchor),
             r1.widthAnchor.constraint(equalTo: r2.widthAnchor), r1.heightAnchor.constraint(equalTo: r2.heightAnchor),
 
-            select.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -7),
-            select.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -12),
-            select.widthAnchor.constraint(equalToConstant: 68), select.heightAnchor.constraint(equalToConstant: 32),
-            start.leadingAnchor.constraint(equalTo: centerXAnchor, constant: 7),
+            select.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -8),
+            select.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -10),
+            select.widthAnchor.constraint(equalToConstant: 54), select.heightAnchor.constraint(equalToConstant: 28),
+            start.leadingAnchor.constraint(equalTo: centerXAnchor, constant: 8),
             start.bottomAnchor.constraint(equalTo: select.bottomAnchor),
-            start.widthAnchor.constraint(equalTo: select.widthAnchor), start.heightAnchor.constraint(equalTo: select.heightAnchor),
+            start.widthAnchor.constraint(equalToConstant: 62), start.heightAnchor.constraint(equalTo: select.heightAnchor),
 
-            exit.centerXAnchor.constraint(equalTo: centerXAnchor),
-            exit.topAnchor.constraint(equalTo: guide.topAnchor, constant: 10),
-            exit.widthAnchor.constraint(equalToConstant: 82),
-            exit.heightAnchor.constraint(equalToConstant: 34)
+            menuButton.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -10),
+            menuButton.topAnchor.constraint(equalTo: guide.topAnchor, constant: 8),
+            menuButton.widthAnchor.constraint(equalToConstant: 44),
+            menuButton.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
 
     private func makePadButton(_ title: String,
                                _ button: ARMSX2PadButton,
-                               compact: Bool = false) -> ARMSX2TouchPadButton {
-        let control = ARMSX2TouchPadButton(title: title, padButton: button, compact: compact)
+                               style: ARMSX2TouchPadButton.Style) -> ARMSX2TouchPadButton {
+        let control = ARMSX2TouchPadButton(title: title, padButton: button, style: style)
         control.translatesAutoresizingMaskIntoConstraints = false
         padButtons.append(control)
         return control
     }
 
-    @objc private func exitPressed() {
-        onExit?()
+    @objc private func menuPressed() {
+        onMenu?()
     }
 }
 
