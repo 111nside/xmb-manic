@@ -1507,9 +1507,9 @@ private final class ARMSX2EmbeddedQuickMenuViewController: UIViewController {
         ARMSX2Bridge.setVMPaused(true)
     }
 
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        if !resumed {
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if (isBeingDismissed || navigationController?.isBeingDismissed == true), !resumed {
             ARMSX2Bridge.setVMPaused(false)
         }
     }
