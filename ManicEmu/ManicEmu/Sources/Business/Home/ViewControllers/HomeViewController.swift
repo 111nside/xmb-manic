@@ -4035,15 +4035,23 @@ private final class XMBGameDetailViewController: UIViewController {
     }
 
     private func applyMetadata(_ metadata: GameMetadata?) {
+        let localOverview = metadata?.overview.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if localOverview.isEmpty {
+            synopsisLabel.text = "Loading overview from the web…"
+            XMBOverviewWebSource.fetch(title: titleLabel.text ?? "") { [weak self] webOverview in
+                guard let self else { return }
+                self.synopsisLabel.text = webOverview
+                    ?? "No overview is available from the local database or configured website."
+            }
+        } else {
+            synopsisLabel.text = localOverview
+        }
+
         guard let metadata else {
-            synopsisLabel.text = "No overview is available in the local ManicEMU metadata database for this game."
             metadataLabel.text = "Developer  —\nPublisher  —\nGenre  —\nRelease  —\nRegion  —\nRating  —"
             return
         }
-
-        synopsisLabel.text = metadata.overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "No overview is available for this title."
-            : metadata.overview
 
         func value(_ text: String) -> String {
             text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : text
@@ -4183,6 +4191,10 @@ private final class XMBProfileDetailsViewController: UIViewController {
 
     private lazy var consoleIconsButton = makeButton(title: "Console Icons", symbol: "square.grid.3x3.fill") { [weak self] in
         self?.openConsoleIconSettings()
+    }
+
+    private lazy var overviewWebsiteButton = makeButton(title: "Overview Website", symbol: "globe") { [weak self] in
+        self?.editOverviewWebsite()
     }
 
     private lazy var coverModeControl: UISegmentedControl = {
@@ -4339,6 +4351,7 @@ private final class XMBProfileDetailsViewController: UIViewController {
         preferencesCard.addSubview(coverLabel)
         preferencesCard.addSubview(hintsLabel)
         preferencesCard.addSubview(consoleIconsButton)
+        preferencesCard.addSubview(overviewWebsiteButton)
 
         preferencesTitle.snp.makeConstraints { make in
             make.top.leading.trailing.equalToSuperview().inset(16)
@@ -4366,6 +4379,11 @@ private final class XMBProfileDetailsViewController: UIViewController {
         }
         consoleIconsButton.snp.makeConstraints { make in
             make.top.equalTo(hintsLabel.snp.bottom).offset(18)
+            make.leading.trailing.equalToSuperview().inset(16)
+            make.height.equalTo(44)
+        }
+        overviewWebsiteButton.snp.makeConstraints { make in
+            make.top.equalTo(consoleIconsButton.snp.bottom).offset(8)
             make.leading.trailing.equalToSuperview().inset(16)
             make.height.equalTo(44)
             make.bottom.equalToSuperview().offset(-16)
@@ -4514,6 +4532,33 @@ private final class XMBProfileDetailsViewController: UIViewController {
             return true
         }
         return button
+    }
+
+    private func editOverviewWebsite() {
+        let alert = UIAlertController(
+            title: "Overview Website",
+            message: "Enter a URL template and use {title} where the game name should go. Leave it blank to use Wikipedia.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.text = UserDefaults.standard.string(forKey: XMBOverviewWebSource.defaultsKey)
+                ?? XMBOverviewWebSource.defaultTemplate
+            field.placeholder = XMBOverviewWebSource.defaultTemplate
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Use Wikipedia", style: .default) { _ in
+            XMBOverviewWebSource.saveTemplate("")
+            UIView.makeToast(message: "Overview source reset to Wikipedia")
+        })
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak alert] _ in
+            XMBOverviewWebSource.saveTemplate(alert?.textFields?.first?.text ?? "")
+            UIView.makeToast(message: "Overview website saved")
+        })
+        present(alert, animated: true)
     }
 
     private func refresh() {
