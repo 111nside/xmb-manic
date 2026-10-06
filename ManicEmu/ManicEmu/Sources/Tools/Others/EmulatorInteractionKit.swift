@@ -755,6 +755,9 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     private var isClosing = false
     private var vmObservers: [NSObjectProtocol] = []
     private var touchControlsView: ARMSX2TouchControlsView?
+    private weak var gameplayHostView: UIView?
+    private var gameplayTapRecognizer: UITapGestureRecognizer?
+    private var externalControllerConnected = false
 
     init(game: Game) {
         self.bootMode = .game(game.id)
@@ -807,8 +810,15 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
             center.addObserver(forName: Notification.Name("ARMSX2iOSReturnToMenu"), object: nil, queue: .main) { [weak self] _ in
                 PS2DiagnosticLog.checkpoint("notification.ARMSX2iOSReturnToMenu")
                 self?.closeAfterVMStops()
+            },
+            center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] _ in
+                self?.refreshExternalControllerState()
+            },
+            center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
+                self?.refreshExternalControllerState()
             }
         ]
+        refreshExternalControllerState()
         PS2DiagnosticLog.checkpoint("gameVC.viewDidLoad.observers-installed")
     }
 
@@ -864,8 +874,17 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
     private func installTouchControlsIfNeeded() {
         let renderView = ARMSX2Bridge.gameRenderView()
         guard let hostView = renderView.window?.rootViewController?.view ?? renderView.superview else { return }
+        gameplayHostView = hostView
+
+        if gameplayTapRecognizer == nil {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(gameplaySurfaceTapped(_:)))
+            tap.cancelsTouchesInView = false
+            hostView.addGestureRecognizer(tap)
+            gameplayTapRecognizer = tap
+        }
 
         if let touchControlsView, touchControlsView.superview === hostView {
+            touchControlsView.setExternalControllerConnected(externalControllerConnected)
             hostView.bringSubviewToFront(touchControlsView)
             return
         }
@@ -875,8 +894,8 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
 
         let controls = ARMSX2TouchControlsView()
         controls.translatesAutoresizingMaskIntoConstraints = false
-        controls.onExit = { [weak self] in
-            self?.requestExitFromTouchControls()
+        controls.onMenu = { [weak self] in
+            self?.presentARMSX2QuickMenu()
         }
         hostView.addSubview(controls)
         NSLayoutConstraint.activate([
@@ -885,8 +904,43 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
             controls.topAnchor.constraint(equalTo: hostView.topAnchor),
             controls.bottomAnchor.constraint(equalTo: hostView.bottomAnchor)
         ])
+        controls.setExternalControllerConnected(externalControllerConnected)
         hostView.bringSubviewToFront(controls)
         touchControlsView = controls
+    }
+
+    private func refreshExternalControllerState() {
+        let connected = !GCController.controllers().isEmpty
+        guard externalControllerConnected != connected || touchControlsView != nil else {
+            externalControllerConnected = connected
+            return
+        }
+
+        externalControllerConnected = connected
+        touchControlsView?.setExternalControllerConnected(connected)
+        PS2DiagnosticLog.log("gameVC external_controller_connected=\(connected)")
+    }
+
+    @objc private func gameplaySurfaceTapped(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended, externalControllerConnected else { return }
+        touchControlsView?.revealMenuButtonBriefly()
+    }
+
+    private func presentARMSX2QuickMenu() {
+        guard !isClosing else { return }
+        let renderView = ARMSX2Bridge.gameRenderView()
+        guard let hostRoot = renderView.window?.rootViewController,
+              hostRoot.presentedViewController == nil else { return }
+
+        let menu = ARMSX2EmbeddedQuickMenuViewController()
+        menu.onExitGame = { [weak self] in
+            self?.requestExitFromTouchControls()
+        }
+        menu.onVirtualPadVisibilityChanged = { [weak self] visible in
+            self?.touchControlsView?.setUserVirtualPadVisible(visible)
+        }
+        menu.modalPresentationStyle = .overFullScreen
+        hostRoot.present(menu, animated: true)
     }
 
     private func requestExitFromTouchControls() {
@@ -922,6 +976,11 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         touchControlsView?.releaseAllInputs()
         touchControlsView?.removeFromSuperview()
         touchControlsView = nil
+        if let gameplayTapRecognizer, let gameplayHostView {
+            gameplayHostView.removeGestureRecognizer(gameplayTapRecognizer)
+        }
+        gameplayTapRecognizer = nil
+        gameplayHostView = nil
         ARMSX2EmbeddedRuntime.hideGameWindow()
         ApplicationSceneDelegate.applicationWindow?.makeKeyAndVisible()
         if presentingViewController != nil {
@@ -937,6 +996,9 @@ private final class ARMSX2EmbeddedGameViewController: UIViewController {
         PS2DiagnosticLog.log("gameVC.deinit")
         touchControlsView?.releaseAllInputs()
         touchControlsView?.removeFromSuperview()
+        if let gameplayTapRecognizer, let gameplayHostView {
+            gameplayHostView.removeGestureRecognizer(gameplayTapRecognizer)
+        }
         vmObservers.forEach(NotificationCenter.default.removeObserver)
         ARMSX2EmbeddedRuntime.stop()
         ARMSX2EmbeddedRuntime.hideGameWindow()
