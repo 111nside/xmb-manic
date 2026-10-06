@@ -23,6 +23,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// Boots a local PS2 image through the already-prepared PCSX2 runtime.
 + (BOOL)bootISOAtPath:(NSString *)path NS_SWIFT_NAME(bootISO(atPath:));
 
+/// Boots the PS2 BIOS with no disc inserted so the original Browser / Memory Card
+/// screen is available inside the embedded renderer.
++ (BOOL)bootBIOSBrowser;
+
 /// Requests that the currently running VM stop.
 + (void)stop;
 
