@@ -1002,10 +1002,10 @@ private final class ARMSX2TouchControlsView: UIView {
         let circle = makePadButton("○", .circle)
         [triangle, cross, square, circle].forEach(face.addSubview)
 
-        let l2 = makePadButton("L2", .l2, compact: true)
-        let l1 = makePadButton("L1", .l1, compact: true)
-        let r1 = makePadButton("R1", .r1, compact: true)
-        let r2 = makePadButton("R2", .r2, compact: true)
+        let l2 = makePadButton("L2", .L2, compact: true)
+        let l1 = makePadButton("L1", .L1, compact: true)
+        let r1 = makePadButton("R1", .R1, compact: true)
+        let r2 = makePadButton("R2", .R2, compact: true)
         [l2, l1, r1, r2].forEach(addSubview)
 
         let select = makePadButton("SELECT", .select, compact: true)
