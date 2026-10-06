@@ -3032,6 +3032,7 @@ private final class XMBGameRowCell: UICollectionViewCell {
 
     private let highlightView = UIView()
     private let coverView = UIImageView()
+    private var configuredCoverMode: XMBCoverMode = .original
     private let nameLabel = UILabel()
     private let detailLabel = UILabel()
 
@@ -3130,6 +3131,7 @@ private final class XMBGameRowCell: UICollectionViewCell {
     }
 
     func configure(game: XMBGameItem, coverMode: XMBCoverMode) {
+        configuredCoverMode = coverMode
         nameLabel.text = game.displayName
 
         var detailParts = [game.gameType.localizedShortName]
@@ -3145,20 +3147,19 @@ private final class XMBGameRowCell: UICollectionViewCell {
 
         switch coverMode {
         case .original:
-            coverView.snp.remakeConstraints { make in
-                make.centerX.equalToSuperview()
-                make.centerY.equalToSuperview()
-                make.width.equalTo(38)
-                make.height.equalTo(50)
-            }
+            applyOriginalCoverGeometry(image: nil)
             coverView.layer.cornerRadius = 4
             coverView.contentMode = .scaleAspectFit
             if let liveGame, !liveGame.isInvalidated {
-                coverView.setGameCover(game: liveGame, size: CGSize(width: 76, height: 100)) { [weak coverView] _ in
-                    coverView?.contentMode = .scaleAspectFit
+                coverView.setGameCover(game: liveGame, size: CGSize(width: 100, height: 100)) { [weak self] image in
+                    guard let self, self.configuredCoverMode == .original else { return }
+                    self.coverView.contentMode = .scaleAspectFit
+                    self.applyOriginalCoverGeometry(image: image)
                 }
             } else {
-                coverView.image = UIImage.placeHolder(preferenceSize: CGSize(width: 76, height: 100))
+                let placeholder = UIImage.placeHolder(preferenceSize: CGSize(width: 76, height: 100))
+                coverView.image = placeholder
+                applyOriginalCoverGeometry(image: placeholder)
             }
 
         case .square:
@@ -3177,6 +3178,35 @@ private final class XMBGameRowCell: UICollectionViewCell {
                 coverView.image = UIImage.placeHolder(preferenceSize: CGSize(width: 92, height: 92))
             }
         }
+    }
+
+    private func applyOriginalCoverGeometry(image: UIImage?) {
+        let fallbackRatio: CGFloat = 38.0 / 50.0
+        let imageSize = image?.size ?? .zero
+        let ratio = (imageSize.width > 0 && imageSize.height > 0)
+            ? imageSize.width / imageSize.height
+            : fallbackRatio
+
+        let maxWidth: CGFloat = 50
+        let maxHeight: CGFloat = 50
+        var width = maxHeight * ratio
+        var height = maxHeight
+
+        if width > maxWidth {
+            width = maxWidth
+            height = maxWidth / max(ratio, 0.01)
+        }
+
+        width = max(20, width)
+        height = max(20, height)
+
+        coverView.snp.remakeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalToSuperview()
+            make.width.equalTo(width)
+            make.height.equalTo(height)
+        }
+        setNeedsLayout()
     }
 }
 
