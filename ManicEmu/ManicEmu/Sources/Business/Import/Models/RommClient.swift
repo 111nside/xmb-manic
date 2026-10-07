@@ -669,6 +669,28 @@ struct ManicServerManifest: Decodable {
     let games: [ManicServerGame]
 }
 
+struct ManicServerFile: Decodable {
+    let name: String?
+    let file: String
+    let size: Int64?
+    let download: String?
+
+    var localName: String {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        return URL(fileURLWithPath: file).lastPathComponent
+    }
+
+    var effectiveDownloadPath: String {
+        let trimmed = download?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        let escaped = file.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        return "games/\(escaped)"
+    }
+}
+
 struct ManicServerGame: Decodable {
     let id: String?
     let system: String
@@ -678,6 +700,7 @@ struct ManicServerGame: Decodable {
     let download: String?
     let cover: String?
     let sha256: String?
+    let files: [ManicServerFile]?
 
     var stableId: String {
         let trimmed = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -697,6 +720,16 @@ struct ManicServerGame: Decodable {
             String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
         }.joined(separator: "/")
         return "games/\(escaped)"
+    }
+
+    var effectiveFiles: [ManicServerFile] {
+        if let files, !files.isEmpty {
+            return files
+        }
+        return [ManicServerFile(name: URL(fileURLWithPath: file).lastPathComponent,
+                                file: file,
+                                size: size,
+                                download: download)]
     }
 }
 
