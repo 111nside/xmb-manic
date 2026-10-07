@@ -309,7 +309,6 @@ private enum PS2DiagnosticLog {
     private static let logFileName = "manic-ps2-crash.log"
     private static let markerFileName = "manic-ps2-active-session.txt"
     private static let maximumLogBytes: UInt64 = 1_500_000
-    private static var exceptionHandlerInstalled = false
 
     private static var logsDirectoryURL: URL? {
         guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
@@ -327,10 +326,10 @@ private enum PS2DiagnosticLog {
     }
 
     static func installCrashHooks() {
+        // Reinstall on every PS2 launch because Wii/Dolphin owns the same process-level
+        // exception hook while a Wii session is active.
         lock.lock()
         defer { lock.unlock() }
-        guard !exceptionHandlerInstalled else { return }
-        exceptionHandlerInstalled = true
         NSSetUncaughtExceptionHandler(manicPS2UncaughtExceptionHandler)
     }
 
