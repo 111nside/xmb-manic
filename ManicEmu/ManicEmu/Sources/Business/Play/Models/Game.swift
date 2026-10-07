@@ -205,6 +205,11 @@ class Game: Object, ObjectUpdatable {
         set { updateExtra(key: ExtraKey.manicServerFileSize.rawValue, value: newValue) }
     }
 
+    var manicServerFilesJSON: String? {
+        get { getExtraString(key: ExtraKey.manicServerFiles.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerFiles.rawValue, value: newValue) }
+    }
+
     var isManicServerGame: Bool {
         manicServerGameId != nil && manicServerServiceId != nil
     }
@@ -212,6 +217,16 @@ class Game: Object, ObjectUpdatable {
     // ROM file path
     var romUrl: URL {
         if isMultiFileGame {
+            if isManicServerGame, let cacheFileName = manicServerCacheFileName {
+                // Remote multi-file games live in a stable ID-named folder so two
+                // servers/games with the same display filename cannot collide.
+                let folderName = URL(fileURLWithPath: cacheFileName)
+                    .deletingPathExtension()
+                    .lastPathComponent
+                return URL(fileURLWithPath: R.Path.Data
+                    .appendingPathComponent(folderName)
+                    .appendingPathComponent(fileName))
+            }
             return URL(fileURLWithPath: R.Path.Data.appendingPathComponent(fileName.deletingPathExtension).appendingPathComponent(fileName))
         }
         
