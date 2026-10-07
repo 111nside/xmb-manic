@@ -659,3 +659,166 @@ private extension Data {
         append("\r\n")
     }
 }
+
+
+// MARK: - Lightweight Manic Server protocol
+
+struct ManicServerManifest: Decodable {
+    let version: Int?
+    let name: String?
+    let games: [ManicServerGame]
+}
+
+struct ManicServerGame: Decodable {
+    let id: String?
+    let system: String
+    let title: String?
+    let file: String
+    let size: Int64?
+    let download: String?
+    let cover: String?
+    let sha256: String?
+
+    var stableId: String {
+        let trimmed = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? file : trimmed
+    }
+
+    var displayTitle: String {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        return URL(fileURLWithPath: file).deletingPathExtension().lastPathComponent
+    }
+
+    var effectiveDownloadPath: String {
+        let trimmed = download?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        let escaped = file.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        return "games/\(escaped)"
+    }
+}
+
+final class ManicServerClient {
+    private let baseURL: URL
+    private let session: URLSession
+    private let authorization: String?
+
+    init?(scheme: String,
+          host: String,
+          port: Int?,
+          user: String?,
+          password: String?,
+          path: String? = nil) {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = port
+
+        if let path, !path.isEmpty, path != "/" {
+            var normalized = path
+            if !normalized.hasPrefix("/") { normalized = "/" + normalized }
+            if normalized.hasSuffix("/") { normalized.removeLast() }
+            components.path = normalized
+        }
+
+        guard let url = components.url else { return nil }
+        baseURL = url
+        session = .shared
+
+        let username = user?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let secret = password?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !username.isEmpty || !secret.isEmpty {
+            let raw = "\(username):\(secret)"
+            let token = Data(raw.utf8).base64EncodedString()
+            authorization = "Basic \(token)"
+        } else {
+            authorization = nil
+        }
+    }
+
+    func catalog() async throws -> ManicServerManifest {
+        guard let url = resolve("library.json") else { throw URLError(.badURL) }
+        let request = makeRequest(url: url)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response)
+        let manifest = try JSONDecoder().decode(ManicServerManifest.self, from: data)
+        if let version = manifest.version, version > 1 {
+            throw ManicServerError.unsupportedProtocol(version)
+        }
+        return manifest
+    }
+
+    func downloadRequest(path: String) -> URLRequest? {
+        guard let url = resolve(path) else { return nil }
+        return makeRequest(url: url)
+    }
+
+    func absoluteURLString(path: String?) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        return resolve(path)?.absoluteString
+    }
+
+    /// Download to URLSession's temporary file so multi-gigabyte disc images never
+    /// need to be held in memory.
+    func downloadFile(for request: URLRequest) async throws -> URL {
+        let (url, response) = try await session.download(for: request)
+        try validate(response: response)
+        return url
+    }
+
+    private func makeRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        if let authorization {
+            request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        }
+        request.setValue("ManicEMU/1", forHTTPHeaderField: "X-Manic-Client")
+        return request
+    }
+
+    private func resolve(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let absolute = URL(string: trimmed),
+           let scheme = absolute.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            return absolute
+        }
+
+        if trimmed.hasPrefix("/") {
+            guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return nil }
+            components.percentEncodedPath = trimmed.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? trimmed
+            components.query = nil
+            components.fragment = nil
+            return components.url
+        }
+
+        let directoryBase = baseURL.appendingPathComponent("")
+        return URL(string: trimmed, relativeTo: directoryBase)?.absoluteURL
+    }
+
+    private func validate(response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard 200..<300 ~= http.statusCode else {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw URLError(.userAuthenticationRequired)
+            }
+            throw URLError(.badServerResponse)
+        }
+    }
+}
+
+enum ManicServerError: LocalizedError {
+    case unsupportedProtocol(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedProtocol(let version):
+            return "This Manic Server uses protocol version \(version), which this build does not support."
+        }
+    }
+}
