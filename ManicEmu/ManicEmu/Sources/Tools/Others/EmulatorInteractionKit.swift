@@ -732,14 +732,13 @@ enum ARMSX2EmbeddedCore {
         ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU0", value: useJIT)
         ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableVU1", value: useJIT)
 
-        // Stability isolation: the latest device logs die immediately after entering
-        // ARM64 recompiled code, before the next main-thread heartbeat. Keep all JIT
-        // recompilers enabled, but force vtlb fastmem off so we can distinguish a
-        // fastmem fault-handler crash from an EE/IOP/VU JIT crash.
-        let useFastmem = false
+        // Use ARMSX2's normal Fastmem path whenever JIT is available. Device testing
+        // indicates the intermittent launch failure correlates more strongly with low
+        // available memory / background-app pressure than with Fastmem itself.
+        let useFastmem = useJIT
         ARMSX2Bridge.setINIBool("EmuCore/CPU/Recompiler", key: "EnableFastmem", value: useFastmem)
         ARMSX2Bridge.setINIBool("ARMSX2iOS/Speedhacks", key: "ManualFastmem", value: useFastmem)
-        PS2DiagnosticLog.log("configureCPU fastmem=\(useFastmem) isolation_test=true")
+        PS2DiagnosticLog.log("configureCPU fastmem=\(useFastmem) restored=true")
         if !useJIT {
             ARMSX2Bridge.setINIBool("EmuCore/Speedhacks", key: "vuThread", value: false)
         }
@@ -1380,6 +1379,9 @@ private final class ARMSX2TouchControlsView: UIView {
     }
 
     @objc private func menuPressed() {
+        let feedback = UIImpactFeedbackGenerator(style: .medium)
+        feedback.prepare()
+        feedback.impactOccurred(intensity: 0.72)
         onMenu?()
     }
 }
@@ -1395,6 +1397,7 @@ private final class ARMSX2TouchPadButton: UIButton {
     private let padButton: ARMSX2PadButton
     private let style: Style
     private var pressed = false
+    private let haptic = UIImpactFeedbackGenerator(style: .light)
 
     init(title: String, padButton: ARMSX2PadButton, style: Style) {
         self.padButton = padButton
@@ -1439,6 +1442,7 @@ private final class ARMSX2TouchPadButton: UIButton {
 
         layer.borderWidth = 1
         alpha = 0.82
+        haptic.prepare()
 
         addTarget(self, action: #selector(pressInput), for: .touchDown)
         addTarget(self, action: #selector(releaseInputAction), for: [.touchUpInside, .touchUpOutside, .touchCancel])
@@ -1451,6 +1455,8 @@ private final class ARMSX2TouchPadButton: UIButton {
     @objc private func pressInput() {
         guard !pressed else { return }
         pressed = true
+        haptic.impactOccurred(intensity: hapticIntensity)
+        haptic.prepare()
         ARMSX2Bridge.setPadButton(padButton, pressed: true)
         UIView.animate(withDuration: 0.06,
                        delay: 0,
@@ -1463,6 +1469,15 @@ private final class ARMSX2TouchPadButton: UIButton {
             default:
                 self.backgroundColor = UIColor.white.withAlphaComponent(0.24)
             }
+        }
+    }
+
+    private var hapticIntensity: CGFloat {
+        switch style {
+        case .face: return 0.72
+        case .dpad: return 0.58
+        case .shoulder: return 0.82
+        case .system: return 0.48
         }
     }
 
@@ -1498,6 +1513,7 @@ private final class ARMSX2TouchPadButton: UIButton {
 private final class ARMSX2VirtualStickView: UIView {
     private let isLeft: Bool
     private let knob = UIView()
+    private let haptic = UISelectionFeedbackGenerator()
 
     init(left: Bool) {
         self.isLeft = left
@@ -1524,6 +1540,7 @@ private final class ARMSX2VirtualStickView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
+        haptic.prepare()
     }
 
     required init?(coder: NSCoder) {
@@ -1543,6 +1560,10 @@ private final class ARMSX2VirtualStickView: UIView {
 
         switch recognizer.state {
         case .began, .changed:
+            if recognizer.state == .began {
+                haptic.selectionChanged()
+                haptic.prepare()
+            }
             let knobTravel = min(bounds.width, bounds.height) * 0.24
             knob.transform = CGAffineTransform(translationX: x * knobTravel, y: y * knobTravel)
             if isLeft {
