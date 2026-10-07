@@ -1031,7 +1031,8 @@ final class ManicServerLibrary {
 
             if let expected = game.manicServerFileSize,
                expected > 0,
-               let number = try? fm.attributesOfItem(atPath: destination.path)[.size] as? NSNumber,
+               let attributes = try? fm.attributesOfItem(atPath: destination.path),
+               let number = attributes[.size] as? NSNumber,
                number.int64Value != expected {
                 Log.debug("[ManicServer] size mismatch expected=\(expected) actual=\(number.int64Value) game=\(game.displayName)")
             }
@@ -1127,7 +1128,11 @@ final class ManicServerLibrary {
     }
 
     private static func merge(existing: Data?, incoming: Data?) -> Data? {
-        var merged = (try? existing?.jsonObject() as? [String: Any]) ?? [:]
+        var merged: [String: Any] = [:]
+        if let existing,
+           let values = try? existing.jsonObject() as? [String: Any] {
+            merged = values
+        }
         if let incoming,
            let values = try? incoming.jsonObject() as? [String: Any] {
             for (key, value) in values {
