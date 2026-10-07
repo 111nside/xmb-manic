@@ -342,6 +342,26 @@ extension ImportServiceListView: UICollectionViewDelegate {
                 }
             }
             
+        case .manicServer:
+            if !PurchaseManager.isMember {
+                topViewController()?.present(PurchaseViewController(featuresType: .import), animated: true)
+                return
+            }
+
+            UIView.makeLoading()
+            Task {
+                let summary = await ManicServerLibrary.shared.sync(service: service)
+                await MainActor.run {
+                    UIView.hideLoading()
+                    if summary.failed > 0 && summary.added == 0 && summary.updated == 0 {
+                        UIView.makeToast(message: "Could not sync Manic Server")
+                    } else {
+                        let total = summary.added + summary.updated
+                        UIView.makeToast(message: "Manic Server synced \(total) game\(total == 1 ? "" : "s")")
+                    }
+                }
+            }
+
         case .samba, .webdav, .romm:
             
             if !PurchaseManager.isMember {
