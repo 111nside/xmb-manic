@@ -174,6 +174,40 @@ class Game: Object, ObjectUpdatable {
         }
         set { updateExtra(key: ExtraKey.rommPlayDurationPushed.rawValue, value: newValue) }
     }
+
+    var manicServerGameId: String? {
+        get { getExtraString(key: ExtraKey.manicServerGameId.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerGameId.rawValue, value: newValue) }
+    }
+
+    var manicServerServiceId: String? {
+        get { getExtraString(key: ExtraKey.manicServerServiceId.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerServiceId.rawValue, value: newValue) }
+    }
+
+    var manicServerDownloadPath: String? {
+        get { getExtraString(key: ExtraKey.manicServerDownloadPath.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerDownloadPath.rawValue, value: newValue) }
+    }
+
+    var manicServerCacheFileName: String? {
+        get { getExtraString(key: ExtraKey.manicServerCacheFileName.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerCacheFileName.rawValue, value: newValue) }
+    }
+
+    var manicServerFileSize: Int64? {
+        get {
+            if let value = getExtraInt(key: ExtraKey.manicServerFileSize.rawValue) { return Int64(value) }
+            if let number = getExtra(key: ExtraKey.manicServerFileSize.rawValue) as? NSNumber { return number.int64Value }
+            if let string = getExtraString(key: ExtraKey.manicServerFileSize.rawValue) { return Int64(string) }
+            return nil
+        }
+        set { updateExtra(key: ExtraKey.manicServerFileSize.rawValue, value: newValue) }
+    }
+
+    var isManicServerGame: Bool {
+        manicServerGameId != nil && manicServerServiceId != nil
+    }
     
     // ROM file path
     var romUrl: URL {
@@ -181,7 +215,8 @@ class Game: Object, ObjectUpdatable {
             return URL(fileURLWithPath: R.Path.Data.appendingPathComponent(fileName.deletingPathExtension).appendingPathComponent(fileName))
         }
         
-        var localUrl = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(fileName))
+        let localFileName = manicServerCacheFileName ?? fileName
+        var localUrl = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(localFileName))
         
         if gameType == ._3ds,
            fileExtension.lowercased() == "app",
@@ -1667,6 +1702,13 @@ return URL(fileURLWithPath: path.appendingPathComponent("data/00000001/"))
         // large ROM/disc image being permanently stored on this device. Resolve
         // it into Manic's normal local path immediately before the existing
         // launch flow, keeping every emulator core unaware of remote storage.
+        if !isRomExtsts, isManicServerGame {
+            Task { @MainActor in
+                guard await ManicServerLibrary.shared.prepareGameForLaunch(self) else { return }
+                self.handlePreparedTapAction(forceQuick: forceQuick, saveState: saveState)
+            }
+            return
+        }
         if !isRomExtsts, rommRomId != nil, rommServiceId != nil {
             Task { @MainActor in
                 guard await RommLibrary.shared.prepareGameForLaunch(self) else { return }
