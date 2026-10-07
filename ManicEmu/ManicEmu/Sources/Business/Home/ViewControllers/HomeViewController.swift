@@ -5982,21 +5982,24 @@ private final class XMBWaveBackgroundView: UIView {
             gradientLayer.add(locations, forKey: "xmbGradientBreath")
         }
 
-        if ambientGlowLayer.animation(forKey: "xmbGlowDrift") == nil {
-            let drift = CAKeyframeAnimation(keyPath: "transform.translation")
-            drift.values = [
-                NSValue(cgPoint: CGPoint(x: -bounds.width * 0.16, y: -bounds.height * 0.05)),
-                NSValue(cgPoint: CGPoint(x: bounds.width * 0.12, y: bounds.height * 0.07)),
-                NSValue(cgPoint: CGPoint(x: -bounds.width * 0.08, y: bounds.height * 0.02))
-            ]
-            drift.keyTimes = [0, 0.55, 1]
-            drift.duration = 10.5
-            drift.repeatCount = .infinity
-            drift.timingFunctions = [
-                CAMediaTimingFunction(name: .easeInEaseOut),
-                CAMediaTimingFunction(name: .easeInEaseOut)
-            ]
-            ambientGlowLayer.add(drift, forKey: "xmbGlowDrift")
+        if ambientGlowLayer.animation(forKey: "xmbGlowDriftX") == nil {
+            let driftX = CABasicAnimation(keyPath: "transform.translation.x")
+            driftX.fromValue = -bounds.width * 0.16
+            driftX.toValue = bounds.width * 0.14
+            driftX.duration = 10.5
+            driftX.autoreverses = true
+            driftX.repeatCount = .infinity
+            driftX.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ambientGlowLayer.add(driftX, forKey: "xmbGlowDriftX")
+
+            let driftY = CABasicAnimation(keyPath: "transform.translation.y")
+            driftY.fromValue = -bounds.height * 0.05
+            driftY.toValue = bounds.height * 0.07
+            driftY.duration = 7.8
+            driftY.autoreverses = true
+            driftY.repeatCount = .infinity
+            driftY.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ambientGlowLayer.add(driftY, forKey: "xmbGlowDriftY")
 
             let glowPulse = CABasicAnimation(keyPath: "opacity")
             glowPulse.fromValue = 0.42
