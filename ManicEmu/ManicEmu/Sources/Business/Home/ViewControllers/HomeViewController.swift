@@ -2344,13 +2344,29 @@ final class XMBHomeViewController: BaseViewController {
         refreshProfileMenuSettingsLabels()
     }
 
+    // Normalize console artwork to a fixed, transparent square so UIButton's
+    // image/title layout never clips wide or tall logos.
+    private func railIconImage(_ image: UIImage?) -> UIImage? {
+        guard let image, image.size.width > 0, image.size.height > 0 else { return image }
+        let side: CGFloat = 56
+        let inset: CGFloat = 3
+        let available = side - inset * 2
+        let scale = min(available / image.size.width, available / image.size.height)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let rect = CGRect(x: (side - size.width) / 2, y: (side - size.height) / 2,
+                          width: size.width, height: size.height)
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        let output = renderer.image { _ in image.draw(in: rect) }
+        return output.withRenderingMode(.alwaysOriginal)
+    }
+
     private func rebuildSectionButtons() {
         sectionButtons.forEach { $0.removeFromSuperview() }
         sectionButtons.removeAll()
 
         for (index, section) in sections.enumerated() {
             var configuration = UIButton.Configuration.plain()
-            configuration.image = sectionImage(for: section)
+            configuration.image = railIconImage(sectionImage(for: section))
             configuration.imagePlacement = .top
             configuration.imagePadding = 6
             configuration.title = section.title
@@ -3211,7 +3227,7 @@ final class XMBHomeViewController: BaseViewController {
     private func refreshSectionButtonImages() {
         for (index, section) in sections.enumerated() where sectionButtons.indices.contains(index) {
             guard var configuration = sectionButtons[index].configuration else { continue }
-            configuration.image = sectionImage(for: section)
+            configuration.image = railIconImage(sectionImage(for: section))
             sectionButtons[index].configuration = configuration
         }
     }
