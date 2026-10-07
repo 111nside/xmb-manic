@@ -47,6 +47,26 @@ SUPPORTED_EXTENSIONS = {
 }
 
 
+# Normalize folder aliases to stable console identifiers for the client.
+# Folder names take priority because several systems share ROM extensions.
+SYSTEM_FOLDERS = {
+    "gc": "GameCube", "gcn": "GameCube", "gamecube": "GameCube",
+    "wii": "Wii", "gba": "GBA", "gbc": "GBC", "gb": "GB",
+    "nds": "NDS", "ds": "NDS", "3ds": "3DS",
+    "n64": "N64", "nes": "NES", "snes": "SNES",
+    "ps": "PS1", "psx": "PS1", "ps1": "PS1",
+    "ps2": "PS2", "psp": "PSP",
+    "dc": "Dreamcast", "dreamcast": "Dreamcast",
+    "genesis": "Genesis", "md": "Genesis",
+    "saturn": "Saturn", "sms": "SMS", "gg": "GameGear",
+    "arcade": "Arcade",
+}
+
+
+def system_for_folder(folder: str) -> str:
+    return SYSTEM_FOLDERS.get(folder.casefold(), folder)
+
+
 def safe_relative(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -160,7 +180,7 @@ def scan_games(root: Path) -> list[dict]:
 
         game = {
             "id": relative,
-            "system": parts[0],
+            "system": system_for_folder(parts[0]),
             "title": path.stem,
             "file": relative,
             "size": path.stat().st_size,
