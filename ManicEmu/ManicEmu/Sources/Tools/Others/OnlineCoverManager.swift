@@ -15,6 +15,51 @@ import CryptoKit
 import IceCream
 
 class OnlineCoverManager {
+    static func normalizedArtworkTitle(_ raw: String) -> String {
+        let decoded = raw.removingPercentEncoding ?? raw
+        let withoutExtension = URL(fileURLWithPath: decoded).deletingPathExtension().lastPathComponent
+        let withoutTags = withoutExtension
+            .replacingOccurrences(of: #"\s*[\(\[].*?[\)\]]"#,
+                                  with: "",
+                                  options: .regularExpression)
+        return withoutTags
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .joined(separator: " ")
+    }
+
+    static func hasMeaningfulTitleOverlap(_ lhs: String, _ rhs: String) -> Bool {
+        let left = Set(normalizedArtworkTitle(lhs).split(separator: " ").map(String.init))
+        let right = Set(normalizedArtworkTitle(rhs).split(separator: " ").map(String.init))
+        guard !left.isEmpty, !right.isEmpty else { return false }
+        let overlap = left.intersection(right).count
+        let denominator = max(1, min(left.count, right.count))
+        return Double(overlap) / Double(denominator) >= 0.60
+    }
+
+    static func preferredRegionalArtwork(from matches: [String]) -> String? {
+        guard !matches.isEmpty else { return nil }
+        let priorities = ["(USA)", "(World)", "(Europe)"]
+        for region in priorities {
+            if let result = matches.first(where: { $0.localizedCaseInsensitiveContains(region) }) {
+                return result
+            }
+        }
+        return matches.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }.first
+    }
+
+    static func isLikelyLibretroCoverMatch(gameName: String, coverURL: URL) -> Bool {
+        guard coverURL.absoluteString.contains("thumbnails.libretro.com") else { return true }
+        let candidate = coverURL.deletingPathExtension().lastPathComponent
+        let expected = normalizedArtworkTitle(gameName)
+        let actual = normalizedArtworkTitle(candidate)
+        return !expected.isEmpty && (expected == actual || hasMeaningfulTitleOverlap(gameName, candidate))
+    }
+
     struct CoverMatch {
         var gameType: GameType
         var gameID: String
@@ -22,21 +67,26 @@ class OnlineCoverManager {
         var fileExtension: String
         var isNaomi: Bool = false
         var isAtomiswave: Bool = false
+        var strictTitleMatch: Bool = false
         
         init(game: Game) {
             self.gameType = game.effectiveGameType
             self.gameID = game.id
-            self.gameName = game.translatedName ?? game.displayName
+            // Remote catalog titles are already user-facing names. Do not let an
+            // old translated/alternate title silently steer them to another region's art.
+            self.gameName = game.isManicServerGame ? game.displayName : (game.translatedName ?? game.displayName)
             self.fileExtension = game.fileExtension
             self.isNaomi = game.isNaomiGame
             self.isAtomiswave = game.isAtomiswaveGame
+            self.strictTitleMatch = game.isManicServerGame
         }
         
-        init(gameType: GameType, gameID: String, gameName: String, fileExtension: String) {
+        init(gameType: GameType, gameID: String, gameName: String, fileExtension: String, strictTitleMatch: Bool = false) {
             self.gameType = gameType
             self.gameID = gameID
             self.gameName = gameName
             self.fileExtension = fileExtension
+            self.strictTitleMatch = strictTitleMatch
         }
     }
     
@@ -212,8 +262,16 @@ class OnlineCoverManager {
                     let fuse = Fuse()
                     let pattern = fuse.createPattern(from: gameName)
                     if fetchOne {
-                        //只获取一个
-                        if let result = matchList.min(by: {
+                        // Prefer an exact normalized title before fuzzy matching. This
+                        // keeps "Fatal Frame" on Fatal Frame artwork instead of accepting
+                        // an alternate regional title such as "Project Zero".
+                        let exactMatches = matchList.filter {
+                            OnlineCoverManager.normalizedArtworkTitle($0)
+                                == OnlineCoverManager.normalizedArtworkTitle(gameName)
+                        }
+                        if let exact = OnlineCoverManager.preferredRegionalArtwork(from: exactMatches) {
+                            onlineCoverUrls.append(boxArtUrl.appendingPathComponent(exact))
+                        } else if let result = matchList.min(by: {
                             if let result0 = fuse.search(pattern, in: $0) {
                                 if let result1 = fuse.search(pattern, in: $1) {
                                     return result0.score < result1.score
@@ -226,8 +284,11 @@ class OnlineCoverManager {
                                 return true
                             }
                         }) {
-                            if let score = fuse.search(pattern, in: result)?.score, score < 0.35 {
-                                //匹配结果OK
+                            let threshold = coverMatch.strictTitleMatch ? 0.20 : 0.35
+                            if let score = fuse.search(pattern, in: result)?.score,
+                               score < threshold,
+                               (!coverMatch.strictTitleMatch
+                                || OnlineCoverManager.hasMeaningfulTitleOverlap(gameName, result)) {
                                 onlineCoverUrls.append(boxArtUrl.appendingPathComponent(result))
                             }
                         }
