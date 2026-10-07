@@ -995,10 +995,85 @@ final class ManicServerLibrary {
                     }
                 }
             }
+
+            // Remote-only entries still deserve the same library experience as local ROMs.
+            // Hydrate light metadata/art before the large game file is ever requested.
+            let syncedGameIDs = manifest.games.compactMap {
+                Self.map(remote: $0, serviceId: snapshot.id, client: client)?.id
+            }
+            await hydrateRemoteEntries(gameIDs: syncedGameIDs)
             return summary
         } catch {
             Log.debug("[ManicServer] catalog sync failed service=\(snapshot.id) error=\(error)")
             return SyncSummary(failed: 1)
+        }
+    }
+
+    private struct RemoteMetadataSnapshot {
+        let gameID: String
+        let queries: [String]
+    }
+
+    private func hydrateRemoteEntries(gameIDs: [String]) async {
+        let snapshots: [RemoteMetadataSnapshot] = await MainActor.run {
+            gameIDs.compactMap { gameID in
+                guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+                      !game.isDeleted else {
+                    return nil
+                }
+
+                // Cover matching uses title/system only and therefore works without the ROM.
+                game.matchCover()
+
+                // Keep existing user/RomM metadata. Only title-match rows that are still empty.
+                if GameMetadata.getGameMetadata(game: game) != nil {
+                    return nil
+                }
+
+                let displayName = game.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let libraryName = game.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanedName = libraryName
+                    .replacingOccurrences(of: #"\s*[\(\[].*?[\)\]]"#,
+                                          with: "",
+                                          options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let queries = Array(Set([displayName, libraryName, cleanedName]))
+                    .filter { !$0.isEmpty }
+                return RemoteMetadataSnapshot(gameID: gameID, queries: queries)
+            }
+        }
+
+        for snapshot in snapshots {
+            var best: GameMetadata?
+            for query in snapshot.queries {
+                let matches = GameMetadataKit.searchGameInfo(displayName: query)
+                if let withOverview = matches.first(where: {
+                    !$0.overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }) {
+                    best = withOverview
+                    break
+                }
+                if best == nil {
+                    best = matches.first
+                }
+            }
+
+            guard let matched = best else {
+                Log.debug("[ManicServer] metadata title match missed game=\(snapshot.gameID)")
+                continue
+            }
+
+            await MainActor.run {
+                guard let game = Database.realm.object(ofType: Game.self,
+                                                       forPrimaryKey: snapshot.gameID),
+                      !game.isDeleted,
+                      GameMetadata.getGameMetadata(game: game) == nil else {
+                    return
+                }
+                matched.persist(to: game)
+                game.updateExtra(key: ExtraKey.hasQueryMetadata.rawValue, value: true)
+                Log.debug("[ManicServer] metadata hydrated game=\(snapshot.gameID) overviewChars=\(matched.overview.count)")
+            }
         }
     }
 
