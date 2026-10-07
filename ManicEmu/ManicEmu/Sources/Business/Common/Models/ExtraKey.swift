@@ -119,4 +119,6 @@ enum ExtraKey: String {
     case manicServerCacheFileName
     /// Remote file size in bytes, used for download warnings and cache accounting.
     case manicServerFileSize
+    /// JSON description of every file in a remote multi-file game (for example CUE + BIN tracks).
+    case manicServerFiles
 }
