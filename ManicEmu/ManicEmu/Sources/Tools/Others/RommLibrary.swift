@@ -1023,7 +1023,15 @@ final class ManicServerLibrary {
                 }
 
                 // Cover matching uses title/system only and therefore works without the ROM.
-                game.matchCover()
+                // Force a retry for older remote rows that previously recorded a failed match.
+                if game.gameCover == nil && game.onlineCoverUrl == nil {
+                    game.matchCover(force: true)
+                } else if game.banner == nil,
+                          let coverString = game.onlineCoverUrl,
+                          let coverURL = URL(string: coverString) {
+                    OnlineCoverManager.cacheLibretroBannerIfNeeded(gameID: game.id,
+                                                                   matchedCoverURL: coverURL)
+                }
 
                 // Keep existing user/RomM metadata. Only title-match rows that are still empty.
                 if GameMetadata.getGameMetadata(game: game) != nil {
