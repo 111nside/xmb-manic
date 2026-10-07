@@ -760,12 +760,20 @@ final class ManicServerClient {
         return resolve(path)?.absoluteString
     }
 
-    /// Download to URLSession's temporary file so multi-gigabyte disc images never
-    /// need to be held in memory.
-    func downloadFile(for request: URLRequest) async throws -> URL {
-        let (url, response) = try await session.download(for: request)
-        try validate(response: response)
-        return url
+    /// Download to a temporary file while reporting byte-level progress. This keeps
+    /// multi-gigabyte disc images out of RAM and gives the launch UI a real percentage.
+    func downloadFile(for request: URLRequest,
+                      progress: @escaping (_ received: Int64, _ expected: Int64) -> Void) async throws -> URL {
+        let delegate = ManicServerDownloadDelegate(progress: progress)
+        let downloadSession = URLSession(configuration: .default,
+                                         delegate: delegate,
+                                         delegateQueue: nil)
+        defer { downloadSession.finishTasksAndInvalidate() }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            delegate.continuation = continuation
+            downloadSession.downloadTask(with: request).resume()
+        }
     }
 
     private func makeRequest(url: URL) -> URLRequest {
@@ -809,6 +817,64 @@ final class ManicServerClient {
             }
             throw URLError(.badServerResponse)
         }
+    }
+}
+
+private final class ManicServerDownloadDelegate: NSObject, URLSessionDownloadDelegate {
+    let progress: (_ received: Int64, _ expected: Int64) -> Void
+    var continuation: CheckedContinuation<URL, Error>?
+    private var completed = false
+
+    init(progress: @escaping (_ received: Int64, _ expected: Int64) -> Void) {
+        self.progress = progress
+    }
+
+    func urlSession(_ session: URLSession,
+                    downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        progress(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+
+    func urlSession(_ session: URLSession,
+                    downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        guard !completed else { return }
+
+        if let http = downloadTask.response as? HTTPURLResponse,
+           !(200..<300).contains(http.statusCode) {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                complete(.failure(URLError(.userAuthenticationRequired)))
+            } else {
+                complete(.failure(URLError(.badServerResponse)))
+            }
+            return
+        }
+
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManicServer-" + UUID().uuidString)
+        do {
+            try FileManager.default.moveItem(at: location, to: destination)
+            complete(.success(destination))
+        } catch {
+            complete(.failure(error))
+        }
+    }
+
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    didCompleteWithError error: Error?) {
+        guard let error, !completed else { return }
+        complete(.failure(error))
+    }
+
+    private func complete(_ result: Result<URL, Error>) {
+        guard !completed else { return }
+        completed = true
+        let current = continuation
+        continuation = nil
+        current?.resume(with: result)
     }
 }
 
