@@ -2871,6 +2871,15 @@ final class XMBHomeViewController: BaseViewController {
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Close", style: .cancel))
+
+        let currentLimit = ManicServerLibrary.cacheLimitGB
+        let currentLabel = currentLimit.rounded() == currentLimit
+            ? String(Int(currentLimit))
+            : String(format: "%.1f", currentLimit)
+        alert.addAction(UIAlertAction(title: "Change Limit (\(currentLabel) GB)", style: .default) { [weak self] _ in
+            self?.promptForSmartCacheLimit()
+        })
+
         if usage.usedBytes > 0 {
             alert.addAction(UIAlertAction(title: "Clear Game Cache", style: .destructive) { [weak self] _ in
                 ManicServerLibrary.shared.clearSmartCache()
@@ -2878,6 +2887,44 @@ final class XMBHomeViewController: BaseViewController {
                 UIView.makeToast(message: "Smart cache cleared")
             })
         }
+        present(alert, animated: true)
+    }
+
+    private func promptForSmartCacheLimit() {
+        let current = ManicServerLibrary.cacheLimitGB
+        let currentText = current.rounded() == current
+            ? String(Int(current))
+            : String(format: "%.1f", current)
+
+        let alert = UIAlertController(
+            title: "Smart Cache Limit",
+            message: "Choose any size from 5 to 25 GB. Lowering the limit may remove least-recently-used downloaded games from the cache.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.keyboardType = .decimalPad
+            field.placeholder = "5–25 GB"
+            field.text = currentText
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
+            let raw = alert?.textFields?.first?.text?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: ",", with: ".") ?? ""
+
+            guard let requested = Double(raw) else {
+                UIView.makeToast(message: "Enter a cache size between 5 and 25 GB")
+                return
+            }
+
+            let applied = ManicServerLibrary.shared.setCacheLimit(gigabytes: requested)
+            let label = applied.rounded() == applied
+                ? String(Int(applied))
+                : String(format: "%.1f", applied)
+            self?.refreshSmartCacheSubtitle()
+            UIView.makeToast(message: "Smart cache limit set to \(label) GB")
+        })
         present(alert, animated: true)
     }
 
