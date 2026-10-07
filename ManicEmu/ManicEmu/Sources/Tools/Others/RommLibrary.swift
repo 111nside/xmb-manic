@@ -939,3 +939,246 @@ final class RommLibrary {
         case missingGame
     }
 }
+
+
+// MARK: - Lightweight Manic Server library
+
+final class ManicServerLibrary {
+    static let shared = ManicServerLibrary()
+    private init() {}
+
+    struct SyncSummary {
+        var added = 0
+        var updated = 0
+        var skipped = 0
+        var failed = 0
+        var serverName: String?
+    }
+
+    private static let usageKey = "ManicServerRemoteCacheUsage"
+
+    func sync(service: ImportService) async -> SyncSummary {
+        let snapshot = await MainActor.run { ServiceSnapshot(service: service) }
+        guard let client = snapshot.makeClient() else {
+            return SyncSummary(failed: 1)
+        }
+
+        do {
+            let manifest = try await client.catalog()
+            var summary = SyncSummary(serverName: manifest.name)
+
+            try await MainActor.run {
+                let realm = Database.realm
+                realm.refresh()
+
+                try realm.write {
+                    for remote in manifest.games {
+                        guard let mapped = Self.map(remote: remote,
+                                                    serviceId: snapshot.id,
+                                                    client: client) else {
+                            summary.skipped += 1
+                            continue
+                        }
+
+                        if let game = realm.object(ofType: Game.self, forPrimaryKey: mapped.id) {
+                            Self.apply(mapped: mapped, to: game)
+                            summary.updated += 1
+                        } else {
+                            let game = Game()
+                            Self.apply(mapped: mapped, to: game)
+                            realm.add(game)
+                            summary.added += 1
+                        }
+                    }
+                }
+            }
+            return summary
+        } catch {
+            Log.debug("[ManicServer] catalog sync failed service=\(snapshot.id) error=\(error)")
+            return SyncSummary(failed: 1)
+        }
+    }
+
+    @MainActor
+    func prepareGameForLaunch(_ game: Game) async -> Bool {
+        if FileManager.default.fileExists(atPath: game.romUrl.path) {
+            markUsed(game)
+            return true
+        }
+
+        guard let serviceId = game.manicServerServiceId,
+              let downloadPath = game.manicServerDownloadPath,
+              let snapshot = serviceSnapshot(id: serviceId),
+              let client = snapshot.makeClient(),
+              let request = client.downloadRequest(path: downloadPath) else {
+            UIView.makeToast(message: "Manic Server is unavailable")
+            return false
+        }
+
+        let destination = game.romUrl
+        do {
+            Log.debug("[ManicServer] download start game=\(game.displayName) path=\(downloadPath) expected=\(game.manicServerFileSize ?? -1)")
+            UIView.makeToast(message: "Downloading \(game.displayName)…")
+
+            let temporaryURL = try await client.downloadFile(for: request)
+            let fm = FileManager.default
+            try fm.createDirectory(at: destination.deletingLastPathComponent(),
+                                   withIntermediateDirectories: true)
+            if fm.fileExists(atPath: destination.path) {
+                try fm.removeItem(at: destination)
+            }
+            try fm.moveItem(at: temporaryURL, to: destination)
+
+            if let expected = game.manicServerFileSize,
+               expected > 0,
+               let number = try? fm.attributesOfItem(atPath: destination.path)[.size] as? NSNumber,
+               number.int64Value != expected {
+                Log.debug("[ManicServer] size mismatch expected=\(expected) actual=\(number.int64Value) game=\(game.displayName)")
+            }
+
+            if game.gameType == .ps1 && game.fileExtension.lowercased() == "bin" {
+                game.ensurePS1BinCueSheet()
+            }
+
+            markUsed(game)
+            Log.debug("[ManicServer] download complete game=\(game.displayName) destination=\(destination.lastPathComponent)")
+            return true
+        } catch {
+            Log.debug("[ManicServer] download failed game=\(game.displayName) error=\(error)")
+            UIView.makeToast(message: "Could not download \(game.displayName)")
+            return false
+        }
+    }
+
+    @MainActor
+    func linkedGameCount(service: ImportService) -> Int {
+        let serviceId = "\(service.id)"
+        return Database.realm.objects(Game.self)
+            .where { !$0.isDeleted }
+            .filter { $0.manicServerServiceId == serviceId }
+            .count
+    }
+
+    private struct MappedGame {
+        let id: String
+        let name: String
+        let aliasName: String?
+        let fileExtension: String
+        let gameType: GameType
+        let extras: Data?
+        let coverURL: String?
+    }
+
+    private static func map(remote: ManicServerGame,
+                            serviceId: String,
+                            client: ManicServerClient) -> MappedGame? {
+        let remoteFile = URL(fileURLWithPath: remote.file).lastPathComponent
+        let ext = URL(fileURLWithPath: remoteFile).pathExtension.lowercased()
+        guard !remoteFile.isEmpty, !ext.isEmpty else { return nil }
+
+        let gameType = GameType(shortName: remote.system) ?? GameType(fileExtension: ext)
+        guard gameType != .notSupport, gameType != .unknown else {
+            Log.debug("[ManicServer] skip unsupported/ambiguous game system=\(remote.system) file=\(remote.file)")
+            return nil
+        }
+
+        let stableSource = "manic-server:\(serviceId):\(remote.stableId)"
+        guard let stableData = stableSource.data(using: .utf8) else { return nil }
+        let id = stableData.md5String
+
+        let baseName = URL(fileURLWithPath: remoteFile).deletingPathExtension().lastPathComponent
+        let display = remote.displayTitle
+        let alias = display == baseName ? nil : display
+        let cacheFileName = "\(id).\(ext)"
+
+        var extras: [String: Any] = [
+            ExtraKey.manicServerGameId.rawValue: remote.stableId,
+            ExtraKey.manicServerServiceId.rawValue: serviceId,
+            ExtraKey.manicServerDownloadPath.rawValue: remote.effectiveDownloadPath,
+            ExtraKey.manicServerCacheFileName.rawValue: cacheFileName
+        ]
+        if let size = remote.size {
+            extras[ExtraKey.manicServerFileSize.rawValue] = String(size)
+        }
+
+        return MappedGame(id: id,
+                          name: baseName,
+                          aliasName: alias,
+                          fileExtension: ext,
+                          gameType: gameType,
+                          extras: extras.jsonData(),
+                          coverURL: client.absoluteURLString(path: remote.cover))
+    }
+
+    private static func apply(mapped: MappedGame, to game: Game) {
+        game.id = mapped.id
+        game.name = mapped.name
+        game.aliasName = mapped.aliasName
+        game.fileExtension = mapped.fileExtension
+        game.gameType = mapped.gameType
+        if game.importDate.timeIntervalSince1970 <= 0 {
+            game.importDate = Date()
+        }
+        game.extras = merge(existing: game.extras, incoming: mapped.extras)
+        if let coverURL = mapped.coverURL {
+            game.onlineCoverUrl = coverURL
+        }
+        game.isDeleted = false
+    }
+
+    private static func merge(existing: Data?, incoming: Data?) -> Data? {
+        var merged = (try? existing?.jsonObject() as? [String: Any]) ?? [:]
+        if let incoming,
+           let values = try? incoming.jsonObject() as? [String: Any] {
+            for (key, value) in values {
+                merged[key] = value
+            }
+        }
+        return merged.jsonData()
+    }
+
+    @MainActor
+    private func markUsed(_ game: Game) {
+        var usage = UserDefaults.standard.dictionary(forKey: Self.usageKey) as? [String: Double] ?? [:]
+        usage[game.id] = Date().timeIntervalSince1970
+        UserDefaults.standard.set(usage, forKey: Self.usageKey)
+    }
+
+    @MainActor
+    private func serviceSnapshot(id: String) -> ServiceSnapshot? {
+        guard let value = Int(id),
+              let service = Database.realm.object(ofType: ImportService.self, forPrimaryKey: value),
+              !service.isDeleted else { return nil }
+        return ServiceSnapshot(service: service)
+    }
+
+    private struct ServiceSnapshot {
+        let id: String
+        let scheme: String
+        let host: String
+        let port: Int?
+        let path: String?
+        let user: String?
+        let password: String?
+
+        @MainActor
+        init(service: ImportService) {
+            id = "\(service.id)"
+            scheme = service.scheme ?? "http"
+            host = service.host ?? ""
+            port = service.port
+            path = service.path
+            user = service.user
+            password = service.password
+        }
+
+        func makeClient() -> ManicServerClient? {
+            ManicServerClient(scheme: scheme,
+                              host: host,
+                              port: port,
+                              user: user,
+                              password: password,
+                              path: path)
+        }
+    }
+}
