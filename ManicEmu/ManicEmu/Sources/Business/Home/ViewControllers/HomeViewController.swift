@@ -3856,40 +3856,6 @@ private final class XMBLibraryViewSettingsViewController: UIViewController {
         }
     }
 
-    private func fetchFallbackOverview(existing: GameMetadata?) {
-        let gameType = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID)?.effectiveGameType
-        XMBOverviewWebSource.fetchWikipedia(title: titleLabel.text ?? "",
-                                             gameType: gameType) { [weak self] overview in
-            guard let self else { return }
-            self.synopsisLabel.text = overview
-                ?? "No game overview found on IGDB, locally, or on Wikipedia."
-            if let overview {
-                self.persistOverview(overview, sourceURL: nil)
-            }
-        }
-    }
-
-    private func persistOverview(_ overview: String, sourceURL: String?) {
-        guard let game = Database.realm.object(ofType: Game.self,
-                                                forPrimaryKey: gameID),
-              !game.isDeleted else { return }
-        var stored = GameMetadata.getGameMetadata(game: game) ?? GameMetadata()
-        stored.overview = overview
-        if stored.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            stored.displayName = titleLabel.text ?? game.displayName
-        }
-        stored.persist(to: game)
-        game.updateExtra(key: ExtraKey.hasQueryMetadata.rawValue, value: true)
-        if let sourceURL {
-            game.updateExtra(key: "xmbIGDBOverviewURL", value: sourceURL)
-        }
-    }
-
-    @objc private func openIGDBPage() {
-        guard let igdbPageURL else { return }
-        UIApplication.shared.open(igdbPageURL)
-    }
-
     @objc private func closePressed() {
         dismiss(animated: true)
     }
@@ -4635,6 +4601,40 @@ private final class XMBGameDetailViewController: UIViewController {
         Region  \(value(metadata.region))
         Rating  \(metadata.esrpDisplay)
         """
+    }
+
+    private func fetchFallbackOverview(existing: GameMetadata?) {
+        let gameType = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID)?.effectiveGameType
+        XMBOverviewWebSource.fetchWikipedia(title: titleLabel.text ?? "",
+                                             gameType: gameType) { [weak self] overview in
+            guard let self else { return }
+            self.synopsisLabel.text = overview
+                ?? "No game overview found on IGDB, locally, or on Wikipedia."
+            if let overview {
+                self.persistOverview(overview, sourceURL: nil)
+            }
+        }
+    }
+
+    private func persistOverview(_ overview: String, sourceURL: String?) {
+        guard let game = Database.realm.object(ofType: Game.self,
+                                                forPrimaryKey: gameID),
+              !game.isDeleted else { return }
+        var stored = GameMetadata.getGameMetadata(game: game) ?? GameMetadata()
+        stored.overview = overview
+        if stored.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            stored.displayName = titleLabel.text ?? game.displayName
+        }
+        stored.persist(to: game)
+        game.updateExtra(key: ExtraKey.hasQueryMetadata.rawValue, value: true)
+        if let sourceURL {
+            game.updateExtra(key: "xmbIGDBOverviewURL", value: sourceURL)
+        }
+    }
+
+    @objc private func openIGDBPage() {
+        guard let igdbPageURL else { return }
+        UIApplication.shared.open(igdbPageURL)
     }
 
     @objc private func closePressed() {
