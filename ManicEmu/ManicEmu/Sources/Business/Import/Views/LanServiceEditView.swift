@@ -139,6 +139,43 @@ class LanServiceEditView: BaseView {
                         UIView.hideLoading()
                         UIView.makeToast(message: R.string.localizable.errorUnknown())
                     }
+                } else if self.service.type == .manicServer {
+                    if let host = service.host, let scheme = service.scheme,
+                       let client = ManicServerClient(scheme: scheme,
+                                                      host: host,
+                                                      port: service.port,
+                                                      user: service.user,
+                                                      password: service.password,
+                                                      path: service.path) {
+                        Task {
+                            do {
+                                let manifest = try await client.catalog()
+                                if self.service.detail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+                                   let serverName = manifest.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   !serverName.isEmpty {
+                                    self.service.detail = serverName
+                                }
+                                handleServiceDetail()
+                                ImportService.change { realm in
+                                    realm.add(self.service)
+                                }
+                                await MainActor.run {
+                                    self.hide()
+                                    self.successHandler?()
+                                    UIView.hideLoading()
+                                    UIView.makeToast(message: R.string.localizable.addLandServiceSuccess(self.service.title))
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    UIView.hideLoading()
+                                    UIView.makeToast(message: R.string.localizable.addLandServiceFailed(self.service.title))
+                                }
+                            }
+                        }
+                    } else {
+                        UIView.hideLoading()
+                        UIView.makeToast(message: R.string.localizable.errorUnknown())
+                    }
                 } else if self.service.type == .romm {
                     if let host = service.host, let scheme = service.scheme,
                        let client = RommClient(scheme: scheme,
@@ -259,7 +296,7 @@ class LanServiceEditView: BaseView {
                                 isValid = false
                                 break
                             }
-                        } else if service.type == .webdav || service.type == .romm {
+                        } else if service.type == .webdav || service.type == .romm || service.type == .manicServer {
                             guard let scheme = components.scheme else {
                                 // WebDAV and RomM require http or https.
                                 isValid = false
@@ -269,7 +306,8 @@ class LanServiceEditView: BaseView {
                                 isValid = false
                                 break
                             }
-                            if service.type == .romm, !Self.isLanIPv4Host(components.host) {
+                            if (service.type == .romm || service.type == .manicServer),
+                               !Self.isLanIPv4Host(components.host) {
                                 isValid = false
                                 break
                             }
