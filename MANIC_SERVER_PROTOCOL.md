@@ -41,6 +41,13 @@ Fields:
   ManicEMU requests `games/<file>`.
 - `cover`: optional relative or absolute cover-art URL.
 - `sha256`: reserved for file-integrity verification.
+- `files`: optional array for a multi-file game. Each member can provide
+  `name` (the local filename/path relative to the main file), `file`, `size`,
+  and `download`. When present, ManicEMU downloads the complete set before launch.
+
+For CUE/BIN discs, the reference server publishes only the `.cue` as the game
+entry and places the cue plus every existing `FILE` reference in `files`.
+Referenced BIN/audio tracks are suppressed as separate games.
 
 ## Game download
 
@@ -49,9 +56,11 @@ Fields:
 The v1 reference server supports normal downloads plus HTTP byte ranges. ManicEMU
 currently downloads a game into a local cache before passing it to the emulator.
 
-The game server should send the original file unchanged. Single-file formats
-(CHD, ISO, CSO, RVZ, normal cartridge ROMs, etc.) are the best fit for v1.
-Multi-file disc sets can be added in a later protocol revision.
+The game server should send every file unchanged. Single-file formats (CHD, ISO,
+CSO, RVZ, normal cartridge ROMs, etc.) use the ordinary `download` field.
+CUE/BIN track sets use the optional `files` array; ManicEMU preserves the
+filenames from the cue set inside one cache directory so the emulator can resolve
+the cue's track references.
 
 ## Security
 
