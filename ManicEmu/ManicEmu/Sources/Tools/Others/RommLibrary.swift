@@ -1028,6 +1028,18 @@ final class ManicServerLibrary {
                         }
                     }
 
+                    // Remove stale remote-only entries after a successful catalog fetch.
+                    // Preserve locally downloaded ROMs and entries from other servers.
+                    let currentRemoteIDs = Set(manifest.games.map { $0.stableId })
+                    let serverRows = realm.objects(Game.self).where { !$0.isDeleted }
+                    for existing in serverRows {
+                        guard existing.manicServerServiceId == snapshot.id,
+                              let remoteID = existing.manicServerGameId,
+                              !currentRemoteIDs.contains(remoteID) else { continue }
+                        guard !FileManager.default.fileExists(atPath: existing.romUrl.path) else { continue }
+                        existing.isDeleted = true
+                    }
+
                     // Upgrading a server from BIN-only discovery to CUE bundles leaves
                     // old BIN rows in Realm. Hide any row that is now a member of a CUE
                     // bundle so the library contains one entry per disc.
