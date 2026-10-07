@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 
+import UIKit
 import Fuse
 import SwiftSoup
 import CryptoKit
@@ -60,13 +61,24 @@ class OnlineCoverManager {
                     return
                 }
                 let realm = Database.realm
+                var remoteBannerRequest: (gameID: String, coverURL: URL)?
                 if let game = realm.object(ofType: Game.self, forPrimaryKey: self.coverMatch.gameID) {
                     try? realm.write {
                         game.hasCoverMatch = true
                         if let onlineCoverUrl = urls.first {
                             game.onlineCoverUrl = onlineCoverUrl.absoluteString
+                            if game.isManicServerGame && game.banner == nil {
+                                remoteBannerRequest = (game.id, onlineCoverUrl)
+                            }
                         }
                     }
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: R.NotificationName.GameCoverChange, object: nil)
+                    }
+                }
+                if let request = remoteBannerRequest {
+                    OnlineCoverManager.cacheLibretroBannerIfNeeded(gameID: request.gameID,
+                                                                    matchedCoverURL: request.coverURL)
                 }
                 semaphore.signal()
             }
@@ -468,6 +480,53 @@ class OnlineCoverManager {
         MatchOperation.translateGameName(name, gameID: gameID, completion: completion)
     }
     
+    /// Remote Manic Server entries do not have a local ROM to scrape for art.
+    /// Once Libretro box art is matched, use the identically named screenshot as a
+    /// lightweight background/banner and persist it independently of the ROM cache.
+    private static func cacheLibretroBannerIfNeeded(gameID: String, matchedCoverURL: URL) {
+        let coverString = matchedCoverURL.absoluteString
+        guard coverString.contains("/Named_Boxarts/"),
+              let bannerURL = URL(string: coverString.replacingOccurrences(of: "/Named_Boxarts/",
+                                                                           with: "/Named_Snaps/")) else {
+            return
+        }
+
+        var request = URLRequest(url: bannerURL)
+        request.cachePolicy = .returnCacheDataElseLoad
+        request.timeoutInterval = 15
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            guard let data,
+                  !data.isEmpty,
+                  let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  UIImage(data: data) != nil else {
+                return
+            }
+
+            let realm = Database.realm
+            guard let game = realm.object(ofType: Game.self, forPrimaryKey: gameID),
+                  !game.isDeleted,
+                  game.banner == nil else {
+                return
+            }
+
+            do {
+                try realm.write {
+                    game.banner = CreamAsset.create(objectID: game.id,
+                                                    propName: "banner",
+                                                    data: data)
+                }
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: R.NotificationName.GameMetadataChange,
+                                                    object: gameID)
+                }
+                Log.debug("[ManicServer] cached banner game=\(gameID) bytes=\(data.count)")
+            } catch {
+                Log.debug("[ManicServer] banner cache failed game=\(gameID) error=\(error)")
+            }
+        }.resume()
+    }
+
     static let shared = OnlineCoverManager()
     private let queue: OperationQueue
     
