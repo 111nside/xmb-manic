@@ -135,9 +135,17 @@ def scan_games(root: Path) -> list[dict]:
             cue_bundles[relative] = members
             cue_referenced_files.update(member["file"] for member in members[1:])
 
+    # Some disc dumps have broken/mismatched FILE references. When a CUE
+    # exists beside a BIN with the same basename, prefer the CUE entry even
+    # if its FILE declaration could not be resolved. Never drop unrelated BINs.
+    cue_stems = {str(path.with_suffix("")).casefold() for path in all_files
+                 if path.suffix.lower() == ".cue"}
+
     for path in all_files:
         ext = path.suffix.lower().lstrip(".")
         if not ext or ext not in SUPPORTED_EXTENSIONS:
+            continue
+        if ext == "bin" and str(path.with_suffix("")).casefold() in cue_stems:
             continue
 
         relative = safe_relative(path, root)
