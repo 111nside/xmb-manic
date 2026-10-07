@@ -174,7 +174,7 @@ class ImportService: Object, ObjectUpdatable {
     
     var iconBorderColor: UIColor {
         switch type {
-        case .files, .wifi, .paste, .googledrive, .dropbox, .onedrive, .baiduyun, .aliyun, .multiDisc, .romPatcher, .romm:
+        case .files, .wifi, .paste, .googledrive, .dropbox, .onedrive, .baiduyun, .aliyun, .multiDisc, .romPatcher, .romm, .manicServer:
             R.Color.Border
         case .samba, .webdav:
             UIColor.clear
