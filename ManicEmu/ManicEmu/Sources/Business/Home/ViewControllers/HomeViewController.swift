@@ -3971,6 +3971,29 @@ private final class XMBGameDetailViewController: UIViewController {
         }
     }
 
+    private func updateCoverGeometry(for gameType: GameType) {
+        // Fit the artwork into the old 118x166 bounding box without forcing every
+        // system into a tall rectangle. Square/tall/wide systems keep their real ratio.
+        let maxWidth: CGFloat = 118
+        let maxHeight: CGFloat = 166
+        let ratio = max(R.Size.GameCoverRatio(gameType: gameType), 0.01)
+
+        var width = maxWidth
+        var height = width / ratio
+        if height > maxHeight {
+            height = maxHeight
+            width = height * ratio
+        }
+
+        coverView.snp.remakeConstraints { make in
+            make.leading.equalToSuperview().offset(24)
+            make.top.equalToSuperview().offset(18)
+            make.width.equalTo(width)
+            make.height.equalTo(height)
+        }
+        coverView.backgroundColor = .clear
+    }
+
     private func makeCard() -> UIView {
         let view = UIView()
         view.backgroundColor = UIColor.black.withAlphaComponent(0.28)
@@ -3999,6 +4022,7 @@ private final class XMBGameDetailViewController: UIViewController {
         let displayName = game.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         titleLabel.text = displayName.isEmpty ? game.name : displayName
         subtitleLabel.text = game.gameType.localizedName
+        updateCoverGeometry(for: game.gameType)
 
         bannerView.image = game.bannerImage
         if bannerView.image == nil {
