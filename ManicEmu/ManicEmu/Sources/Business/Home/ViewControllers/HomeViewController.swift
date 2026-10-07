@@ -1101,6 +1101,12 @@ final class XMBHomeViewController: BaseViewController {
         self?.openPS2MemoryCards()
     }
 
+    private lazy var wiiCrashLogButton = makeProfileMenuButton(title: "Wii Crash Log",
+                                                               subtitle: "View or share persistent Dolphin crash checkpoints",
+                                                               symbol: "doc.text.magnifyingglass") { [weak self] in
+        self?.openWiiCrashLog()
+    }
+
     private lazy var gameLibrarySettingsButton = makeProfileMenuButton(title: "Game Library View",
                                                                         subtitle: "Sort and filter games",
                                                                         symbol: "line.3.horizontal.decrease.circle") { [weak self] in
@@ -1469,6 +1475,7 @@ final class XMBHomeViewController: BaseViewController {
         let profileMenuStack = UIStackView(arrangedSubviews: [
             profileDetailsButton,
             ps2MemoryCardsButton,
+            wiiCrashLogButton,
             gameLibrarySettingsButton,
             consoleLibrarySettingsButton
         ])
@@ -1481,7 +1488,7 @@ final class XMBHomeViewController: BaseViewController {
             make.edges.equalTo(profileMenuContainerView.contentLayoutGuide)
             make.width.equalTo(profileMenuContainerView.frameLayoutGuide)
         }
-        [profileDetailsButton, ps2MemoryCardsButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
+        [profileDetailsButton, ps2MemoryCardsButton, wiiCrashLogButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
             $0.snp.makeConstraints { $0.height.equalTo(58) }
         }
 
@@ -2742,6 +2749,12 @@ final class XMBHomeViewController: BaseViewController {
 
     private func openPS2MemoryCards() {
         _ = ARMSX2EmbeddedCore.openMemoryCardBrowser()
+    }
+
+    private func openWiiCrashLog() {
+        let controller = XMBWiiDiagnosticsViewController()
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
     }
 
     private func updateClock() {
@@ -4027,6 +4040,15 @@ private final class XMBGameDetailViewController: UIViewController {
         bannerView.image = game.bannerImage
         if bannerView.image == nil {
             bannerView.alpha = 0
+            game.getCoverImage { [weak self] image in
+                guard let self, self.bannerView.image == nil, let image else { return }
+                self.bannerView.image = image
+                UIView.animate(withDuration: 0.18) {
+                    self.bannerView.alpha = 1
+                }
+            }
+        } else {
+            bannerView.alpha = 1
         }
 
         coverView.setGameCover(game: game, size: CGSize(width: 236, height: 332)) { [weak coverView] _ in
@@ -4090,6 +4112,13 @@ private final class XMBGameDetailViewController: UIViewController {
 
                 DispatchQueue.main.async {
                     guard let self else { return }
+                    if let best,
+                       let liveGame = Database.realm.object(ofType: Game.self,
+                                                            forPrimaryKey: self.gameID),
+                       !liveGame.isDeleted {
+                        best.persist(to: liveGame)
+                        liveGame.updateExtra(key: ExtraKey.hasQueryMetadata.rawValue, value: true)
+                    }
                     self.applyMetadata(best)
                 }
             }
@@ -4105,6 +4134,19 @@ private final class XMBGameDetailViewController: UIViewController {
                 guard let self else { return }
                 self.synopsisLabel.text = webOverview
                     ?? "No overview is available from the local database or configured website."
+
+                if let webOverview,
+                   let liveGame = Database.realm.object(ofType: Game.self,
+                                                        forPrimaryKey: self.gameID),
+                   !liveGame.isDeleted {
+                    var persisted = GameMetadata.getGameMetadata(game: liveGame) ?? metadata ?? GameMetadata()
+                    persisted.overview = webOverview
+                    if persisted.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        persisted.displayName = self.titleLabel.text ?? liveGame.displayName
+                    }
+                    persisted.persist(to: liveGame)
+                    liveGame.updateExtra(key: ExtraKey.hasQueryMetadata.rawValue, value: true)
+                }
             }
         } else {
             synopsisLabel.text = localOverview
@@ -4768,6 +4810,177 @@ extension XMBProfileDetailsViewController: PHPickerViewControllerDelegate {
                 self.loadAvatar()
             }
         }
+    }
+}
+
+// MARK: - Wii crash diagnostics
+
+private final class XMBWiiDiagnosticsViewController: UIViewController {
+    private let backgroundView = XMBWaveBackgroundView()
+    private let textView = UITextView()
+
+    private lazy var closeButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.left")
+        configuration.title = "Back"
+        configuration.imagePadding = 6
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(closePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.closePressed()
+            return true
+        }
+        return button
+    }()
+
+    private lazy var shareButton: UIButton = {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Share Log"
+        configuration.image = UIImage(systemName: "square.and.arrow.up")
+        configuration.imagePadding = 7
+        configuration.baseForegroundColor = .white
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(sharePressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.sharePressed()
+            return true
+        }
+        return button
+    }()
+
+    private lazy var clearButton: UIButton = {
+        var configuration = UIButton.Configuration.gray()
+        configuration.title = "Clear"
+        configuration.image = UIImage(systemName: "trash")
+        configuration.imagePadding = 7
+        configuration.baseForegroundColor = .white
+        configuration.background.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(clearPressed), for: .touchUpInside)
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.onFocusConfirm = { [weak self] in
+            self?.clearPressed()
+            return true
+        }
+        return button
+    }()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        view.addSubview(backgroundView)
+        backgroundView.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        view.addSubview(closeButton)
+        closeButton.snp.makeConstraints { make in
+            make.leading.equalTo(view.safeAreaLayoutGuide).offset(14)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
+        }
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Wii Crash Log"
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 25, weight: .semibold)
+        view.addSubview(titleLabel)
+        titleLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalTo(closeButton)
+        }
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "Dolphin launch checkpoints survive an app crash. Reopen ManicEMU after a crash to recover the last checkpoint."
+        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.64)
+        subtitleLabel.font = .systemFont(ofSize: 12.5, weight: .regular)
+        subtitleLabel.numberOfLines = 2
+        subtitleLabel.textAlignment = .center
+        view.addSubview(subtitleLabel)
+        subtitleLabel.snp.makeConstraints { make in
+            make.top.equalTo(titleLabel.snp.bottom).offset(6)
+            make.leading.trailing.equalTo(view.safeAreaLayoutGuide).inset(28)
+        }
+
+        let actions = UIStackView(arrangedSubviews: [shareButton, clearButton])
+        actions.axis = .horizontal
+        actions.spacing = 10
+        actions.distribution = .fillEqually
+        view.addSubview(actions)
+        actions.snp.makeConstraints { make in
+            make.top.equalTo(subtitleLabel.snp.bottom).offset(12)
+            make.centerX.equalToSuperview()
+            make.width.equalTo(360).priority(.high)
+            make.leading.greaterThanOrEqualTo(view.safeAreaLayoutGuide).offset(24)
+            make.trailing.lessThanOrEqualTo(view.safeAreaLayoutGuide).offset(-24)
+            make.height.equalTo(42)
+        }
+
+        textView.backgroundColor = UIColor.black.withAlphaComponent(0.30)
+        textView.textColor = UIColor.white.withAlphaComponent(0.86)
+        textView.font = UIFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.layer.cornerRadius = 14
+        textView.layer.borderWidth = 1
+        textView.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
+        textView.textContainerInset = UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+        view.addSubview(textView)
+        textView.snp.makeConstraints { make in
+            make.top.equalTo(actions.snp.bottom).offset(12)
+            make.leading.trailing.equalTo(view.safeAreaLayoutGuide).inset(20)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-12)
+        }
+
+        backgroundView.applyTheme(.current)
+        reloadLog()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ExternalInputDispatch.sink = .focusKit
+        FocusSystem.shared.isEnabled = true
+        pushOverlayFocusContext { [weak self] context in
+            context.autoFocusOnActivate = true
+            context.preferredFocusView = { [weak self] in self?.shareButton }
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if hasFocusContext { popFocusContext() }
+    }
+
+    private func reloadLog() {
+        textView.text = WiiDiagnosticLog.text()
+        let bottom = NSRange(location: max(0, textView.text.utf16.count - 1), length: 0)
+        textView.scrollRangeToVisible(bottom)
+    }
+
+    @objc private func closePressed() {
+        dismiss(animated: true)
+    }
+
+    @objc private func sharePressed() {
+        guard let url = WiiDiagnosticLog.ensureExportFile() else {
+            UIView.makeToast(message: "Could not create the Wii diagnostic file")
+            return
+        }
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = shareButton
+            popover.sourceRect = shareButton.bounds
+        }
+        present(controller, animated: true)
+    }
+
+    @objc private func clearPressed() {
+        WiiDiagnosticLog.clear()
+        reloadLog()
     }
 }
 
