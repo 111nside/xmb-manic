@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import UIKit
+import Security
 import SideMenu
 import DNSPageView
 import ColorfulX
@@ -701,8 +702,25 @@ private struct XMBGameItem {
 }
 
 enum XMBOverviewWebSource {
+    struct IGDBOverview {
+        let text: String
+        let pageURL: URL
+    }
+
+    private struct IGDBGame: Decodable {
+        let name: String
+        let slug: String?
+        let summary: String?
+        let storyline: String?
+        let url: String?
+    }
+
     static let defaultsKey = "ManicXMB.overviewURLTemplate"
-    static let defaultTemplate = "https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&redirects=1&format=json&titles={title}"
+    static let defaultTemplate = "https://www.igdb.com/games/{slug}"
+    static let wikipediaTemplate = "https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&redirects=1&format=json&titles={title}"
+    private static let clientIDKey = "ManicXMB.igdbClientID"
+    private static let tokenService = "ManicXMB.IGDB"
+    private static let tokenAccount = "IGDBAppAccessToken"
 
     static var template: String {
         let saved = UserDefaults.standard.string(forKey: defaultsKey)?
@@ -710,9 +728,60 @@ enum XMBOverviewWebSource {
         return saved?.isEmpty == false ? saved! : defaultTemplate
     }
 
+    static var isIGDBPreferred: Bool { template == defaultTemplate }
+
+    static var igdbClientID: String {
+        UserDefaults.standard.string(forKey: clientIDKey) ?? ""
+    }
+
+    // An app access token (not a Twitch Client Secret) is stored in the iOS Keychain.
+    // A production multi-user deployment should use a server-side IGDB proxy.
+    static var igdbAccessToken: String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: tokenService,
+            kSecAttrAccount as String: tokenAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var value: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &value) == errSecSuccess,
+              let data = value as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func saveIGDBCredentials(clientID: String, accessToken: String) {
+        let cleanID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.set(cleanID, forKey: clientIDKey)
+
+        let token = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return } // Blank means keep the existing token.
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: tokenService,
+            kSecAttrAccount as String: tokenAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+        var add = query
+        add[kSecValueData as String] = Data(token.utf8)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    static func clearIGDBCredentials() {
+        UserDefaults.standard.removeObject(forKey: clientIDKey)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: tokenService,
+            kSecAttrAccount as String: tokenAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
     static func saveTemplate(_ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        if trimmed.isEmpty || trimmed == defaultTemplate {
             UserDefaults.standard.removeObject(forKey: defaultsKey)
         } else {
             UserDefaults.standard.set(trimmed, forKey: defaultsKey)
@@ -722,29 +791,29 @@ enum XMBOverviewWebSource {
     static func fetch(title: String,
                       gameType: GameType? = nil,
                       completion: @escaping (String?) -> Void) {
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
             DispatchQueue.main.async { completion(nil) }
             return
         }
 
-        // The default source uses Wikipedia search rather than assuming that the
-        // bare title is the game page. "Fatal Frame", for example, is also a series;
-        // "Fatal Frame PS2 video game" resolves the actual game much more reliably.
-        if template == defaultTemplate {
-            fetchWikipediaSearch(title: trimmedTitle,
-                                 gameType: gameType,
-                                 completion: completion)
-            return
-        }
-
-        fetchConfigured(title: trimmedTitle) { configured in
-            if let configured {
-                completion(configured)
-            } else {
-                fetchWikipediaSearch(title: trimmedTitle,
-                                     gameType: gameType,
-                                     completion: completion)
+        if isIGDBPreferred {
+            fetchIGDB(title: title) { result in
+                if let result {
+                    completion(result.text)
+                } else {
+                    fetchWikipedia(title: title, gameType: gameType, completion: completion)
+                }
+            }
+        } else if template == wikipediaTemplate {
+            fetchWikipedia(title: title, gameType: gameType, completion: completion)
+        } else {
+            fetchConfigured(title: title) { configured in
+                if let configured {
+                    completion(configured)
+                } else {
+                    fetchWikipedia(title: title, gameType: gameType, completion: completion)
+                }
             }
         }
     }
@@ -753,27 +822,182 @@ enum XMBOverviewWebSource {
         fetch(title: title, gameType: nil, completion: completion)
     }
 
-    private static func fetchConfigured(title: String,
-                                        completion: @escaping (String?) -> Void) {
+    /// Look up the actual IGDB game entry, never substitute a fixed sample game's overview.
+    static func fetchIGDB(title: String, completion: @escaping (IGDBOverview?) -> Void) {
+        let clean = cleanTitle(title)
+        guard !clean.isEmpty else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+        let clientID = igdbClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clientID.isEmpty, let token = igdbAccessToken, !token.isEmpty {
+            fetchIGDBAPI(title: clean, clientID: clientID, token: token) { result in
+                if let result {
+                    completion(result)
+                } else {
+                    fetchIGDBPage(title: clean, completion: completion)
+                }
+            }
+        } else {
+            fetchIGDBPage(title: clean, completion: completion)
+        }
+    }
+
+    static func guessedIGDBPageURL(title: String) -> URL? {
+        URL(string: "https://www.igdb.com/games/\(slug(for: cleanTitle(title)))")
+    }
+
+    private static func cleanTitle(_ title: String) -> String {
+        title.replacingOccurrences(of: #"\s*[\(\[](?:(?:USA|Europe|Japan|World|En|Fr|Rev\s*[A-Z0-9]+|Disc\s*\d+|Disk\s*\d+|v\d+(?:\.\d+)*))[\)\]]"#,
+                                   with: "", options: [.regularExpression, .caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func slug(for title: String) -> String {
+        let ascii = title.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+        return ascii.replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    private static func normalized(_ title: String) -> String {
+        slug(for: cleanTitle(title)).replacingOccurrences(of: "-", with: "")
+    }
+
+    private static func fetchIGDBAPI(title: String,
+                                     clientID: String,
+                                     token: String,
+                                     completion: @escaping (IGDBOverview?) -> Void) {
+        guard let url = URL(string: "https://api.igdb.com/v4/games") else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 12
+        request.setValue(clientID, forHTTPHeaderField: "Client-ID")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let escaped = title.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        request.httpBody = Data("search \"\(escaped)\"; fields name,slug,summary,storyline,url; limit 20;".utf8)
+
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            var result: IGDBOverview?
+            if let data,
+               let response = response as? HTTPURLResponse,
+               (200..<300).contains(response.statusCode),
+               let games = try? JSONDecoder().decode([IGDBGame].self, from: data) {
+                // Avoid fuzzy results for different games, series or enhanced editions.
+                let expected = normalized(title)
+                let match = games.first(where: {
+                    (normalized($0.name) == expected || normalized($0.slug ?? "") == expected)
+                    && !(($0.summary ?? $0.storyline ?? "").trimmingCharacters(in: .whitespacesAndNewlines)).isEmpty
+                })
+                if let match,
+                   let text = [match.summary, match.storyline].compactMap({ $0 })
+                    .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+                   let pageURL = URL(string: match.url ?? "https://www.igdb.com/games/\(match.slug ?? slug(for: title))"),
+                   pageURL.scheme == "https",
+                   pageURL.host?.lowercased().hasSuffix("igdb.com") == true {
+                    result = IGDBOverview(text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                                          pageURL: pageURL)
+                }
+            }
+            let final = result
+            DispatchQueue.main.async { completion(final) }
+        }.resume()
+    }
+
+    private static func fetchIGDBPage(title: String,
+                                      completion: @escaping (IGDBOverview?) -> Void) {
+        guard let pageURL = guessedIGDBPageURL(title: title) else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+        var request = URLRequest(url: pageURL)
+        request.timeoutInterval = 12
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile Safari/604.1",
+                         forHTTPHeaderField: "User-Agent")
+
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            var result: IGDBOverview?
+            if let data,
+               let http = response as? HTTPURLResponse,
+               (200..<300).contains(http.statusCode),
+               let html = String(data: data, encoding: .utf8) {
+                let pageTitle = metaContent(in: html, named: "og:title")
+                    ?? metaContent(in: html, named: "twitter:title")
+                let description = metaContent(in: html, named: "og:description")
+                    ?? metaContent(in: html, named: "description")
+                // Reject IGDB's generic search/error/login pages.
+                if let pageTitle, let description,
+                   normalized(pageTitle).contains(normalized(title)),
+                   description.count > 35,
+                   !description.lowercased().contains("discover, rate & track your games") {
+                    result = IGDBOverview(text: decodeHTMLEntities(description), pageURL: pageURL)
+                }
+            }
+            let final = result
+            DispatchQueue.main.async { completion(final) }
+        }.resume()
+    }
+
+    private static func metaContent(in html: String, named name: String) -> String? {
+        guard let tagRegex = try? NSRegularExpression(pattern: #"<meta\b[^>]*>"#, options: [.caseInsensitive]),
+              let attrRegex = try? NSRegularExpression(pattern: #"([a-zA-Z:-]+)\s*=\s*([\"'])(.*?)\2"#, options: [.caseInsensitive, .dotMatchesLineSeparators]) else {
+            return nil
+        }
+        for tag in tagRegex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            guard let tagRange = Range(tag.range, in: html) else { continue }
+            let text = String(html[tagRange])
+            var values: [String: String] = [:]
+            for attr in attrRegex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let keyRange = Range(attr.range(at: 1), in: text),
+                      let valueRange = Range(attr.range(at: 3), in: text) else { continue }
+                values[String(text[keyRange]).lowercased()] = String(text[valueRange])
+            }
+            if (values["name"] ?? values["property"])?.lowercased() == name.lowercased(),
+               let value = values["content"],
+               !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func decodeHTMLEntities(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&#x27;", with: "'")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func fetchConfigured(title: String, completion: @escaping (String?) -> Void) {
         let encoded = encodeQueryValue(title)
         var urlString = template
+        if urlString.contains("{slug}") {
+            urlString = urlString.replacingOccurrences(of: "{slug}", with: slug(for: title))
+        }
         if urlString.contains("{title}") {
             urlString = urlString.replacingOccurrences(of: "{title}", with: encoded)
-        } else {
+        } else if !template.contains("{slug}") {
             urlString += (urlString.contains("?") ? "&" : "?") + "title=" + encoded
         }
         fetchURLString(urlString, completion: completion)
     }
 
-    private static func fetchWikipediaSearch(title: String,
-                                             gameType: GameType?,
-                                             completion: @escaping (String?) -> Void) {
+    static func fetchWikipedia(title: String, gameType: GameType?,
+                               completion: @escaping (String?) -> Void) {
         var terms = [title]
         if let gameType {
             let system = gameType.localizedShortName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !system.isEmpty {
-                terms.append(system)
-            }
+            if !system.isEmpty { terms.append(system) }
         }
         terms.append("video game")
         let query = encodeQueryValue(terms.joined(separator: " "))
@@ -793,7 +1017,6 @@ enum XMBOverviewWebSource {
             DispatchQueue.main.async { completion(nil) }
             return
         }
-
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         request.setValue("application/json,text/html;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
@@ -806,7 +1029,6 @@ enum XMBOverviewWebSource {
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
-
             let text = extractOverview(from: data)
             DispatchQueue.main.async { completion(text) }
         }.resume()
@@ -814,7 +1036,6 @@ enum XMBOverviewWebSource {
 
     private static func extractOverview(from data: Data) -> String? {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            // MediaWiki action API: query.pages.<pageid>.extract
             if let query = json["query"] as? [String: Any],
                let pages = query["pages"] as? [String: Any] {
                 let ordered = pages.values
@@ -829,7 +1050,6 @@ enum XMBOverviewWebSource {
                     return extract.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
-
             for key in ["overview", "extract", "summary", "description"] {
                 if let value = json[key] as? String,
                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
