@@ -1017,7 +1017,8 @@ final class ManicServerLibrary {
                     // old BIN rows in Realm. Hide any row that is now a member of a CUE
                     // bundle so the library contains one entry per disc.
                     if !bundledMemberIDs.isEmpty {
-                        for existing in realm.objects(Game.self).where({ !$0.isDeleted }) {
+                        let existingGames = realm.objects(Game.self).where { !$0.isDeleted }
+                        for existing in existingGames {
                             guard existing.manicServerServiceId == snapshot.id,
                                   let remoteID = existing.manicServerGameId,
                                   bundledMemberIDs.contains(remoteID) else { continue }
