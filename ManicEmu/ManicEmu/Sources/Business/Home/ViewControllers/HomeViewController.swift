@@ -705,6 +705,23 @@ enum XMBOverviewWebSource {
     struct IGDBOverview {
         let text: String
         let pageURL: URL
+        let developer: String?
+        let publisher: String?
+        let genre: String?
+        let release: String?
+        let rating: String?
+    }
+
+    private struct IGDBCompany: Decodable {
+        let name: String?
+    }
+    private struct IGDBInvolved: Decodable {
+        let developer: Bool?
+        let publisher: Bool?
+        let company: IGDBCompany?
+    }
+    private struct IGDBGenre: Decodable {
+        let name: String?
     }
 
     private struct IGDBGame: Decodable {
@@ -713,6 +730,11 @@ enum XMBOverviewWebSource {
         let summary: String?
         let storyline: String?
         let url: String?
+        let involved_companies: [IGDBInvolved]?
+        let genres: [IGDBGenre]?
+        let first_release_date: Int?
+        let aggregated_rating: Double?
+        let rating: Double?
     }
 
     static let defaultsKey = "ManicXMB.overviewURLTemplate"
@@ -881,7 +903,7 @@ enum XMBOverviewWebSource {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let escaped = title.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        request.httpBody = Data("search \"\(escaped)\"; fields name,slug,summary,storyline,url; limit 20;".utf8)
+        request.httpBody = Data("search \"\(escaped)\"; fields name,slug,summary,storyline,url,involved_companies.developer,involved_companies.publisher,involved_companies.company.name,genres.name,first_release_date,aggregated_rating,rating; limit 20;".utf8)
 
         URLSession.shared.dataTask(with: request) { data, response, _ in
             var result: IGDBOverview?
@@ -901,8 +923,21 @@ enum XMBOverviewWebSource {
                    let pageURL = URL(string: match.url ?? "https://www.igdb.com/games/\(match.slug ?? slug(for: title))"),
                    pageURL.scheme == "https",
                    pageURL.host?.lowercased().hasSuffix("igdb.com") == true {
+                    let companies = match.involved_companies ?? []
+                    let developer = companies.first(where: { $0.developer == true })?.company?.name
+                    let publisher = companies.first(where: { $0.publisher == true })?.company?.name
+                    let genre = match.genres?.compactMap(\.name).joined(separator: ", ")
+                    let release = match.first_release_date.map { timestamp -> String in
+                        let formatter = DateFormatter()
+                        formatter.dateStyle = .medium
+                        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(timestamp)))
+                    }
+                    let score = match.aggregated_rating ?? match.rating
                     result = IGDBOverview(text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-                                          pageURL: pageURL)
+                                          pageURL: pageURL,
+                                          developer: developer, publisher: publisher,
+                                          genre: genre, release: release,
+                                          rating: score.map { String(format: "%.0f/100 (IGDB)", $0) })
                 }
             }
             let final = result
@@ -937,7 +972,9 @@ enum XMBOverviewWebSource {
                    normalized(pageTitle).contains(normalized(title)),
                    description.count > 35,
                    !description.lowercased().contains("discover, rate & track your games") {
-                    result = IGDBOverview(text: decodeHTMLEntities(description), pageURL: pageURL)
+                    result = IGDBOverview(text: decodeHTMLEntities(description), pageURL: pageURL,
+                                          developer: nil, publisher: nil, genre: nil,
+                                          release: nil, rating: nil)
                 }
             }
             let final = result
@@ -4553,7 +4590,7 @@ private final class XMBGameDetailViewController: UIViewController {
         let liveGame = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID)
         let hasCachedIGDBOverview = liveGame?.getExtraString(key: "xmbIGDBOverviewURL") != nil
 
-        if XMBOverviewWebSource.isIGDBPreferred, !hasCachedIGDBOverview {
+        if XMBOverviewWebSource.isIGDBPreferred {
             // IGDB is preferred even if Manic's local database supplied a description.
             // Only replace stored metadata after a confirmed game-title match.
             synopsisLabel.text = localOverview.isEmpty ? "Loading overview from IGDB…" : localOverview
@@ -4565,6 +4602,7 @@ private final class XMBGameDetailViewController: UIViewController {
                     self.igdbPageURL = result.pageURL
                     self.igdbPageButton.isHidden = false
                     self.persistOverview(result.text, sourceURL: result.pageURL.absoluteString)
+                    self.applyIGDBDetails(result)
                 } else if localOverview.isEmpty {
                     self.fetchFallbackOverview(existing: metadata)
                 }
@@ -4600,6 +4638,26 @@ private final class XMBGameDetailViewController: UIViewController {
         Release  \(metadata.releaseDateDisplay)
         Region  \(value(metadata.region))
         Rating  \(metadata.esrpDisplay)
+        """
+    }
+
+    private func applyIGDBDetails(_ result: XMBOverviewWebSource.IGDBOverview) {
+        guard let game = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID),
+              !game.isDeleted else { return }
+        let existing = GameMetadata.getGameMetadata(game: game)
+        func value(_ remote: String?, _ local: String?) -> String {
+            let remote = remote?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !remote.isEmpty { return remote }
+            let local = local?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return local.isEmpty ? "—" : local
+        }
+        metadataLabel.text = """
+        Developer  \(value(result.developer, existing?.developer))
+        Publisher  \(value(result.publisher, existing?.publisher))
+        Genre  \(value(result.genre, existing?.genre))
+        Release  \(value(result.release, existing?.releaseDateDisplay))
+        Region  \(value(nil, existing?.region))
+        Rating  \(value(result.rating, existing?.esrpDisplay))
         """
     }
 
