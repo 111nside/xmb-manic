@@ -968,7 +968,22 @@ final class ManicServerLibrary {
     }
 
     private static let usageKey = "ManicServerRemoteCacheUsage"
-    private static let cacheLimitBytes: Int64 = 12 * 1024 * 1024 * 1024
+    private static let cacheLimitGBKey = "ManicServerRemoteCacheLimitGB"
+    static let minimumCacheLimitGB: Double = 5
+    static let maximumCacheLimitGB: Double = 25
+    static let defaultCacheLimitGB: Double = 12
+    private static let bytesPerGB: Double = 1024 * 1024 * 1024
+
+    static var cacheLimitGB: Double {
+        let stored = UserDefaults.standard.object(forKey: cacheLimitGBKey) as? NSNumber
+        let value = stored?.doubleValue ?? defaultCacheLimitGB
+        return min(max(value, minimumCacheLimitGB), maximumCacheLimitGB)
+    }
+
+    private static var cacheLimitBytes: Int64 {
+        Int64((cacheLimitGB * bytesPerGB).rounded())
+    }
+
     private var inFlightGameIDs = Set<String>()
 
     func sync(service: ImportService) async -> SyncSummary {
@@ -1166,7 +1181,9 @@ final class ManicServerLibrary {
 
         let expectedSize = game.manicServerFileSize
         if let expectedSize, expectedSize > Self.cacheLimitBytes {
-            UIView.makeToast(message: "This game is larger than the 12 GB smart-cache limit")
+            let limit = Self.cacheLimitGB
+            let label = limit.rounded() == limit ? String(Int(limit)) : String(format: "%.1f", limit)
+            UIView.makeToast(message: "This game is larger than the \(label) GB smart-cache limit")
             return false
         }
 
@@ -1456,6 +1473,20 @@ final class ManicServerLibrary {
     }
 
     @MainActor
+    @discardableResult
+    func setCacheLimit(gigabytes: Double) -> Double {
+        let clamped = min(max(gigabytes,
+                              Self.minimumCacheLimitGB),
+                          Self.maximumCacheLimitGB)
+        UserDefaults.standard.set(clamped, forKey: Self.cacheLimitGBKey)
+
+        // Lowering the limit takes effect immediately. Evict least-recently-used
+        // remote games until the cache fits the newly selected budget.
+        trimCache(toMaximumBytes: Self.cacheLimitBytes, excludingGameID: nil)
+        return clamped
+    }
+
+    @MainActor
     func clearSmartCache() {
         let fm = FileManager.default
         let games = Database.realm.objects(Game.self).where { !$0.isDeleted }
@@ -1519,11 +1550,11 @@ final class ManicServerLibrary {
         return total
     }
 
-    /// Keep only remote ROM/disc cache files within the fixed 12 GB budget.
+    /// Keep remote ROM/disc cache files within the user-selected 5–25 GB budget.
     /// Library rows, covers, metadata, BIOS, memory cards and saves are never touched.
     @MainActor
     private func trimCache(toMaximumBytes maximumBytes: Int64,
-                           excludingGameID: String) {
+                           excludingGameID: String?) {
         struct Entry {
             let gameID: String
             let url: URL
@@ -1557,7 +1588,7 @@ final class ManicServerLibrary {
         guard total > maximumBytes else { return }
 
         let candidates = entries
-            .filter { $0.gameID != excludingGameID }
+            .filter { excludingGameID == nil || $0.gameID != excludingGameID }
             .sorted { lhs, rhs in
                 if lhs.lastUsed == rhs.lastUsed {
                     return lhs.gameID < rhs.gameID
