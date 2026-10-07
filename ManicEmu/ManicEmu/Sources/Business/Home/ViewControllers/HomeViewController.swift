@@ -2840,7 +2840,7 @@ final class XMBHomeViewController: BaseViewController {
     private func refreshSmartCacheSubtitle() {
         let usage = ManicServerLibrary.shared.cacheUsage()
         let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
+        formatter.countStyle = .memory
         formatter.allowedUnits = [.useMB, .useGB]
         formatter.includesUnit = true
         formatter.isAdaptive = true
@@ -2855,7 +2855,7 @@ final class XMBHomeViewController: BaseViewController {
     private func openSmartCache() {
         let usage = ManicServerLibrary.shared.cacheUsage()
         let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
+        formatter.countStyle = .memory
         formatter.allowedUnits = [.useMB, .useGB]
         formatter.includesUnit = true
         formatter.isAdaptive = true
