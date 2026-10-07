@@ -454,7 +454,7 @@ extension HomeViewController: PageContentViewDelegate {
 // MARK: - XMB-inspired home (Manic XMB fork)
 // Original HomeViewController is intentionally retained above as a fallback.
 
-private enum XMBBackgroundTheme: Int, CaseIterable {
+enum XMBBackgroundTheme: Int, CaseIterable {
     case blue = 0
     case purple
     case green
@@ -1339,9 +1339,13 @@ final class XMBHomeViewController: BaseViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        // Keep the XMB rail slightly above center so the selected system can reveal
-        // a useful vertical game column beneath it, matching the classic XMB layout.
-        sectionCenterConstraint?.update(offset: -view.bounds.height * 0.12)
+        // Portrait needs substantially more room below the rail for the vertical game
+        // column. Keep landscape close to the original composition, but move the rail
+        // higher on tall iPhones instead of shrinking icons/text.
+        let isPortrait = view.bounds.height > view.bounds.width
+        sectionCenterConstraint?.update(offset: -view.bounds.height * (isPortrait ? 0.22 : 0.12))
+        sectionStack.spacing = isPortrait ? 14 : 20
+        gameColumnLayout.minimumLineSpacing = isPortrait ? 8 : 5
 
         let sideInset = max(0, (sectionScrollView.bounds.width - 86) / 2)
         sectionScrollView.contentInset.left = sideInset
@@ -2258,7 +2262,11 @@ final class XMBHomeViewController: BaseViewController {
     }
 
     private var gameRowHeight: CGFloat {
-        coverMode == .square ? 52 : 58
+        let isPortrait = view.bounds.height > view.bounds.width
+        if coverMode == .square {
+            return isPortrait ? 58 : 52
+        }
+        return isPortrait ? 64 : 58
     }
 
     private var gameRowStride: CGFloat {
@@ -2363,7 +2371,8 @@ final class XMBHomeViewController: BaseViewController {
 
         // Keep the focused cover unmistakably below the console label/icon. The extra
         // clearance also accounts for the 1.08x focus scale on the cover artwork.
-        let anchorY = railBottom + 30
+        let isPortrait = view.bounds.height > view.bounds.width
+        let anchorY = railBottom + (isPortrait ? 22 : 30)
 
         let rowHeight = gameRowHeight
 
@@ -2840,6 +2849,35 @@ extension XMBHomeViewController: UICollectionViewDataSource, UICollectionViewDel
         }
 
         return cell
+    }
+
+    func collectionView(_ collectionView: UICollectionView,
+                        willDisplay cell: UICollectionViewCell,
+                        forItemAt indexPath: IndexPath) {
+        guard collectionView === self.collectionView,
+              let cell = cell as? XMBGameRowCell else { return }
+
+        // Newly revealed rows should glide into the column instead of popping into
+        // existence at the collection view's reuse boundary.
+        let focused = rememberedIndexForCurrentSection()
+        let fromAbove = indexPath.item < focused
+        cell.alpha = 0
+        cell.transform = CGAffineTransform(translationX: 0, y: fromAbove ? -10 : 12)
+            .scaledBy(x: 0.975, y: 0.975)
+        UIView.animate(withDuration: 0.22,
+                       delay: 0,
+                       options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+            cell.alpha = 1
+            cell.transform = .identity
+        }
+    }
+
+    func collectionView(_ collectionView: UICollectionView,
+                        didEndDisplaying cell: UICollectionViewCell,
+                        forItemAt indexPath: IndexPath) {
+        guard collectionView === self.collectionView else { return }
+        cell.alpha = 1
+        cell.transform = .identity
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -5845,6 +5883,7 @@ private final class XMBModalHostViewController: UIViewController {
 
 private final class XMBWaveBackgroundView: UIView {
     private let gradientLayer = CAGradientLayer()
+    private let ambientGlowLayer = CAGradientLayer()
     private let waveLayers: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
     private var themeObserver: NSObjectProtocol?
 
@@ -5853,9 +5892,22 @@ private final class XMBWaveBackgroundView: UIView {
         isUserInteractionEnabled = false
 
         gradientLayer.colors = XMBBackgroundTheme.current.gradientColors.map(\.cgColor)
+        gradientLayer.locations = [0, 0.48, 1]
         gradientLayer.startPoint = CGPoint(x: 0.05, y: 0)
         gradientLayer.endPoint = CGPoint(x: 0.95, y: 1)
         layer.addSublayer(gradientLayer)
+
+        ambientGlowLayer.type = .radial
+        ambientGlowLayer.colors = [
+            XMBBackgroundTheme.current.waveColor.withAlphaComponent(0.18).cgColor,
+            XMBBackgroundTheme.current.waveColor.withAlphaComponent(0.04).cgColor,
+            UIColor.clear.cgColor
+        ]
+        ambientGlowLayer.locations = [0, 0.42, 1]
+        ambientGlowLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
+        ambientGlowLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
+        ambientGlowLayer.opacity = 0.72
+        layer.addSublayer(ambientGlowLayer)
 
         for (index, wave) in waveLayers.enumerated() {
             let alpha = max(0.045, 0.125 - CGFloat(index) * 0.020)
@@ -5885,6 +5937,11 @@ private final class XMBWaveBackgroundView: UIView {
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.28)
         gradientLayer.colors = theme.gradientColors.map(\.cgColor)
+        ambientGlowLayer.colors = [
+            theme.waveColor.withAlphaComponent(0.18).cgColor,
+            theme.waveColor.withAlphaComponent(0.04).cgColor,
+            UIColor.clear.cgColor
+        ]
         for (index, wave) in waveLayers.enumerated() {
             let alpha = max(0.045, 0.125 - CGFloat(index) * 0.020)
             wave.fillColor = theme.waveColor.withAlphaComponent(alpha).cgColor
@@ -5901,6 +5958,8 @@ private final class XMBWaveBackgroundView: UIView {
         super.didMoveToWindow()
         if window == nil {
             waveLayers.forEach { $0.removeAllAnimations() }
+            gradientLayer.removeAllAnimations()
+            ambientGlowLayer.removeAllAnimations()
         } else {
             setNeedsLayout()
         }
@@ -5909,6 +5968,45 @@ private final class XMBWaveBackgroundView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = bounds
+        ambientGlowLayer.frame = bounds.insetBy(dx: -bounds.width * 0.38,
+                                                dy: -bounds.height * 0.26)
+
+        if gradientLayer.animation(forKey: "xmbGradientBreath") == nil {
+            let locations = CABasicAnimation(keyPath: "locations")
+            locations.fromValue = [0.0, 0.38, 1.0]
+            locations.toValue = [0.0, 0.64, 1.0]
+            locations.duration = 7.5
+            locations.autoreverses = true
+            locations.repeatCount = .infinity
+            locations.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            gradientLayer.add(locations, forKey: "xmbGradientBreath")
+        }
+
+        if ambientGlowLayer.animation(forKey: "xmbGlowDrift") == nil {
+            let drift = CAKeyframeAnimation(keyPath: "transform.translation")
+            drift.values = [
+                NSValue(cgPoint: CGPoint(x: -bounds.width * 0.16, y: -bounds.height * 0.05)),
+                NSValue(cgPoint: CGPoint(x: bounds.width * 0.12, y: bounds.height * 0.07)),
+                NSValue(cgPoint: CGPoint(x: -bounds.width * 0.08, y: bounds.height * 0.02))
+            ]
+            drift.keyTimes = [0, 0.55, 1]
+            drift.duration = 10.5
+            drift.repeatCount = .infinity
+            drift.timingFunctions = [
+                CAMediaTimingFunction(name: .easeInEaseOut),
+                CAMediaTimingFunction(name: .easeInEaseOut)
+            ]
+            ambientGlowLayer.add(drift, forKey: "xmbGlowDrift")
+
+            let glowPulse = CABasicAnimation(keyPath: "opacity")
+            glowPulse.fromValue = 0.42
+            glowPulse.toValue = 0.88
+            glowPulse.duration = 4.8
+            glowPulse.autoreverses = true
+            glowPulse.repeatCount = .infinity
+            glowPulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ambientGlowLayer.add(glowPulse, forKey: "xmbGlowPulse")
+        }
 
         let centerY = bounds.height * 0.50
         let waveWidth = bounds.width + 260
@@ -5947,6 +6045,15 @@ private final class XMBWaveBackgroundView: UIView {
                 drift.repeatCount = .infinity
                 drift.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 wave.add(drift, forKey: "xmbWaveDrift")
+
+                let sway = CABasicAnimation(keyPath: "transform.translation.y")
+                sway.fromValue = CGFloat(-5 - index * 2)
+                sway.toValue = CGFloat(6 + index * 2)
+                sway.duration = 4.6 + Double(index) * 0.75
+                sway.autoreverses = true
+                sway.repeatCount = .infinity
+                sway.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                wave.add(sway, forKey: "xmbWaveSway")
 
                 let pulse = CABasicAnimation(keyPath: "opacity")
                 pulse.fromValue = 0.62
