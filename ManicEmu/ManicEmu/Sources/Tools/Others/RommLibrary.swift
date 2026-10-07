@@ -1001,12 +1001,30 @@ final class ManicServerLibrary {
                 }
             })
 
+            // A CUE is the launchable disc descriptor. Suppress its BIN tracks
+            // even when an older server lists them as separate catalog games.
+            let cueStems = Set(manifest.games.filter {
+                URL(fileURLWithPath: $0.file).pathExtension.lowercased() == "cue"
+            }.map {
+                URL(fileURLWithPath: $0.file).deletingPathExtension().path.lowercased()
+            })
+            let cueTrackPaths = Set(manifest.games.flatMap { remote -> [String] in
+                guard URL(fileURLWithPath: remote.file).pathExtension.lowercased() == "cue" else { return [] }
+                return (remote.files ?? []).map { $0.file.lowercased() }
+            })
+            func isCueTrack(_ remote: ManicServerGame) -> Bool {
+                guard URL(fileURLWithPath: remote.file).pathExtension.lowercased() == "bin" else { return false }
+                return cueStems.contains(URL(fileURLWithPath: remote.file).deletingPathExtension().path.lowercased())
+                    || cueTrackPaths.contains(remote.file.lowercased())
+            }
+            let visibleRemotes = manifest.games.filter { !isCueTrack($0) }
+
             try await MainActor.run {
                 let realm = Database.realm
                 realm.refresh()
 
                 try realm.write {
-                    for remote in manifest.games {
+                    for remote in visibleRemotes {
                         guard let mapped = Self.map(remote: remote,
                                                     serviceId: snapshot.id,
                                                     client: client) else {
@@ -1030,7 +1048,7 @@ final class ManicServerLibrary {
 
                     // Remove stale remote-only entries after a successful catalog fetch.
                     // Preserve locally downloaded ROMs and entries from other servers.
-                    let currentRemoteIDs = Set(manifest.games.map { $0.stableId })
+                    let currentRemoteIDs = Set(visibleRemotes.map { $0.stableId })
                     let serverRows = realm.objects(Game.self).where { !$0.isDeleted }
                     for existing in serverRows {
                         guard existing.manicServerServiceId == snapshot.id,
@@ -1057,7 +1075,7 @@ final class ManicServerLibrary {
 
             // Remote-only entries still deserve the same library experience as local ROMs.
             // Hydrate light metadata/art before the large game file is ever requested.
-            let syncedGameIDs = manifest.games.compactMap {
+            let syncedGameIDs = visibleRemotes.compactMap {
                 Self.map(remote: $0, serviceId: snapshot.id, client: client)?.id
             }
             await hydrateRemoteEntries(gameIDs: syncedGameIDs)
