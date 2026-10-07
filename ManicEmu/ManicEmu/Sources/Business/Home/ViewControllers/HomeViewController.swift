@@ -3856,6 +3856,35 @@ private final class XMBLibraryViewSettingsViewController: UIViewController {
         }
     }
 
+    private func fetchFallbackOverview(existing: GameMetadata?) {
+        let gameType = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID)?.effectiveGameType
+        XMBOverviewWebSource.fetchWikipedia(title: titleLabel.text ?? "",
+                                             gameType: gameType) { [weak self] overview in
+            guard let self else { return }
+            self.synopsisLabel.text = overview
+                ?? "No game overview found on IGDB, locally, or on Wikipedia."
+            if let overview {
+                self.persistOverview(overview, sourceURL: nil)
+            }
+        }
+    }
+
+    private func persistOverview(_ overview: String, sourceURL: String?) {
+        guard let game = Database.realm.object(ofType: Game.self,
+                                                forPrimaryKey: gameID),
+              !game.isDeleted else { return }
+        var stored = GameMetadata.getGameMetadata(game: game) ?? GameMetadata()
+        stored.overview = overview
+        if stored.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            stored.displayName = titleLabel.text ?? game.displayName
+        }
+        stored.persist(to: game)
+        game.updateExtra(key: ExtraKey.hasQueryMetadata.rawValue, value: true)
+        if let sourceURL {
+            game.updateExtra(key: "xmbIGDBOverviewURL", value: sourceURL)
+        }
+    }
+
     @objc private func closePressed() {
         dismiss(animated: true)
     }
@@ -4518,28 +4547,32 @@ private final class XMBGameDetailViewController: UIViewController {
 
     private func applyMetadata(_ metadata: GameMetadata?) {
         let localOverview = metadata?.overview.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let liveGame = Database.realm.object(ofType: Game.self, forPrimaryKey: gameID)
+        let hasCachedIGDBOverview = liveGame?.getExtraString(key: "xmbIGDBOverviewURL") != nil
 
-        if localOverview.isEmpty {
-            synopsisLabel.text = "Loading overview from the web…"
-            let liveType = Database.realm.object(ofType: Game.self,
-                                                     forPrimaryKey: gameID)?.effectiveGameType
-            XMBOverviewWebSource.fetch(title: titleLabel.text ?? "",
-                                       gameType: liveType) { [weak self] webOverview in
+        if XMBOverviewWebSource.isIGDBPreferred, !hasCachedIGDBOverview {
+            // IGDB is preferred even if Manic's local database supplied a description.
+            // Only replace stored metadata after a confirmed game-title match.
+            synopsisLabel.text = localOverview.isEmpty ? "Loading overview from IGDB…" : localOverview
+            let title = titleLabel.text ?? liveGame?.displayName ?? ""
+            XMBOverviewWebSource.fetchIGDB(title: title) { [weak self] result in
                 guard let self else { return }
-                self.synopsisLabel.text = webOverview
+                if let result {
+                    self.synopsisLabel.text = result.text
+                    self.persistOverview(result.text, sourceURL: result.pageURL.absoluteString)
+                } else if localOverview.isEmpty {
+                    self.fetchFallbackOverview(existing: metadata)
+                }
+            }
+        } else if localOverview.isEmpty {
+            synopsisLabel.text = "Loading overview from the web…"
+            XMBOverviewWebSource.fetch(title: titleLabel.text ?? "",
+                                       gameType: liveGame?.effectiveGameType) { [weak self] overview in
+                guard let self else { return }
+                self.synopsisLabel.text = overview
                     ?? "No overview is available from the local database or configured website."
-
-                if let webOverview,
-                   let liveGame = Database.realm.object(ofType: Game.self,
-                                                        forPrimaryKey: self.gameID),
-                   !liveGame.isDeleted {
-                    var persisted = GameMetadata.getGameMetadata(game: liveGame) ?? metadata ?? GameMetadata()
-                    persisted.overview = webOverview
-                    if persisted.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        persisted.displayName = self.titleLabel.text ?? liveGame.displayName
-                    }
-                    persisted.persist(to: liveGame)
-                    liveGame.updateExtra(key: ExtraKey.hasQueryMetadata.rawValue, value: true)
+                if let overview {
+                    self.persistOverview(overview, sourceURL: nil)
                 }
             }
         } else {
@@ -5034,27 +5067,79 @@ private final class XMBProfileDetailsViewController: UIViewController {
 
     private func editOverviewWebsite() {
         let alert = UIAlertController(
-            title: "Overview Website",
-            message: "Enter a URL template and use {title} where the game name should go. Leave it blank to use Wikipedia.",
+            title: "Game Overview Source",
+            message: "IGDB is recommended. It uses the official API when configured, then tries the public page. If no match is found, Wikipedia can provide a fallback.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Use IGDB", style: .default) { _ in
+            XMBOverviewWebSource.saveTemplate("")
+            UIView.makeToast(message: "IGDB selected for game overviews")
+        })
+        alert.addAction(UIAlertAction(title: "Configure IGDB API", style: .default) { [weak self] _ in
+            self?.editIGDBCredentials()
+        })
+        alert.addAction(UIAlertAction(title: "Use Wikipedia", style: .default) { _ in
+            XMBOverviewWebSource.saveTemplate(XMBOverviewWebSource.wikipediaTemplate)
+            UIView.makeToast(message: "Wikipedia selected for game overviews")
+        })
+        alert.addAction(UIAlertAction(title: "Custom URL Template", style: .default) { [weak self] _ in
+            self?.editCustomOverviewWebsite()
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func editIGDBCredentials() {
+        let alert = UIAlertController(
+            title: "IGDB API Credentials",
+            message: "Enter your Twitch Developer Client ID and an app access token. Never enter your Client Secret here. Tokens eventually expire and need refreshing.",
             preferredStyle: .alert
         )
         alert.addTextField { field in
-            field.text = UserDefaults.standard.string(forKey: XMBOverviewWebSource.defaultsKey)
-                ?? XMBOverviewWebSource.defaultTemplate
-            field.placeholder = XMBOverviewWebSource.defaultTemplate
+            field.placeholder = "Client ID"
+            field.text = XMBOverviewWebSource.igdbClientID
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addTextField { field in
+            field.placeholder = "App access token (leave blank to keep current)"
+            field.isSecureTextEntry = true
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Clear Credentials", style: .destructive) { _ in
+            XMBOverviewWebSource.clearIGDBCredentials()
+            UIView.makeToast(message: "IGDB credentials cleared")
+        })
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak alert] _ in
+            let fields = alert?.textFields ?? []
+            let clientID = fields.first?.text ?? ""
+            let token = fields.dropFirst().first?.text ?? ""
+            XMBOverviewWebSource.saveIGDBCredentials(clientID: clientID, accessToken: token)
+            XMBOverviewWebSource.saveTemplate("")
+            UIView.makeToast(message: "IGDB API settings saved")
+        })
+        present(alert, animated: true)
+    }
+
+    private func editCustomOverviewWebsite() {
+        let alert = UIAlertController(
+            title: "Custom Overview Website",
+            message: "Enter a URL template using {title} for the game name or {slug} for a URL slug.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.text = XMBOverviewWebSource.template
+            field.placeholder = "https://example.org/games/{slug}"
             field.keyboardType = .URL
             field.autocapitalizationType = .none
             field.autocorrectionType = .no
-            field.clearButtonMode = .whileEditing
         }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Use Wikipedia", style: .default) { _ in
-            XMBOverviewWebSource.saveTemplate("")
-            UIView.makeToast(message: "Overview source reset to Wikipedia")
-        })
         alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak alert] _ in
             XMBOverviewWebSource.saveTemplate(alert?.textFields?.first?.text ?? "")
-            UIView.makeToast(message: "Overview website saved")
+            UIView.makeToast(message: "Custom overview source saved")
         })
         present(alert, animated: true)
     }
