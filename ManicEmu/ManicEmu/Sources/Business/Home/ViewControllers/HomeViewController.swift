@@ -700,9 +700,9 @@ private struct XMBGameItem {
     }
 }
 
-private enum XMBOverviewWebSource {
+enum XMBOverviewWebSource {
     static let defaultsKey = "ManicXMB.overviewURLTemplate"
-    static let defaultTemplate = "https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+    static let defaultTemplate = "https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&redirects=1&format=json&titles={title}"
 
     static var template: String {
         let saved = UserDefaults.standard.string(forKey: defaultsKey)?
@@ -719,29 +719,85 @@ private enum XMBOverviewWebSource {
         }
     }
 
-    static func fetch(title: String, completion: @escaping (String?) -> Void) {
+    static func fetch(title: String,
+                      gameType: GameType? = nil,
+                      completion: @escaping (String?) -> Void) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
             DispatchQueue.main.async { completion(nil) }
             return
         }
 
-        let encoded = trimmedTitle.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? trimmedTitle
+        // The default source uses Wikipedia search rather than assuming that the
+        // bare title is the game page. "Fatal Frame", for example, is also a series;
+        // "Fatal Frame PS2 video game" resolves the actual game much more reliably.
+        if template == defaultTemplate {
+            fetchWikipediaSearch(title: trimmedTitle,
+                                 gameType: gameType,
+                                 completion: completion)
+            return
+        }
+
+        fetchConfigured(title: trimmedTitle) { configured in
+            if let configured {
+                completion(configured)
+            } else {
+                fetchWikipediaSearch(title: trimmedTitle,
+                                     gameType: gameType,
+                                     completion: completion)
+            }
+        }
+    }
+
+    static func fetch(title: String, completion: @escaping (String?) -> Void) {
+        fetch(title: title, gameType: nil, completion: completion)
+    }
+
+    private static func fetchConfigured(title: String,
+                                        completion: @escaping (String?) -> Void) {
+        let encoded = encodeQueryValue(title)
         var urlString = template
         if urlString.contains("{title}") {
             urlString = urlString.replacingOccurrences(of: "{title}", with: encoded)
         } else {
             urlString += (urlString.contains("?") ? "&" : "?") + "title=" + encoded
         }
+        fetchURLString(urlString, completion: completion)
+    }
 
+    private static func fetchWikipediaSearch(title: String,
+                                             gameType: GameType?,
+                                             completion: @escaping (String?) -> Void) {
+        var terms = [title]
+        if let gameType {
+            let system = gameType.localizedShortName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !system.isEmpty {
+                terms.append(system)
+            }
+        }
+        terms.append("video game")
+        let query = encodeQueryValue(terms.joined(separator: " "))
+        let urlString = "https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=\(query)&gsrlimit=3&prop=extracts&exintro=1&explaintext=1&exchars=1800&redirects=1&format=json"
+        fetchURLString(urlString, completion: completion)
+    }
+
+    private static func encodeQueryValue(_ raw: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        return raw.addingPercentEncoding(withAllowedCharacters: allowed) ?? raw
+    }
+
+    private static func fetchURLString(_ urlString: String,
+                                       completion: @escaping (String?) -> Void) {
         guard let url = URL(string: urlString) else {
             DispatchQueue.main.async { completion(nil) }
             return
         }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 8
+        request.timeoutInterval = 10
         request.setValue("application/json,text/html;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue("ManicEMU/1.0 iOS game metadata", forHTTPHeaderField: "User-Agent")
 
         URLSession.shared.dataTask(with: request) { data, response, _ in
             guard let data,
@@ -758,7 +814,23 @@ private enum XMBOverviewWebSource {
 
     private static func extractOverview(from data: Data) -> String? {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for key in ["overview", "description", "extract", "summary"] {
+            // MediaWiki action API: query.pages.<pageid>.extract
+            if let query = json["query"] as? [String: Any],
+               let pages = query["pages"] as? [String: Any] {
+                let ordered = pages.values
+                    .compactMap { $0 as? [String: Any] }
+                    .sorted {
+                        let lhs = ($0["index"] as? NSNumber)?.intValue ?? Int.max
+                        let rhs = ($1["index"] as? NSNumber)?.intValue ?? Int.max
+                        return lhs < rhs
+                    }
+                if let extract = ordered.compactMap({ $0["extract"] as? String })
+                    .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                    return extract.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            for key in ["overview", "extract", "summary", "description"] {
                 if let value = json[key] as? String,
                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     return value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1105,6 +1177,12 @@ final class XMBHomeViewController: BaseViewController {
                                                                subtitle: "View or share persistent Dolphin crash checkpoints",
                                                                symbol: "doc.text.magnifyingglass") { [weak self] in
         self?.openWiiCrashLog()
+    }
+
+    private lazy var smartCacheButton = makeProfileMenuButton(title: "Smart Cache",
+                                                              subtitle: "Calculating remote game cache usage…",
+                                                              symbol: "externaldrive.fill") { [weak self] in
+        self?.openSmartCache()
     }
 
     private lazy var gameLibrarySettingsButton = makeProfileMenuButton(title: "Game Library View",
@@ -1476,6 +1554,7 @@ final class XMBHomeViewController: BaseViewController {
             profileDetailsButton,
             ps2MemoryCardsButton,
             wiiCrashLogButton,
+            smartCacheButton,
             gameLibrarySettingsButton,
             consoleLibrarySettingsButton
         ])
@@ -1488,7 +1567,7 @@ final class XMBHomeViewController: BaseViewController {
             make.edges.equalTo(profileMenuContainerView.contentLayoutGuide)
             make.width.equalTo(profileMenuContainerView.frameLayoutGuide)
         }
-        [profileDetailsButton, ps2MemoryCardsButton, wiiCrashLogButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
+        [profileDetailsButton, ps2MemoryCardsButton, wiiCrashLogButton, smartCacheButton, gameLibrarySettingsButton, consoleLibrarySettingsButton].forEach {
             $0.snp.makeConstraints { $0.height.equalTo(58) }
         }
 
@@ -2588,6 +2667,7 @@ final class XMBHomeViewController: BaseViewController {
 
         coverModeControl.selectedSegmentIndex = coverMode.rawValue
         hintsSwitch.isOn = showControllerHints
+        refreshSmartCacheSubtitle()
     }
 
     private func profileAvatarURL() -> URL? {
@@ -2755,6 +2835,50 @@ final class XMBHomeViewController: BaseViewController {
         let controller = XMBWiiDiagnosticsViewController()
         controller.modalPresentationStyle = .fullScreen
         present(controller, animated: true)
+    }
+
+    private func refreshSmartCacheSubtitle() {
+        let usage = ManicServerLibrary.shared.cacheUsage()
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        let used = formatter.string(fromByteCount: usage.usedBytes)
+        let limit = formatter.string(fromByteCount: usage.limitBytes)
+        let percent = usage.limitBytes > 0
+            ? Int((Double(usage.usedBytes) / Double(usage.limitBytes) * 100).rounded())
+            : 0
+        smartCacheButton.setSubtitle("\(used) of \(limit) used  •  \(percent)%")
+    }
+
+    private func openSmartCache() {
+        let usage = ManicServerLibrary.shared.cacheUsage()
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        let used = formatter.string(fromByteCount: usage.usedBytes)
+        let limit = formatter.string(fromByteCount: usage.limitBytes)
+        let percent = usage.limitBytes > 0
+            ? Int((Double(usage.usedBytes) / Double(usage.limitBytes) * 100).rounded())
+            : 0
+
+        let alert = UIAlertController(
+            title: "Smart Cache",
+            message: "\(used) of \(limit) used (\(percent)%). Covers, banners, saves, BIOS files and metadata are not counted against this limit.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Close", style: .cancel))
+        if usage.usedBytes > 0 {
+            alert.addAction(UIAlertAction(title: "Clear Game Cache", style: .destructive) { [weak self] _ in
+                ManicServerLibrary.shared.clearSmartCache()
+                self?.refreshSmartCacheSubtitle()
+                UIView.makeToast(message: "Smart cache cleared")
+            })
+        }
+        present(alert, animated: true)
     }
 
     private func updateClock() {
@@ -4130,7 +4254,10 @@ private final class XMBGameDetailViewController: UIViewController {
 
         if localOverview.isEmpty {
             synopsisLabel.text = "Loading overview from the web…"
-            XMBOverviewWebSource.fetch(title: titleLabel.text ?? "") { [weak self] webOverview in
+            let liveType = Database.realm.object(ofType: Game.self,
+                                                     forPrimaryKey: gameID)?.effectiveGameType
+            XMBOverviewWebSource.fetch(title: titleLabel.text ?? "",
+                                       gameType: liveType) { [weak self] webOverview in
                 guard let self else { return }
                 self.synopsisLabel.text = webOverview
                     ?? "No overview is available from the local database or configured website."
