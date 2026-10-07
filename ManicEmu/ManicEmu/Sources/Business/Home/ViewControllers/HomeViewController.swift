@@ -3885,6 +3885,11 @@ private final class XMBLibraryViewSettingsViewController: UIViewController {
         }
     }
 
+    @objc private func openIGDBPage() {
+        guard let igdbPageURL else { return }
+        UIApplication.shared.open(igdbPageURL)
+    }
+
     @objc private func closePressed() {
         dismiss(animated: true)
     }
@@ -4171,6 +4176,23 @@ private final class XMBGameDetailViewController: UIViewController {
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let synopsisLabel = UILabel()
+    private var igdbPageURL: URL?
+    private lazy var igdbPageButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("View on IGDB  ↗", for: .normal)
+        button.setTitleColor(.systemTeal, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
+        button.contentHorizontalAlignment = .leading
+        button.isHidden = true
+        button.isFocusable = true
+        button.enableFocusEffects = false
+        button.addTarget(self, action: #selector(openIGDBPage), for: .touchUpInside)
+        button.onFocusConfirm = { [weak self] in
+            self?.openIGDBPage()
+            return true
+        }
+        return button
+    }()
     private let metadataLabel = UILabel()
     private let statsLabel = UILabel()
 
@@ -4373,12 +4395,19 @@ private final class XMBGameDetailViewController: UIViewController {
         let synopsisTitle = sectionTitle("Overview")
         synopsisCard.addSubview(synopsisTitle)
         synopsisCard.addSubview(synopsisLabel)
+        synopsisCard.addSubview(igdbPageButton)
         synopsisTitle.snp.makeConstraints { make in
             make.top.leading.trailing.equalToSuperview().inset(16)
         }
         synopsisLabel.snp.makeConstraints { make in
             make.top.equalTo(synopsisTitle.snp.bottom).offset(9)
-            make.leading.trailing.bottom.equalToSuperview().inset(16)
+            make.leading.trailing.equalToSuperview().inset(16)
+        }
+        igdbPageButton.snp.makeConstraints { make in
+            make.top.equalTo(synopsisLabel.snp.bottom).offset(7)
+            make.leading.trailing.equalToSuperview().inset(16)
+            make.height.equalTo(23)
+            make.bottom.equalToSuperview().offset(-12)
         }
 
         metadataCard.snp.makeConstraints { make in
@@ -4495,6 +4524,14 @@ private final class XMBGameDetailViewController: UIViewController {
         Added to library  \(imported)
         """
 
+        if let sourceString = game.getExtraString(key: "xmbIGDBOverviewURL"),
+           let sourceURL = URL(string: sourceString),
+           sourceURL.scheme == "https",
+           sourceURL.host?.lowercased().hasSuffix("igdb.com") == true {
+            igdbPageURL = sourceURL
+            igdbPageButton.isHidden = false
+        }
+
         if let stored = GameMetadata.getGameMetadata(game: game) {
             applyMetadata(stored)
         } else {
@@ -4559,6 +4596,8 @@ private final class XMBGameDetailViewController: UIViewController {
                 guard let self else { return }
                 if let result {
                     self.synopsisLabel.text = result.text
+                    self.igdbPageURL = result.pageURL
+                    self.igdbPageButton.isHidden = false
                     self.persistOverview(result.text, sourceURL: result.pageURL.absoluteString)
                 } else if localOverview.isEmpty {
                     self.fetchFallbackOverview(existing: metadata)
