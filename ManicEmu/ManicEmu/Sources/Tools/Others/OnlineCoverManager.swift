@@ -483,7 +483,7 @@ class OnlineCoverManager {
     /// Remote Manic Server entries do not have a local ROM to scrape for art.
     /// Once Libretro box art is matched, use the identically named screenshot as a
     /// lightweight background/banner and persist it independently of the ROM cache.
-    private static func cacheLibretroBannerIfNeeded(gameID: String, matchedCoverURL: URL) {
+    static func cacheLibretroBannerIfNeeded(gameID: String, matchedCoverURL: URL) {
         let coverString = matchedCoverURL.absoluteString
         guard coverString.contains("/Named_Boxarts/"),
               let bannerURL = URL(string: coverString.replacingOccurrences(of: "/Named_Boxarts/",
