@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Foundation
+import UIKit
 import IceCream
 import RealmSwift
 
@@ -956,6 +957,8 @@ final class ManicServerLibrary {
     }
 
     private static let usageKey = "ManicServerRemoteCacheUsage"
+    private static let cacheLimitBytes: Int64 = 12 * 1024 * 1024 * 1024
+    private var inFlightGameIDs = Set<String>()
 
     func sync(service: ImportService) async -> SyncSummary {
         let snapshot = await MainActor.run { ServiceSnapshot(service: service) }
@@ -1001,6 +1004,10 @@ final class ManicServerLibrary {
 
     @MainActor
     func prepareGameForLaunch(_ game: Game) async -> Bool {
+        // Ignore repeat Play presses while this exact game is already materializing.
+        // This prevents duplicate requests, duplicate progress UI, and duplicate launches.
+        guard !inFlightGameIDs.contains(game.id) else { return false }
+
         if FileManager.default.fileExists(atPath: game.romUrl.path) {
             markUsed(game)
             return true
@@ -1015,12 +1022,39 @@ final class ManicServerLibrary {
             return false
         }
 
-        let destination = game.romUrl
-        do {
-            Log.debug("[ManicServer] download start game=\(game.displayName) path=\(downloadPath) expected=\(game.manicServerFileSize ?? -1)")
-            UIView.makeToast(message: "Downloading \(game.displayName)…")
+        let expectedSize = game.manicServerFileSize
+        if let expectedSize, expectedSize > Self.cacheLimitBytes {
+            UIView.makeToast(message: "This game is larger than the 12 GB smart-cache limit")
+            return false
+        }
 
-            let temporaryURL = try await client.downloadFile(for: request)
+        inFlightGameIDs.insert(game.id)
+        defer {
+            inFlightGameIDs.remove(game.id)
+            ManicServerDownloadProgressHUD.hide()
+        }
+
+        if let expectedSize, expectedSize > 0 {
+            trimCache(toMaximumBytes: max(0, Self.cacheLimitBytes - expectedSize),
+                      excludingGameID: game.id)
+        }
+
+        let destination = game.romUrl
+        let displayName = game.displayName
+        ManicServerDownloadProgressHUD.show(title: displayName)
+        ManicServerDownloadProgressHUD.update(received: 0,
+                                              expected: expectedSize ?? -1)
+
+        do {
+            Log.debug("[ManicServer] download start game=\(displayName) path=\(downloadPath) expected=\(expectedSize ?? -1)")
+
+            let temporaryURL = try await client.downloadFile(for: request) { received, responseExpected in
+                let total = responseExpected > 0 ? responseExpected : (expectedSize ?? -1)
+                Task { @MainActor in
+                    ManicServerDownloadProgressHUD.update(received: received, expected: total)
+                }
+            }
+
             let fm = FileManager.default
             try fm.createDirectory(at: destination.deletingLastPathComponent(),
                                    withIntermediateDirectories: true)
@@ -1029,12 +1063,12 @@ final class ManicServerLibrary {
             }
             try fm.moveItem(at: temporaryURL, to: destination)
 
-            if let expected = game.manicServerFileSize,
+            if let expected = expectedSize,
                expected > 0,
                let attributes = try? fm.attributesOfItem(atPath: destination.path),
                let number = attributes[.size] as? NSNumber,
                number.int64Value != expected {
-                Log.debug("[ManicServer] size mismatch expected=\(expected) actual=\(number.int64Value) game=\(game.displayName)")
+                Log.debug("[ManicServer] size mismatch expected=\(expected) actual=\(number.int64Value) game=\(displayName)")
             }
 
             if game.gameType == .ps1 && game.fileExtension.lowercased() == "bin" {
@@ -1042,11 +1076,15 @@ final class ManicServerLibrary {
             }
 
             markUsed(game)
-            Log.debug("[ManicServer] download complete game=\(game.displayName) destination=\(destination.lastPathComponent)")
+            trimCache(toMaximumBytes: Self.cacheLimitBytes,
+                      excludingGameID: game.id)
+            ManicServerDownloadProgressHUD.update(received: expectedSize ?? 1,
+                                                  expected: expectedSize ?? 1)
+            Log.debug("[ManicServer] download complete game=\(displayName) destination=\(destination.lastPathComponent)")
             return true
         } catch {
-            Log.debug("[ManicServer] download failed game=\(game.displayName) error=\(error)")
-            UIView.makeToast(message: "Could not download \(game.displayName)")
+            Log.debug("[ManicServer] download failed game=\(displayName) error=\(error)")
+            UIView.makeToast(message: "Could not download \(displayName)")
             return false
         }
     }
@@ -1149,6 +1187,73 @@ final class ManicServerLibrary {
         UserDefaults.standard.set(usage, forKey: Self.usageKey)
     }
 
+    /// Keep only remote ROM/disc cache files within the fixed 12 GB budget.
+    /// Library rows, covers, metadata, BIOS, memory cards and saves are never touched.
+    @MainActor
+    private func trimCache(toMaximumBytes maximumBytes: Int64,
+                           excludingGameID: String) {
+        struct Entry {
+            let gameID: String
+            let url: URL
+            let bytes: Int64
+            let lastUsed: Double
+            let isPS1Bin: Bool
+        }
+
+        let fm = FileManager.default
+        var usage = UserDefaults.standard.dictionary(forKey: Self.usageKey) as? [String: Double] ?? [:]
+        let games = Database.realm.objects(Game.self).where { !$0.isDeleted }
+
+        var entries: [Entry] = []
+        var total: Int64 = 0
+
+        for game in games where game.isManicServerGame {
+            guard let cacheFileName = game.manicServerCacheFileName else { continue }
+            let url = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(cacheFileName))
+            guard fm.fileExists(atPath: url.path),
+                  let attributes = try? fm.attributesOfItem(atPath: url.path),
+                  let number = attributes[.size] as? NSNumber else { continue }
+
+            let bytes = number.int64Value
+            total += bytes
+            entries.append(Entry(gameID: game.id,
+                                 url: url,
+                                 bytes: bytes,
+                                 lastUsed: usage[game.id] ?? 0,
+                                 isPS1Bin: game.gameType == .ps1 && game.fileExtension.lowercased() == "bin"))
+        }
+
+        guard total > maximumBytes else { return }
+
+        let candidates = entries
+            .filter { $0.gameID != excludingGameID }
+            .sorted { lhs, rhs in
+                if lhs.lastUsed == rhs.lastUsed {
+                    return lhs.gameID < rhs.gameID
+                }
+                return lhs.lastUsed < rhs.lastUsed
+            }
+
+        for entry in candidates where total > maximumBytes {
+            do {
+                try fm.removeItem(at: entry.url)
+                if entry.isPS1Bin {
+                    let cue = entry.url.deletingPathExtension().appendingPathExtension("cue")
+                    if fm.fileExists(atPath: cue.path) {
+                        try? fm.removeItem(at: cue)
+                    }
+                }
+                total -= entry.bytes
+                usage.removeValue(forKey: entry.gameID)
+                Log.debug("[ManicServer] smart cache evicted game=\(entry.gameID) bytes=\(entry.bytes) remaining=\(total)")
+            } catch {
+                Log.debug("[ManicServer] smart cache eviction failed game=\(entry.gameID) error=\(error)")
+            }
+        }
+
+        UserDefaults.standard.set(usage, forKey: Self.usageKey)
+    }
+
     @MainActor
     private func serviceSnapshot(id: String) -> ServiceSnapshot? {
         guard let value = Int(id),
@@ -1185,5 +1290,120 @@ final class ManicServerLibrary {
                               password: password,
                               path: path)
         }
+    }
+}
+
+
+private final class ManicServerDownloadProgressHUD: UIView {
+    private static var active: ManicServerDownloadProgressHUD?
+
+    private let titleLabel = UILabel()
+    private let percentLabel = UILabel()
+    private let progressView = UIProgressView(progressViewStyle: .default)
+    private let detailLabel = UILabel()
+
+    private init(title: String) {
+        super.init(frame: .zero)
+
+        backgroundColor = UIColor.black.withAlphaComponent(0.88)
+        layer.cornerRadius = 16
+        layer.borderWidth = 1
+        layer.borderColor = UIColor.white.withAlphaComponent(0.14).cgColor
+
+        titleLabel.text = "Downloading \(title)"
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+
+        percentLabel.text = "0%"
+        percentLabel.textColor = .white
+        percentLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .bold)
+        percentLabel.textAlignment = .right
+
+        progressView.progress = 0
+        progressView.progressTintColor = R.Color.Main
+        progressView.trackTintColor = UIColor.white.withAlphaComponent(0.18)
+
+        detailLabel.textColor = UIColor.white.withAlphaComponent(0.68)
+        detailLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+
+        [titleLabel, percentLabel, progressView, detailLabel].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: percentLabel.leadingAnchor, constant: -12),
+
+            percentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            percentLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            percentLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
+
+            progressView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            progressView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            progressView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+
+            detailLabel.topAnchor.constraint(equalTo: progressView.bottomAnchor, constant: 9),
+            detailLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            detailLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            detailLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @MainActor
+    static func show(title: String) {
+        active?.removeFromSuperview()
+
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first else { return }
+
+        let hud = ManicServerDownloadProgressHUD(title: title)
+        hud.translatesAutoresizingMaskIntoConstraints = false
+        window.addSubview(hud)
+        NSLayoutConstraint.activate([
+            hud.centerXAnchor.constraint(equalTo: window.centerXAnchor),
+            hud.leadingAnchor.constraint(greaterThanOrEqualTo: window.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            hud.trailingAnchor.constraint(lessThanOrEqualTo: window.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            hud.widthAnchor.constraint(lessThanOrEqualToConstant: 390),
+            hud.widthAnchor.constraint(greaterThanOrEqualToConstant: 280),
+            hud.bottomAnchor.constraint(equalTo: window.safeAreaLayoutGuide.bottomAnchor, constant: -24)
+        ])
+        active = hud
+    }
+
+    @MainActor
+    static func update(received: Int64, expected: Int64) {
+        guard let hud = active else { return }
+
+        if expected > 0 {
+            let value = min(max(Double(received) / Double(expected), 0), 1)
+            hud.progressView.setProgress(Float(value), animated: true)
+            hud.percentLabel.text = "\(Int((value * 100).rounded(.down)))%"
+
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            hud.detailLabel.text = "\(formatter.string(fromByteCount: max(0, received))) of \(formatter.string(fromByteCount: expected))"
+        } else {
+            hud.progressView.setProgress(0, animated: false)
+            hud.percentLabel.text = "…"
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            hud.detailLabel.text = formatter.string(fromByteCount: max(0, received))
+        }
+    }
+
+    @MainActor
+    static func hide() {
+        active?.removeFromSuperview()
+        active = nil
     }
 }
