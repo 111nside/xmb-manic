@@ -251,7 +251,8 @@ class Game: Object, ObjectUpdatable {
     /// PS1 cores require a .cue next to a raw .bin. Writes a single-track sheet if missing.
     func ensurePS1BinCueSheet() {
         guard gameType == .ps1, fileExtension.lowercased() == "bin" else { return }
-        let binUrl = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(fileName))
+        let binFileName = manicServerCacheFileName ?? fileName
+        let binUrl = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(binFileName))
         guard FileManager.default.fileExists(atPath: binUrl.path) else { return }
         let cueUrl = binUrl.deletingPathExtension().appendingPathExtension("cue")
         guard !FileManager.default.fileExists(atPath: cueUrl.path) else { return }
