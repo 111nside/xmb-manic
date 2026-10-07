@@ -4407,7 +4407,8 @@ private final class XMBGameDetailViewController: UIViewController {
         contentView.addSubview(metadataCard)
 
         synopsisCard.snp.makeConstraints { make in
-            make.top.equalTo(coverView.snp.bottom).offset(22)
+            make.top.greaterThanOrEqualTo(actionStack.snp.bottom).offset(22)
+            make.top.greaterThanOrEqualTo(coverView.snp.bottom).offset(22)
             make.leading.trailing.equalToSuperview().inset(24)
         }
 
