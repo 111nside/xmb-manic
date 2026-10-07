@@ -984,11 +984,14 @@ final class ManicServerLibrary {
                         }
 
                         if let game = realm.object(ofType: Game.self, forPrimaryKey: mapped.id) {
-                            Self.apply(mapped: mapped, to: game)
+                            // Realm primary keys are immutable after insertion.
+                            // Existing server rows must only receive mutable field updates.
+                            Self.apply(mapped: mapped, to: game, setPrimaryKey: false)
                             summary.updated += 1
                         } else {
                             let game = Game()
-                            Self.apply(mapped: mapped, to: game)
+                            // New unmanaged rows receive their stable primary key before insertion.
+                            Self.apply(mapped: mapped, to: game, setPrimaryKey: true)
                             realm.add(game)
                             summary.added += 1
                         }
@@ -1232,8 +1235,16 @@ final class ManicServerLibrary {
                           coverURL: client.absoluteURLString(path: remote.cover))
     }
 
-    private static func apply(mapped: MappedGame, to game: Game) {
-        game.id = mapped.id
+    private static func apply(mapped: MappedGame,
+                              to game: Game,
+                              setPrimaryKey: Bool) {
+        if setPrimaryKey {
+            game.id = mapped.id
+        } else if game.id != mapped.id {
+            // This should be impossible because existing rows are looked up by mapped.id.
+            // Log it instead of attempting an illegal Realm primary-key mutation.
+            Log.debug("[ManicServer] primary-key mismatch existing=\(game.id) mapped=\(mapped.id)")
+        }
         game.name = mapped.name
         game.aliasName = mapped.aliasName
         game.fileExtension = mapped.fileExtension
