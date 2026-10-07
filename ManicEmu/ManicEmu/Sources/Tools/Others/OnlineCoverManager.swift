@@ -485,46 +485,56 @@ class OnlineCoverManager {
     /// lightweight background/banner and persist it independently of the ROM cache.
     static func cacheLibretroBannerIfNeeded(gameID: String, matchedCoverURL: URL) {
         let coverString = matchedCoverURL.absoluteString
-        guard coverString.contains("/Named_Boxarts/"),
-              let bannerURL = URL(string: coverString.replacingOccurrences(of: "/Named_Boxarts/",
-                                                                           with: "/Named_Snaps/")) else {
-            return
+        guard coverString.contains("/Named_Boxarts/") else { return }
+
+        let candidateURLs = ["/Named_Snaps/", "/Named_Titles/"].compactMap {
+            URL(string: coverString.replacingOccurrences(of: "/Named_Boxarts/", with: $0))
         }
 
-        var request = URLRequest(url: bannerURL)
-        request.cachePolicy = .returnCacheDataElseLoad
-        request.timeoutInterval = 15
-        URLSession.shared.dataTask(with: request) { data, response, _ in
-            guard let data,
-                  !data.isEmpty,
-                  let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  UIImage(data: data) != nil else {
+        func fetchCandidate(at index: Int) {
+            guard candidateURLs.indices.contains(index) else {
+                Log.debug("[ManicServer] no Libretro banner found game=\(gameID)")
                 return
             }
 
-            let realm = Database.realm
-            guard let game = realm.object(ofType: Game.self, forPrimaryKey: gameID),
-                  !game.isDeleted,
-                  game.banner == nil else {
-                return
-            }
+            var request = URLRequest(url: candidateURLs[index])
+            request.cachePolicy = .returnCacheDataElseLoad
+            request.timeoutInterval = 15
+            URLSession.shared.dataTask(with: request) { data, response, _ in
+                guard let data,
+                      !data.isEmpty,
+                      let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode),
+                      UIImage(data: data) != nil else {
+                    fetchCandidate(at: index + 1)
+                    return
+                }
 
-            do {
-                try realm.write {
-                    game.banner = CreamAsset.create(objectID: game.id,
-                                                    propName: "banner",
-                                                    data: data)
+                let realm = Database.realm
+                guard let game = realm.object(ofType: Game.self, forPrimaryKey: gameID),
+                      !game.isDeleted,
+                      game.banner == nil else {
+                    return
                 }
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: R.NotificationName.GameMetadataChange,
-                                                    object: gameID)
+
+                do {
+                    try realm.write {
+                        game.banner = CreamAsset.create(objectID: game.id,
+                                                        propName: "banner",
+                                                        data: data)
+                    }
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: R.NotificationName.GameMetadataChange,
+                                                        object: gameID)
+                    }
+                    Log.debug("[ManicServer] cached banner game=\(gameID) source=\(candidateURLs[index].lastPathComponent) bytes=\(data.count)")
+                } catch {
+                    Log.debug("[ManicServer] banner cache failed game=\(gameID) error=\(error)")
                 }
-                Log.debug("[ManicServer] cached banner game=\(gameID) bytes=\(data.count)")
-            } catch {
-                Log.debug("[ManicServer] banner cache failed game=\(gameID) error=\(error)")
-            }
-        }.resume()
+            }.resume()
+        }
+
+        fetchCandidate(at: 0)
     }
 
     static let shared = OnlineCoverManager()
