@@ -19,6 +19,186 @@ import AVFoundation
 import Kingfisher
 import MetalKit
 
+// MARK: - Persistent Wii / Dolphin diagnostics
+
+enum WiiDiagnosticLog {
+    private static let lock = NSLock()
+    private static let formatter = ISO8601DateFormatter()
+    private static let logFileName = "manic-wii-crash.log"
+    private static let markerFileName = "manic-wii-active-session.txt"
+    private static let maximumLogBytes: UInt64 = 1_500_000
+    private static var activeGameID: String?
+
+    private static var logsDirectoryURL: URL? {
+        guard let documents = FileManager.default.urls(for: .documentDirectory,
+                                                        in: .userDomainMask).first else {
+            return nil
+        }
+        return documents.appendingPathComponent("Dolphin/logs", isDirectory: true)
+    }
+
+    static var logURL: URL? {
+        logsDirectoryURL?.appendingPathComponent(logFileName)
+    }
+
+    private static var markerURL: URL? {
+        logsDirectoryURL?.appendingPathComponent(markerFileName)
+    }
+
+    static func begin(game: Game) {
+        // Only one emulator session is active at a time. Reinstall the handler on
+        // every launch so Wii and PS2 can each own uncaught-exception diagnostics.
+        NSSetUncaughtExceptionHandler(manicWiiUncaughtExceptionHandler)
+        recoverPreviousSessionIfNeeded()
+
+        lock.lock()
+        activeGameID = game.id
+        lock.unlock()
+
+        let fileSize: UInt64 = {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: game.romUrl.path)
+            return (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+        }()
+
+        log("========== WII SESSION BEGIN ==========")
+        log("app_version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?") build=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")")
+        log("ios=\(UIDevice.current.systemName) \(UIDevice.current.systemVersion) device=\(UIDevice.current.model)")
+        log("game_id=\(game.id)")
+        log("game_name=\(game.displayName)")
+        log("rom=\(game.romUrl.lastPathComponent) ext=\(game.romUrl.pathExtension.lowercased()) bytes=\(fileSize)")
+        log("game_jit_preference=\(game.jit) jit_available=\(LibretroCore.jitAvailable()) safe_mode=\(game.safeMode)")
+        checkpoint("session-begin")
+    }
+
+    static func recoverPreviousSessionIfNeeded() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let markerURL,
+              FileManager.default.fileExists(atPath: markerURL.path),
+              let data = try? Data(contentsOf: markerURL),
+              let marker = String(data: data, encoding: .utf8),
+              !marker.isEmpty else {
+            return
+        }
+
+        appendUnlocked("RECOVERY previous Wii session ended unexpectedly. Last checkpoint: \(marker.trimmingCharacters(in: .whitespacesAndNewlines))")
+        try? FileManager.default.removeItem(at: markerURL)
+    }
+
+    static func log(_ message: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        appendUnlocked(message)
+    }
+
+    static func checkpoint(_ step: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeGameID != nil else { return }
+
+        let stamp = "\(formatter.string(from: Date())) | \(step)\n"
+        if let markerURL {
+            ensureDirectoryUnlocked()
+            try? stamp.data(using: .utf8)?.write(to: markerURL, options: .atomic)
+        }
+        appendUnlocked("CHECKPOINT \(step)")
+    }
+
+    static func end(gameID: String, clean: Bool, reason: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeGameID == gameID else { return }
+
+        appendUnlocked("SESSION END clean=\(clean) reason=\(reason)")
+        if clean, let markerURL {
+            try? FileManager.default.removeItem(at: markerURL)
+        }
+        activeGameID = nil
+        appendUnlocked("========== WII SESSION END ==========")
+    }
+
+    static func recordUncaughtException(_ exception: NSException) {
+        lock.lock()
+        defer { lock.unlock() }
+        appendUnlocked("UNCAUGHT NSException name=\(exception.name.rawValue) reason=\(exception.reason ?? "nil")")
+        if !exception.callStackSymbols.isEmpty {
+            appendUnlocked("exception_backtrace=\(exception.callStackSymbols.joined(separator: " | "))")
+        }
+    }
+
+    static func text(maxCharacters: Int = 140_000) -> String {
+        recoverPreviousSessionIfNeeded()
+        guard let logURL,
+              let data = try? Data(contentsOf: logURL),
+              let full = String(data: data, encoding: .utf8) else {
+            return "No Wii diagnostic log exists yet. Launch a Wii game once, then reopen this screen."
+        }
+        if full.count <= maxCharacters { return full }
+        return "…older log content trimmed…\n" + String(full.suffix(maxCharacters))
+    }
+
+    static func ensureExportFile() -> URL? {
+        recoverPreviousSessionIfNeeded()
+        if let logURL, !FileManager.default.fileExists(atPath: logURL.path) {
+            log("Wii diagnostics file created manually.")
+        }
+        return logURL
+    }
+
+    static func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let logURL { try? FileManager.default.removeItem(at: logURL) }
+        if let markerURL { try? FileManager.default.removeItem(at: markerURL) }
+        activeGameID = nil
+    }
+
+    private static func ensureDirectoryUnlocked() {
+        guard let directory = logsDirectoryURL else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    private static func rotateIfNeededUnlocked() {
+        guard let logURL,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: logURL.path),
+              let size = (attrs[.size] as? NSNumber)?.uint64Value,
+              size > maximumLogBytes else {
+            return
+        }
+
+        let oldURL = logURL.deletingLastPathComponent()
+            .appendingPathComponent("manic-wii-crash.previous.log")
+        try? FileManager.default.removeItem(at: oldURL)
+        try? FileManager.default.moveItem(at: logURL, to: oldURL)
+    }
+
+    private static func appendUnlocked(_ message: String) {
+        ensureDirectoryUnlocked()
+        rotateIfNeededUnlocked()
+        guard let logURL else { return }
+
+        let line = "[\(formatter.string(from: Date()))] \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+
+        do {
+            let handle = try FileHandle(forWritingTo: logURL)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            // Diagnostics must never make emulation fail.
+        }
+    }
+}
+
+private func manicWiiUncaughtExceptionHandler(_ exception: NSException) {
+    WiiDiagnosticLog.recordUncaughtException(exception)
+}
+
 //MARK: 主类
 class PlayViewController: GameViewController {
     //游戏 业务层定义 注意和core里面定义的Game区分
@@ -316,6 +496,11 @@ class PlayViewController: GameViewController {
     
     //MARK: 生命周期
     deinit {
+        if manicGame.gameType == .wii {
+            WiiDiagnosticLog.end(gameID: manicGame.id,
+                                 clean: true,
+                                 reason: "PlayViewController deinit")
+        }
         Log.debug("✅ \(objectInfo(self)) deinit")
         gameUpdateToken = nil
         cheatCodeUpdateToken = nil
@@ -332,6 +517,10 @@ class PlayViewController: GameViewController {
         modalPresentationStyle = .fullScreen
         delegate = self
         self.game = DeltaCore.Game(fileURL: game.romUrl, type: game.gameType)
+        if game.gameType == .wii {
+            WiiDiagnosticLog.begin(game: game)
+            WiiDiagnosticLog.checkpoint("PlayViewController.init")
+        }
         
         //通知监听
         setupNotifications()
@@ -517,6 +706,12 @@ class PlayViewController: GameViewController {
         notificationTokens.append(center.addObserver(forName: Notification.Name(rawValue: "LibretroDidShutdownNotification"), object: nil, queue: .main) { [weak self] notification in
             guard let self else { return }
             //Libretro Shutdown
+            if self.manicGame.gameType == .wii {
+                WiiDiagnosticLog.checkpoint("notification.LibretroDidShutdown")
+                WiiDiagnosticLog.end(gameID: self.manicGame.id,
+                                     clean: true,
+                                     reason: "Libretro shutdown notification")
+            }
             if self.manicGame.gameType == .symbian {
                 UIView.makeToast(message: R.string.localizable.symbianAppGetKilled())
             }
@@ -761,6 +956,9 @@ class PlayViewController: GameViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        if manicGame.gameType == .wii {
+            WiiDiagnosticLog.checkpoint("PlayViewController.viewDidLoad")
+        }
         
         PlayViewController.currentPlayViewController = self
         ExternalInputDispatch.sink = .gameplay
@@ -846,6 +1044,9 @@ class PlayViewController: GameViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if manicGame.gameType == .wii {
+            WiiDiagnosticLog.checkpoint("PlayViewController.viewDidAppear")
+        }
         //更新皮肤
         updateSkin()
         //更新声音
@@ -1982,8 +2183,15 @@ extension PlayViewController {
                 ])
                 LibretroCore.sharedInstance().setLibretroLogMonitor(true)
             } else if manicGame.isDolphinCore {
+                if manicGame.gameType == .wii {
+                    WiiDiagnosticLog.checkpoint("loadConfig.before-dolphin-config")
+                }
                 updateLibretroCoreConfigs(core: .Dolphin, configs: [.dolphin_language: "1",
                                                                     .dolphin_motion_rotation: Self.motionRotationValue()])
+                if manicGame.gameType == .wii {
+                    WiiDiagnosticLog.log("dolphin_configured=true jit=\(manicGame.jit) safe_mode=\(manicGame.safeMode)")
+                    WiiDiagnosticLog.checkpoint("loadConfig.after-dolphin-config")
+                }
             } else if manicGame.gameType == .amiga {
                 LibretroCore.sharedInstance().setLibretroLogMonitor(true)
             } else if manicGame.gameType == .wsc {
