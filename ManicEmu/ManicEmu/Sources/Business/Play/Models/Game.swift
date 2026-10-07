@@ -1201,10 +1201,7 @@ return URL(fileURLWithPath: path.appendingPathComponent("data/00000001/"))
                     useVirtualGameTypeIfNeed: Bool = true) {
         if gameCover == nil && onlineCoverUrl == nil {
             if force || !hasCoverMatch {
-                OnlineCoverManager.shared.addCoverMatch(OnlineCoverManager.CoverMatch(gameType: effectiveGameType,
-                                                                                      gameID: id,
-                                                                                      gameName: name,
-                                                                                      fileExtension: fileExtension))
+                OnlineCoverManager.shared.addCoverMatch(OnlineCoverManager.CoverMatch(game: self))
             }
         }
     }
