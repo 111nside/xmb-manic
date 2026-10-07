@@ -980,6 +980,11 @@ final class ManicServerLibrary {
         do {
             let manifest = try await client.catalog()
             var summary = SyncSummary(serverName: manifest.name)
+            let bundledMemberIDs = Set(manifest.games.flatMap { remote in
+                (remote.files ?? []).compactMap { member in
+                    member.file == remote.file ? nil : member.file
+                }
+            })
 
             try await MainActor.run {
                 let realm = Database.realm
@@ -1005,6 +1010,18 @@ final class ManicServerLibrary {
                             Self.apply(mapped: mapped, to: game, setPrimaryKey: true)
                             realm.add(game)
                             summary.added += 1
+                        }
+                    }
+
+                    // Upgrading a server from BIN-only discovery to CUE bundles leaves
+                    // old BIN rows in Realm. Hide any row that is now a member of a CUE
+                    // bundle so the library contains one entry per disc.
+                    if !bundledMemberIDs.isEmpty {
+                        for existing in realm.objects(Game.self).where({ !$0.isDeleted }) {
+                            guard existing.manicServerServiceId == snapshot.id,
+                                  let remoteID = existing.manicServerGameId,
+                                  bundledMemberIDs.contains(remoteID) else { continue }
+                            existing.isDeleted = true
                         }
                     }
                 }
