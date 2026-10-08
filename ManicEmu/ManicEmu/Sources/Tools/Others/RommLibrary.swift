@@ -1397,6 +1397,23 @@ final class ManicServerLibrary {
         let coverURL: String?
     }
 
+    /// Accept both Manic short names and the folder aliases/canonical names
+    /// emitted by manic_server.py (including catalogs from older servers).
+    private static func gameTypeForServerSystem(_ system: String) -> GameType? {
+        let name = system.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        switch name {
+        case "GC", "GCN", "GAMECUBE", "NINTENDO GAMECUBE": return .ngc
+        case "DS": return .ds
+        case "PS", "PSX": return .ps1
+        case "DREAMCAST": return .dc
+        case "GENESIS": return .md
+        case "SATURN": return .ss
+        case "SMS": return .ms
+        case "GAMEGEAR", "GAME GEAR": return .gg
+        default: return GameType(shortName: name)
+        }
+    }
+
     private static func map(remote: ManicServerGame,
                             serviceId: String,
                             client: ManicServerClient) -> MappedGame? {
@@ -1404,7 +1421,13 @@ final class ManicServerLibrary {
         let ext = URL(fileURLWithPath: remoteFile).pathExtension.lowercased()
         guard !remoteFile.isEmpty, !ext.isEmpty else { return nil }
 
-        let gameType = GameType(shortName: remote.system) ?? GameType(fileExtension: ext)
+        // The catalog system comes from the server's console folder, so it
+        // must win over shared extensions such as RVZ, ISO, BIN and CHD.
+        let folder = remote.file.replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/").dropLast().first.map(String.init) ?? ""
+        let gameType = gameTypeForServerSystem(remote.system)
+            ?? gameTypeForServerSystem(folder)
+            ?? GameType(fileExtension: ext)
         guard gameType != .notSupport, gameType != .unknown else {
             Log.debug("[ManicServer] skip unsupported/ambiguous game system=\(remote.system) file=\(remote.file)")
             return nil
