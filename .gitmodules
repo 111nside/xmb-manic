@@ -1,3 +1,42 @@
+[submodule "Dependencies/Libretro"]
+	path = Dependencies/Libretro
+	url = https://github.com/Daiuno/RetroArch.git
+	branch = manicemu
+
+[submodule "Dependencies/CollectionViewPagingLayout"]
+	path = Dependencies/CollectionViewPagingLayout
+	url = https://github.com/Daiuno/CollectionViewPagingLayout.git
+	branch = master
+
+[submodule "Dependencies/DeltaCore"]
+	path = Dependencies/DeltaCore
+	url = https://github.com/Daiuno/DeltaCore.git
+	branch = manicemu
+
+[submodule "Dependencies/DNSPageView"]
+	path = Dependencies/DNSPageView
+	url = https://github.com/Daiuno/DNSPageView.git
+	branch = master
+
+[submodule "Dependencies/IceCream"]
+	path = Dependencies/IceCream
+	url = https://github.com/Daiuno/IceCream.git
+	branch = master
+
+[submodule "Dependencies/ProHUD"]
+	path = Dependencies/ProHUD
+	url = https://github.com/Daiuno/ProHUD.git
+	branch = main
+
+[submodule "StikJIT"]
+	path = StikJIT
+	url = https://github.com/StephenDev0/StikJIT.git
+
+[submodule "Dependencies/SwiftCloudDrive"]
+	path = Dependencies/SwiftCloudDrive
+	url = https://github.com/Daiuno/SwiftCloudDrive.git
+	branch = main
+
 [submodule "Vendor/Tsubomi"]
 	path = Vendor/Tsubomi
 	url = https://github.com/111nside/vitaproj.git
