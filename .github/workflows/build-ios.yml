@@ -3,7 +3,7 @@ name: Build XMB Manic iOS
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, armsx2-native-integration]
+    branches: [main, master, armsx2-native-integration, vita-native-integration]
 
 permissions:
   contents: read
@@ -701,6 +701,45 @@ jobs:
           path: Cores/ARMSX2Core.framework
           key: armsx2core-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
 
+      # Vita3K is a linked, GPL-licensed native framework, not a second IPA.
+      - name: Restore compiled Vita3K runtime
+        id: vita-runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: Cores/Vita3KManicRuntime.framework
+          key: vita3k-manic-ios26-v3-${{ hashFiles('Vendor/Tsubomi/ios/CMakeLists.txt', 'Vendor/Tsubomi/ios/src/ManicRuntime.cpp', 'Vendor/Tsubomi/ios/include/vita3k_ios/ManicRuntime.h', 'Scripts/build_vita3k_runtime.sh') }}
+
+      - name: Restore Vita3K vcpkg package cache
+        if: steps.vita-runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vita3k-vcpkg-ios26-${{ hashFiles('Vendor/Tsubomi/vcpkg.json') }}-v1
+          restore-keys: |
+            vita3k-vcpkg-ios26-
+
+      - name: Build embedded native Vita3K core
+        if: steps.vita-runtime-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          bash Scripts/build_vita3k_runtime.sh 2>&1 | tee "$RUNNER_TEMP/vita3k-build.log"
+
+      - name: Cache linked Vita3K framework
+        if: steps.vita-runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Cores/Vita3KManicRuntime.framework
+          key: vita3k-manic-ios26-v3-${{ hashFiles('Vendor/Tsubomi/ios/CMakeLists.txt', 'Vendor/Tsubomi/ios/src/ManicRuntime.cpp', 'Vendor/Tsubomi/ios/include/vita3k_ios/ManicRuntime.h', 'Scripts/build_vita3k_runtime.sh') }}
+
+      - name: Validate Vita3K framework and update Manic link settings
+        run: |
+          set -euo pipefail
+          test -f Cores/Vita3KManicRuntime.framework/Vita3KManicRuntime
+          test -f Cores/Vita3KManicRuntime.framework/Headers/ManicRuntime.h
+          nm -gU Cores/Vita3KManicRuntime.framework/Vita3KManicRuntime | grep -q '_manic_vita3k_run'
+          python3 Scripts/vita/patch_manic_project.py
+          plutil -lint ManicEmu/ManicEmu.xcodeproj/project.pbxproj
+
       - name: Show Xcode version and schemes
         working-directory: ManicEmu
         run: |
@@ -768,6 +807,19 @@ jobs:
           echo "Bundled ARMSX2 framework:"
           du -sh "$APP/Frameworks/ARMSX2Core.framework"
           otool -L "$APP/Frameworks/ARMSX2Core.framework/ARMSX2Core" || true
+
+      - name: Embed linked Vita3K runtime and shaders
+        run: |
+          set -euo pipefail
+          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -type d -name '*.app' | head -1)
+          test -n "$APP"
+          mkdir -p "$APP/Frameworks"
+          ditto "$GITHUB_WORKSPACE/Cores/Vita3KManicRuntime.framework" "$APP/Frameworks/Vita3KManicRuntime.framework"
+          test -f "$APP/Frameworks/Vita3KManicRuntime.framework/Vita3KManicRuntime"
+          ditto "$GITHUB_WORKSPACE/Vendor/Tsubomi/vita3k/shaders-builtin" "$APP/shaders-builtin"
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          otool -L "$BIN" | grep -F "Vita3KManicRuntime.framework"
+          echo "Native Vita3K framework and shaders are present in Manic."
 
       - name: Restore real System.core with controller skins
         env:
@@ -882,6 +934,14 @@ jobs:
         with:
           name: Xcode-build-log
           path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload Vita3K build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vita3K-native-build-log
+          path: ${{ runner.temp }}/vita3k-build.log
           if-no-files-found: ignore
 
       - name: Upload ARMSX2 build log
