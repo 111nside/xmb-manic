@@ -40,3 +40,12 @@ Therefore:
 
 ### Audit status
 Source capability audit completed; native source copying, project linking, compilation, and on-device validation remain pending.
+
+## Confirmed working upstream-core build (2026-10-07)
+User reports playable Persona 4 Golden in Tsubomi from GitHub Actions run https://github.com/111nside/vitaproj/actions/runs/37538651779 .
+Verified workflow: `Build upstream-core iOS IPA`, run #6, branch `ios-upstream-core`, commit `41e393f72860f8bbe526f4fd235166dcf787598b`, conclusion `success`. Artifact `Vita3K-upstream-core-iOS-41e393f72860f8bbe526f4fd235166dcf787598b-unsigned` (artifact ID 11448852332).
+**Important correction to previous audit:** `ios/README.md` describes the older bootstrap path, but this run sets `VITA3K_BUILD_IOS_UPSTREAM_CORE` and links the **real upstream `vita3k` target**. `ios/CMakeLists.txt` shows SDL3-owned UIKit lifecycle, SwiftUI front end, `NativeFrontend.mm`, `TsubomiBridge.mm`, `UpstreamMain.cpp`, and `VirtualController.mm`. It links Vita3K + its audio/io/miniz/np/packages modules with SDL3 and native iOS frameworks. These are the working codepaths to preserve.
+The Objective-C facade in `ios/include/vita3k_ios/TsubomiBridge.h` already exposes `launchTitle:`, `libraryEntries`, `refreshLibrary`, import pickers, JIT alerts, controller functionality and title metadata. `NativeFrontend.h` provides the frontend action queue, installed game state and JIT capability state. Native in-process integration must resolve **SDL's application lifecycle ownership** against Manic's existing UIApplication lifecycle; two app entrypoints cannot simply be linked together. Also address dependencies, licenses, SDK deployment minimum and separate state paths.
+Do not use the old `VITA3K_BUILD_IOS` bootstrap target as the emulation core, or assume its older README describes the upstream-core build.
+Source pin: https://github.com/111nside/vitaproj/tree/41e393f72860f8bbe526f4fd235166dcf787598b
+Native code not yet copied/linked into Manic, and Manic compilation is not yet validated.
