@@ -738,6 +738,7 @@ jobs:
           test -f Cores/Vita3KManicRuntime.framework/Headers/ManicRuntime.h
           nm -gU Cores/Vita3KManicRuntime.framework/Vita3KManicRuntime | grep -q '_manic_vita3k_run'
           python3 Scripts/vita/patch_manic_project.py
+          python3 Scripts/vita/patch_xmb_home.py
           plutil -lint ManicEmu/ManicEmu.xcodeproj/project.pbxproj
 
       - name: Show Xcode version and schemes
