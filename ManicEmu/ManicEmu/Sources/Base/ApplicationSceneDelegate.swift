@@ -334,7 +334,7 @@ private final class XMBStartupViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
+        view.backgroundColor = XMBBackgroundTheme.current.gradientColors.first ?? .black
         setupBackground()
         setupBrand()
     }
@@ -352,13 +352,9 @@ private final class XMBStartupViewController: UIViewController {
     }
 
     private func setupBackground() {
-        backgroundGradient.colors = [
-            UIColor.black.cgColor,
-            UIColor(red: 0.003, green: 0.025, blue: 0.085, alpha: 1).cgColor,
-            UIColor(red: 0.004, green: 0.060, blue: 0.155, alpha: 1).cgColor,
-            UIColor.black.cgColor
-        ]
-        backgroundGradient.locations = [0, 0.34, 0.68, 1]
+        let theme = XMBBackgroundTheme.current
+        backgroundGradient.colors = theme.gradientColors.map(\.cgColor)
+        backgroundGradient.locations = [0, 0.48, 1]
         backgroundGradient.startPoint = CGPoint(x: 0.05, y: 0)
         backgroundGradient.endPoint = CGPoint(x: 0.95, y: 1)
         backgroundGradient.opacity = 0
@@ -366,12 +362,7 @@ private final class XMBStartupViewController: UIViewController {
 
         for (index, wave) in waveLayers.enumerated() {
             wave.fillColor = UIColor.clear.cgColor
-            wave.strokeColor = UIColor(
-                red: 0.34,
-                green: 0.64,
-                blue: 1.0,
-                alpha: 0.18 - CGFloat(index) * 0.025
-            ).cgColor
+            wave.strokeColor = theme.waveColor.withAlphaComponent(0.19 - CGFloat(index) * 0.025).cgColor
             wave.lineWidth = 1.0 + CGFloat(index) * 0.32
             wave.lineCap = .round
             wave.lineJoin = .round
@@ -428,6 +419,15 @@ private final class XMBStartupViewController: UIViewController {
         backgroundFade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         backgroundGradient.opacity = 1
         backgroundGradient.add(backgroundFade, forKey: "backgroundFade")
+
+        let gradientBreath = CABasicAnimation(keyPath: "locations")
+        gradientBreath.fromValue = [0.0, 0.40, 1.0]
+        gradientBreath.toValue = [0.0, 0.60, 1.0]
+        gradientBreath.duration = 6.8
+        gradientBreath.autoreverses = true
+        gradientBreath.repeatCount = .infinity
+        gradientBreath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        backgroundGradient.add(gradientBreath, forKey: "bootGradientBreath")
 
         for (index, wave) in waveLayers.enumerated() {
             let reveal = CABasicAnimation(keyPath: "opacity")

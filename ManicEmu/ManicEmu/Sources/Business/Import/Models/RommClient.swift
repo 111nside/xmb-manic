@@ -293,6 +293,30 @@ final class RommClient {
         return try Self.jsonDecoder.decode([T].self, from: payload)
     }
 
+    func romContentRequest(romID: Int, fileName: String) -> URLRequest? {
+        let encodedName = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fileName
+        return request(path: "\(RomApiStub)/\(romID)/content/\(encodedName)")
+    }
+
+    /// Streams a large remote file to URLSession's temporary storage instead of
+    /// loading an entire ROM/disc image into memory.
+    func downloadFile(for request: URLRequest) async throws -> URL {
+        let url = request.url?.absoluteString ?? "?"
+        Log.debug("[RomM HTTP] DOWNLOAD \(url)")
+        let (temporaryURL, response) = try await session.download(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard 200..<300 ~= http.statusCode else {
+            Log.debug("[RomM HTTP] ← \(http.statusCode) DOWNLOAD \(url)")
+            throw URLError(http.statusCode == 401 || http.statusCode == 403
+                           ? .userAuthenticationRequired
+                           : .badServerResponse)
+        }
+        Log.debug("[RomM HTTP] ← \(http.statusCode) DOWNLOAD \(url)")
+        return temporaryURL
+    }
+
     func data(for request: URLRequest) async throws -> Data {
         let url = request.url?.absoluteString ?? "?"
         Log.debug("[RomM HTTP] \(request.httpMethod ?? "GET") \(url)")
@@ -633,5 +657,267 @@ private extension Data {
         append("Content-Type: \(mime)\r\n\r\n")
         append(data)
         append("\r\n")
+    }
+}
+
+
+// MARK: - Lightweight Manic Server protocol
+
+struct ManicServerManifest: Decodable {
+    let version: Int?
+    let name: String?
+    let games: [ManicServerGame]
+}
+
+struct ManicServerFile: Decodable {
+    let name: String?
+    let file: String
+    let size: Int64?
+    let download: String?
+
+    var localName: String {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        return URL(fileURLWithPath: file).lastPathComponent
+    }
+
+    var effectiveDownloadPath: String {
+        let trimmed = download?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        let escaped = file.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        return "games/\(escaped)"
+    }
+}
+
+struct ManicServerGame: Decodable {
+    let id: String?
+    let system: String
+    let title: String?
+    let file: String
+    let size: Int64?
+    let download: String?
+    let cover: String?
+    let sha256: String?
+    let files: [ManicServerFile]?
+
+    var stableId: String {
+        let trimmed = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? file : trimmed
+    }
+
+    var displayTitle: String {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        return URL(fileURLWithPath: file).deletingPathExtension().lastPathComponent
+    }
+
+    var effectiveDownloadPath: String {
+        let trimmed = download?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        let escaped = file.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        return "games/\(escaped)"
+    }
+
+    var effectiveFiles: [ManicServerFile] {
+        if let files, !files.isEmpty {
+            return files
+        }
+        return [ManicServerFile(name: URL(fileURLWithPath: file).lastPathComponent,
+                                file: file,
+                                size: size,
+                                download: download)]
+    }
+}
+
+final class ManicServerClient {
+    private let baseURL: URL
+    private let session: URLSession
+    private let authorization: String?
+
+    init?(scheme: String,
+          host: String,
+          port: Int?,
+          user: String?,
+          password: String?,
+          path: String? = nil) {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = port
+
+        if let path, !path.isEmpty, path != "/" {
+            var normalized = path
+            if !normalized.hasPrefix("/") { normalized = "/" + normalized }
+            if normalized.hasSuffix("/") { normalized.removeLast() }
+            components.path = normalized
+        }
+
+        guard let url = components.url else { return nil }
+        baseURL = url
+        session = .shared
+
+        let username = user?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let secret = password?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !username.isEmpty || !secret.isEmpty {
+            let raw = "\(username):\(secret)"
+            let token = Data(raw.utf8).base64EncodedString()
+            authorization = "Basic \(token)"
+        } else {
+            authorization = nil
+        }
+    }
+
+    func catalog() async throws -> ManicServerManifest {
+        guard let url = resolve("library.json") else { throw URLError(.badURL) }
+        let request = makeRequest(url: url)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response)
+        let manifest = try JSONDecoder().decode(ManicServerManifest.self, from: data)
+        if let version = manifest.version, version > 1 {
+            throw ManicServerError.unsupportedProtocol(version)
+        }
+        return manifest
+    }
+
+    func downloadRequest(path: String) -> URLRequest? {
+        guard let url = resolve(path) else { return nil }
+        return makeRequest(url: url)
+    }
+
+    func absoluteURLString(path: String?) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        return resolve(path)?.absoluteString
+    }
+
+    /// Download to a temporary file while reporting byte-level progress. This keeps
+    /// multi-gigabyte disc images out of RAM and gives the launch UI a real percentage.
+    func downloadFile(for request: URLRequest,
+                      progress: @escaping (_ received: Int64, _ expected: Int64) -> Void) async throws -> URL {
+        let delegate = ManicServerDownloadDelegate(progress: progress)
+        let downloadSession = URLSession(configuration: .default,
+                                         delegate: delegate,
+                                         delegateQueue: nil)
+        defer { downloadSession.finishTasksAndInvalidate() }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            delegate.continuation = continuation
+            downloadSession.downloadTask(with: request).resume()
+        }
+    }
+
+    private func makeRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        if let authorization {
+            request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        }
+        request.setValue("ManicEMU/1", forHTTPHeaderField: "X-Manic-Client")
+        return request
+    }
+
+    private func resolve(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let absolute = URL(string: trimmed),
+           let scheme = absolute.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            return absolute
+        }
+
+        if trimmed.hasPrefix("/") {
+            guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return nil }
+            components.percentEncodedPath = trimmed.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? trimmed
+            components.query = nil
+            components.fragment = nil
+            return components.url
+        }
+
+        let directoryBase = baseURL.appendingPathComponent("")
+        return URL(string: trimmed, relativeTo: directoryBase)?.absoluteURL
+    }
+
+    private func validate(response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard 200..<300 ~= http.statusCode else {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw URLError(.userAuthenticationRequired)
+            }
+            throw URLError(.badServerResponse)
+        }
+    }
+}
+
+private final class ManicServerDownloadDelegate: NSObject, URLSessionDownloadDelegate {
+    let progress: (_ received: Int64, _ expected: Int64) -> Void
+    var continuation: CheckedContinuation<URL, Error>?
+    private var completed = false
+
+    init(progress: @escaping (_ received: Int64, _ expected: Int64) -> Void) {
+        self.progress = progress
+    }
+
+    func urlSession(_ session: URLSession,
+                    downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        progress(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+
+    func urlSession(_ session: URLSession,
+                    downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        guard !completed else { return }
+
+        if let http = downloadTask.response as? HTTPURLResponse,
+           !(200..<300).contains(http.statusCode) {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                complete(.failure(URLError(.userAuthenticationRequired)))
+            } else {
+                complete(.failure(URLError(.badServerResponse)))
+            }
+            return
+        }
+
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManicServer-" + UUID().uuidString)
+        do {
+            try FileManager.default.moveItem(at: location, to: destination)
+            complete(.success(destination))
+        } catch {
+            complete(.failure(error))
+        }
+    }
+
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    didCompleteWithError error: Error?) {
+        guard let error, !completed else { return }
+        complete(.failure(error))
+    }
+
+    private func complete(_ result: Result<URL, Error>) {
+        guard !completed else { return }
+        completed = true
+        let current = continuation
+        continuation = nil
+        current?.resume(with: result)
+    }
+}
+
+enum ManicServerError: LocalizedError {
+    case unsupportedProtocol(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedProtocol(let version):
+            return "This Manic Server uses protocol version \(version), which this build does not support."
+        }
     }
 }

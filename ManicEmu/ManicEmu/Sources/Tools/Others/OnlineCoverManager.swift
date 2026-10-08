@@ -8,12 +8,58 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 
+import UIKit
 import Fuse
 import SwiftSoup
 import CryptoKit
 import IceCream
 
 class OnlineCoverManager {
+    static func normalizedArtworkTitle(_ raw: String) -> String {
+        let decoded = raw.removingPercentEncoding ?? raw
+        let withoutExtension = URL(fileURLWithPath: decoded).deletingPathExtension().lastPathComponent
+        let withoutTags = withoutExtension
+            .replacingOccurrences(of: #"\s*[\(\[].*?[\)\]]"#,
+                                  with: "",
+                                  options: .regularExpression)
+        return withoutTags
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .joined(separator: " ")
+    }
+
+    static func hasMeaningfulTitleOverlap(_ lhs: String, _ rhs: String) -> Bool {
+        let left = Set(normalizedArtworkTitle(lhs).split(separator: " ").map(String.init))
+        let right = Set(normalizedArtworkTitle(rhs).split(separator: " ").map(String.init))
+        guard !left.isEmpty, !right.isEmpty else { return false }
+        let overlap = left.intersection(right).count
+        let denominator = max(1, min(left.count, right.count))
+        return Double(overlap) / Double(denominator) >= 0.60
+    }
+
+    static func preferredRegionalArtwork(from matches: [String]) -> String? {
+        guard !matches.isEmpty else { return nil }
+        let priorities = ["(USA)", "(World)", "(Europe)"]
+        for region in priorities {
+            if let result = matches.first(where: { $0.localizedCaseInsensitiveContains(region) }) {
+                return result
+            }
+        }
+        return matches.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }.first
+    }
+
+    static func isLikelyLibretroCoverMatch(gameName: String, coverURL: URL) -> Bool {
+        guard coverURL.absoluteString.contains("thumbnails.libretro.com") else { return true }
+        let candidate = coverURL.deletingPathExtension().lastPathComponent
+        let expected = normalizedArtworkTitle(gameName)
+        let actual = normalizedArtworkTitle(candidate)
+        return !expected.isEmpty && (expected == actual || hasMeaningfulTitleOverlap(gameName, candidate))
+    }
+
     struct CoverMatch {
         var gameType: GameType
         var gameID: String
@@ -21,21 +67,26 @@ class OnlineCoverManager {
         var fileExtension: String
         var isNaomi: Bool = false
         var isAtomiswave: Bool = false
+        var strictTitleMatch: Bool = false
         
         init(game: Game) {
             self.gameType = game.effectiveGameType
             self.gameID = game.id
-            self.gameName = game.translatedName ?? game.displayName
+            // Remote catalog titles are already user-facing names. Do not let an
+            // old translated/alternate title silently steer them to another region's art.
+            self.gameName = game.isManicServerGame ? game.displayName : (game.translatedName ?? game.displayName)
             self.fileExtension = game.fileExtension
             self.isNaomi = game.isNaomiGame
             self.isAtomiswave = game.isAtomiswaveGame
+            self.strictTitleMatch = game.isManicServerGame
         }
         
-        init(gameType: GameType, gameID: String, gameName: String, fileExtension: String) {
+        init(gameType: GameType, gameID: String, gameName: String, fileExtension: String, strictTitleMatch: Bool = false) {
             self.gameType = gameType
             self.gameID = gameID
             self.gameName = gameName
             self.fileExtension = fileExtension
+            self.strictTitleMatch = strictTitleMatch
         }
     }
     
@@ -60,13 +111,24 @@ class OnlineCoverManager {
                     return
                 }
                 let realm = Database.realm
+                var remoteBannerRequest: (gameID: String, coverURL: URL)?
                 if let game = realm.object(ofType: Game.self, forPrimaryKey: self.coverMatch.gameID) {
                     try? realm.write {
                         game.hasCoverMatch = true
                         if let onlineCoverUrl = urls.first {
                             game.onlineCoverUrl = onlineCoverUrl.absoluteString
+                            if game.isManicServerGame && game.banner == nil {
+                                remoteBannerRequest = (game.id, onlineCoverUrl)
+                            }
                         }
                     }
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: R.NotificationName.GameCoverChange, object: nil)
+                    }
+                }
+                if let request = remoteBannerRequest {
+                    OnlineCoverManager.cacheLibretroBannerIfNeeded(gameID: request.gameID,
+                                                                    matchedCoverURL: request.coverURL)
                 }
                 semaphore.signal()
             }
@@ -200,8 +262,16 @@ class OnlineCoverManager {
                     let fuse = Fuse()
                     let pattern = fuse.createPattern(from: gameName)
                     if fetchOne {
-                        //只获取一个
-                        if let result = matchList.min(by: {
+                        // Prefer an exact normalized title before fuzzy matching. This
+                        // keeps "Fatal Frame" on Fatal Frame artwork instead of accepting
+                        // an alternate regional title such as "Project Zero".
+                        let exactMatches = matchList.filter {
+                            OnlineCoverManager.normalizedArtworkTitle($0)
+                                == OnlineCoverManager.normalizedArtworkTitle(gameName)
+                        }
+                        if let exact = OnlineCoverManager.preferredRegionalArtwork(from: exactMatches) {
+                            onlineCoverUrls.append(boxArtUrl.appendingPathComponent(exact))
+                        } else if let result = matchList.min(by: {
                             if let result0 = fuse.search(pattern, in: $0) {
                                 if let result1 = fuse.search(pattern, in: $1) {
                                     return result0.score < result1.score
@@ -214,8 +284,11 @@ class OnlineCoverManager {
                                 return true
                             }
                         }) {
-                            if let score = fuse.search(pattern, in: result)?.score, score < 0.35 {
-                                //匹配结果OK
+                            let threshold = coverMatch.strictTitleMatch ? 0.20 : 0.35
+                            if let score = fuse.search(pattern, in: result)?.score,
+                               score < threshold,
+                               (!coverMatch.strictTitleMatch
+                                || OnlineCoverManager.hasMeaningfulTitleOverlap(gameName, result)) {
                                 onlineCoverUrls.append(boxArtUrl.appendingPathComponent(result))
                             }
                         }
@@ -468,6 +541,63 @@ class OnlineCoverManager {
         MatchOperation.translateGameName(name, gameID: gameID, completion: completion)
     }
     
+    /// Remote Manic Server entries do not have a local ROM to scrape for art.
+    /// Once Libretro box art is matched, use the identically named screenshot as a
+    /// lightweight background/banner and persist it independently of the ROM cache.
+    static func cacheLibretroBannerIfNeeded(gameID: String, matchedCoverURL: URL) {
+        let coverString = matchedCoverURL.absoluteString
+        guard coverString.contains("/Named_Boxarts/") else { return }
+
+        let candidateURLs = ["/Named_Snaps/", "/Named_Titles/"].compactMap {
+            URL(string: coverString.replacingOccurrences(of: "/Named_Boxarts/", with: $0))
+        }
+
+        func fetchCandidate(at index: Int) {
+            guard candidateURLs.indices.contains(index) else {
+                Log.debug("[ManicServer] no Libretro banner found game=\(gameID)")
+                return
+            }
+
+            var request = URLRequest(url: candidateURLs[index])
+            request.cachePolicy = .returnCacheDataElseLoad
+            request.timeoutInterval = 15
+            URLSession.shared.dataTask(with: request) { data, response, _ in
+                guard let data,
+                      !data.isEmpty,
+                      let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode),
+                      UIImage(data: data) != nil else {
+                    fetchCandidate(at: index + 1)
+                    return
+                }
+
+                let realm = Database.realm
+                guard let game = realm.object(ofType: Game.self, forPrimaryKey: gameID),
+                      !game.isDeleted,
+                      game.banner == nil else {
+                    return
+                }
+
+                do {
+                    try realm.write {
+                        game.banner = CreamAsset.create(objectID: game.id,
+                                                        propName: "banner",
+                                                        data: data)
+                    }
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: R.NotificationName.GameMetadataChange,
+                                                        object: gameID)
+                    }
+                    Log.debug("[ManicServer] cached banner game=\(gameID) source=\(candidateURLs[index].lastPathComponent) bytes=\(data.count)")
+                } catch {
+                    Log.debug("[ManicServer] banner cache failed game=\(gameID) error=\(error)")
+                }
+            }.resume()
+        }
+
+        fetchCandidate(at: 0)
+    }
+
     static let shared = OnlineCoverManager()
     private let queue: OperationQueue
     

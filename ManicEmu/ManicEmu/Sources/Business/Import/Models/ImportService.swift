@@ -14,7 +14,7 @@ import IceCream
 extension ImportService: CKRecordConvertible & CKRecordRecoverable { }
 
 enum ImportServiceType: Int, PersistableEnum {
-    case files, wifi, paste, googledrive, dropbox, onedrive, baiduyun, aliyun, samba, webdav, multiDisc, romPatcher, romm
+    case files, wifi, paste, googledrive, dropbox, onedrive, baiduyun, aliyun, samba, webdav, multiDisc, romPatcher, romm, manicServer
 }
 
 class ImportService: Object, ObjectUpdatable {
@@ -104,6 +104,8 @@ class ImportService: Object, ObjectUpdatable {
             "RomPatcher"
         case .romm:
             "RomM"
+        case .manicServer:
+            "Manic Server"
         }
     }
     
@@ -135,12 +137,14 @@ class ImportService: Object, ObjectUpdatable {
             R.image.import_rom_patcher()!
         case .romm:
             R.image.import_romm()!
+        case .manicServer:
+            R.image.import_wifi_icon()!
         }
     }()
     
     var iconCornerRadius: Double {
         switch type {
-        case .files, .wifi, .paste, .googledrive, .dropbox, .onedrive, .baiduyun, .aliyun, .multiDisc, .romPatcher, .romm:
+        case .files, .wifi, .paste, .googledrive, .dropbox, .onedrive, .baiduyun, .aliyun, .multiDisc, .romPatcher, .romm, .manicServer:
             R.Size.CornerRadiusSmall
         case .samba, .webdav:
             0
@@ -159,7 +163,7 @@ class ImportService: Object, ObjectUpdatable {
             R.Color.Pink.withAlphaComponent(0.1)
         case .romPatcher:
             R.Color.Cyan.withAlphaComponent(0.1)
-        case .romm:
+        case .romm, .manicServer:
             R.Color.BackgroundSecondary
         case .googledrive, .dropbox, .onedrive, .baiduyun, .aliyun:
             R.Color.BackgroundSecondary
@@ -170,7 +174,7 @@ class ImportService: Object, ObjectUpdatable {
     
     var iconBorderColor: UIColor {
         switch type {
-        case .files, .wifi, .paste, .googledrive, .dropbox, .onedrive, .baiduyun, .aliyun, .multiDisc, .romPatcher, .romm:
+        case .files, .wifi, .paste, .googledrive, .dropbox, .onedrive, .baiduyun, .aliyun, .multiDisc, .romPatcher, .romm, .manicServer:
             R.Color.Border
         case .samba, .webdav:
             UIColor.clear

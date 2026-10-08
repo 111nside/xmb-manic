@@ -174,14 +174,64 @@ class Game: Object, ObjectUpdatable {
         }
         set { updateExtra(key: ExtraKey.rommPlayDurationPushed.rawValue, value: newValue) }
     }
+
+    var manicServerGameId: String? {
+        get { getExtraString(key: ExtraKey.manicServerGameId.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerGameId.rawValue, value: newValue) }
+    }
+
+    var manicServerServiceId: String? {
+        get { getExtraString(key: ExtraKey.manicServerServiceId.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerServiceId.rawValue, value: newValue) }
+    }
+
+    var manicServerDownloadPath: String? {
+        get { getExtraString(key: ExtraKey.manicServerDownloadPath.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerDownloadPath.rawValue, value: newValue) }
+    }
+
+    var manicServerCacheFileName: String? {
+        get { getExtraString(key: ExtraKey.manicServerCacheFileName.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerCacheFileName.rawValue, value: newValue) }
+    }
+
+    var manicServerFileSize: Int64? {
+        get {
+            if let value = getExtraInt(key: ExtraKey.manicServerFileSize.rawValue) { return Int64(value) }
+            if let number = getExtra(key: ExtraKey.manicServerFileSize.rawValue) as? NSNumber { return number.int64Value }
+            if let string = getExtraString(key: ExtraKey.manicServerFileSize.rawValue) { return Int64(string) }
+            return nil
+        }
+        set { updateExtra(key: ExtraKey.manicServerFileSize.rawValue, value: newValue) }
+    }
+
+    var manicServerFilesJSON: String? {
+        get { getExtraString(key: ExtraKey.manicServerFiles.rawValue) }
+        set { updateExtra(key: ExtraKey.manicServerFiles.rawValue, value: newValue) }
+    }
+
+    var isManicServerGame: Bool {
+        manicServerGameId != nil && manicServerServiceId != nil
+    }
     
     // ROM file path
     var romUrl: URL {
         if isMultiFileGame {
+            if isManicServerGame, let cacheFileName = manicServerCacheFileName {
+                // Remote multi-file games live in a stable ID-named folder so two
+                // servers/games with the same display filename cannot collide.
+                let folderName = URL(fileURLWithPath: cacheFileName)
+                    .deletingPathExtension()
+                    .lastPathComponent
+                return URL(fileURLWithPath: R.Path.Data
+                    .appendingPathComponent(folderName)
+                    .appendingPathComponent(fileName))
+            }
             return URL(fileURLWithPath: R.Path.Data.appendingPathComponent(fileName.deletingPathExtension).appendingPathComponent(fileName))
         }
         
-        var localUrl = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(fileName))
+        let localFileName = manicServerCacheFileName ?? fileName
+        var localUrl = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(localFileName))
         
         if gameType == ._3ds,
            fileExtension.lowercased() == "app",
@@ -216,7 +266,8 @@ class Game: Object, ObjectUpdatable {
     /// PS1 cores require a .cue next to a raw .bin. Writes a single-track sheet if missing.
     func ensurePS1BinCueSheet() {
         guard gameType == .ps1, fileExtension.lowercased() == "bin" else { return }
-        let binUrl = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(fileName))
+        let binFileName = manicServerCacheFileName ?? fileName
+        let binUrl = URL(fileURLWithPath: R.Path.Data.appendingPathComponent(binFileName))
         guard FileManager.default.fileExists(atPath: binUrl.path) else { return }
         let cueUrl = binUrl.deletingPathExtension().appendingPathExtension("cue")
         guard !FileManager.default.fileExists(atPath: cueUrl.path) else { return }
@@ -1165,10 +1216,7 @@ return URL(fileURLWithPath: path.appendingPathComponent("data/00000001/"))
                     useVirtualGameTypeIfNeed: Bool = true) {
         if gameCover == nil && onlineCoverUrl == nil {
             if force || !hasCoverMatch {
-                OnlineCoverManager.shared.addCoverMatch(OnlineCoverManager.CoverMatch(gameType: effectiveGameType,
-                                                                                      gameID: id,
-                                                                                      gameName: name,
-                                                                                      fileExtension: fileExtension))
+                OnlineCoverManager.shared.addCoverMatch(OnlineCoverManager.CoverMatch(game: self))
             }
         }
     }
@@ -1273,6 +1321,7 @@ return URL(fileURLWithPath: path.appendingPathComponent("data/00000001/"))
             isSegaArcade ||
             gameType == .dos ||
             gameType == .symbian ||
+            gameType == .ps2 ||
             isDolphinCore {
             return true
         }
@@ -1662,6 +1711,28 @@ return URL(fileURLWithPath: path.appendingPathComponent("data/00000001/"))
     }
     
     func handleTapAction(forceQuick: Bool = false, saveState: GameSaveState? = nil) {
+        // A linked remote game is allowed to remain in the library without its
+        // large ROM/disc image being permanently stored on this device. Resolve
+        // it into Manic's normal local path immediately before the existing
+        // launch flow, keeping every emulator core unaware of remote storage.
+        if !isRomExtsts, isManicServerGame {
+            Task { @MainActor in
+                guard await ManicServerLibrary.shared.prepareGameForLaunch(self) else { return }
+                self.handlePreparedTapAction(forceQuick: forceQuick, saveState: saveState)
+            }
+            return
+        }
+        if !isRomExtsts, rommRomId != nil, rommServiceId != nil {
+            Task { @MainActor in
+                guard await RommLibrary.shared.prepareGameForLaunch(self) else { return }
+                self.handlePreparedTapAction(forceQuick: forceQuick, saveState: saveState)
+            }
+            return
+        }
+        handlePreparedTapAction(forceQuick: forceQuick, saveState: saveState)
+    }
+
+    private func handlePreparedTapAction(forceQuick: Bool, saveState: GameSaveState?) {
         if isNDSHomeMenuGame {
             let biosCompletion = gameType.isNDSBiosComplete()
             if (id == Game.DsHomeMenuPrimaryKey && !biosCompletion.isDSComplete) ||

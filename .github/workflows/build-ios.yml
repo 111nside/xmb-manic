@@ -3,15 +3,20 @@ name: Build XMB Manic iOS
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, armsx2-native-integration]
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: xmb-ios-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 150
 
     steps:
       - name: Checkout source (no LFS)
@@ -19,6 +24,26 @@ jobs:
         with:
           lfs: false
           submodules: recursive
+
+      # ARMSX2 is expensive to build, but the cached framework is valid only
+      # when the embedded runtime/patch scripts are byte-for-byte identical.
+      # Never bootstrap from an old IPA: that previously hid native PS2 fixes.
+      - name: Restore cached ARMSX2 core
+        id: armsx2-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: Cores/ARMSX2Core.framework
+          key: armsx2core-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+
+      - name: Checkout pinned ARMSX2 source
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ARMSX2/ARMSX2
+          ref: 67be95a2a6e689cfb11b3649bd58271aa6369a08
+          path: ThirdParty/ARMSX2
+          submodules: recursive
+          lfs: false
 
       - name: Show commit being built
         run: |
@@ -628,11 +653,66 @@ jobs:
             echo 'Only System.core LFS pointers remain; the final app resource will be restored from the official IPA.'
           fi
 
+      - name: Restore incremental ARMSX2 build cache
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/armsx2-core-build
+          key: armsx2-build-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+          restore-keys: |
+            armsx2-build-v2-ios-xcode26.6-67be95a2-
+            armsx2-build-ios-xcode26.6-67be95a2-
+
+      - name: Build embedded ARMSX2 PS2 core
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          chmod +x Scripts/build_armsx2_core.sh
+          Scripts/build_armsx2_core.sh ThirdParty/ARMSX2
+
+      - name: Save incremental ARMSX2 build cache
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/armsx2-core-build
+          key: armsx2-build-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+
+      - name: Validate embedded ARMSX2 PS2 core
+        run: |
+          set -euo pipefail
+          test -d Cores/ARMSX2Core.framework
+          test -f Cores/ARMSX2Core.framework/ARMSX2Core
+
+          BIN=Cores/ARMSX2Core.framework/ARMSX2Core
+          echo "ARMSX2Core dependencies:"
+          du -sh Cores/ARMSX2Core.framework
+          otool -L "$BIN" || true
+
+          # These markers exist only in the current embedded runtime. If either is
+          # absent, fail instead of packaging a stale framework from an older IPA/cache.
+          strings "$BIN" | grep -F "[Embedded] Installed ARMSX2 VM boot observer"
+          strings "$BIN" | grep -F "[Embedded] Posting normal ARMSX2 VM boot request"
+          echo "Verified current native ARMSX2 embedded boot path."
+
+      - name: Save ARMSX2 core cache immediately
+        if: steps.armsx2-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Cores/ARMSX2Core.framework
+          key: armsx2core-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
+
       - name: Show Xcode version and schemes
         working-directory: ManicEmu
         run: |
           xcodebuild -version
           xcodebuild -project ManicEmu.xcodeproj -list
+
+      - name: Restore Swift package source cache
+        id: swiftpm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: swiftpm-ios-xcode26.6-${{ hashFiles('ManicEmu/ManicEmu.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Resolve Swift packages
         working-directory: ManicEmu
@@ -641,7 +721,15 @@ jobs:
             -resolvePackageDependencies \
             -project ManicEmu.xcodeproj \
             -scheme ManicEmuSideload \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
             -skipPackagePluginValidation
+
+      - name: Save Swift package source cache immediately
+        if: steps.swiftpm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: swiftpm-ios-xcode26.6-${{ hashFiles('ManicEmu/ManicEmu.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Build unsigned iPhone app
         working-directory: ManicEmu
@@ -654,11 +742,32 @@ jobs:
             -configuration SideloadRelease \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM= \
+            IPHONEOS_DEPLOYMENT_TARGET=17.4 \
             build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Embed ARMSX2Core framework
+        run: |
+          set -euo pipefail
+          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -type d -name '*.app' | head -1)
+          test -n "$APP"
+          test -d "$GITHUB_WORKSPACE/Cores/ARMSX2Core.framework"
+
+          mkdir -p "$APP/Frameworks"
+          rm -rf "$APP/Frameworks/ARMSX2Core.framework"
+          ditto "$GITHUB_WORKSPACE/Cores/ARMSX2Core.framework" "$APP/Frameworks/ARMSX2Core.framework"
+
+          MANIC_BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          echo "Manic executable linkage:"
+          otool -L "$MANIC_BIN" | grep -E 'ARMSX2Core|@rpath' || true
+
+          echo "Bundled ARMSX2 framework:"
+          du -sh "$APP/Frameworks/ARMSX2Core.framework"
+          otool -L "$APP/Frameworks/ARMSX2Core.framework/ARMSX2Core" || true
 
       - name: Restore real System.core with controller skins
         env:
@@ -773,4 +882,12 @@ jobs:
         with:
           name: Xcode-build-log
           path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload ARMSX2 build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARMSX2-Xcode-build-log
+          path: ${{ runner.temp }}/armsx2-xcodebuild.log
           if-no-files-found: ignore

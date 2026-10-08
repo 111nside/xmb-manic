@@ -109,4 +109,16 @@ enum ExtraKey: String {
     case rommServiceId
     /// Play-time milliseconds already pushed to RomM; only the local delta is sent next time.
     case rommPlayDurationPushed
+    /// Stable game identifier from a lightweight Manic Server catalog.
+    case manicServerGameId
+    /// ImportService.id of the Manic Server that owns this remote catalog entry.
+    case manicServerServiceId
+    /// Relative/absolute download path supplied by the Manic Server manifest.
+    case manicServerDownloadPath
+    /// Unique local cache filename used to avoid collisions between remote libraries.
+    case manicServerCacheFileName
+    /// Remote file size in bytes, used for download warnings and cache accounting.
+    case manicServerFileSize
+    /// JSON description of every file in a remote multi-file game (for example CUE + BIN tracks).
+    case manicServerFiles
 }
