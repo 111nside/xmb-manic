@@ -4,7 +4,16 @@
 // Tsubomi upstream-core source and linked as Vita3KManicRuntime.framework.
 // There is no separate UIApplicationMain or second installed emulator app.
 import Foundation
-import Vita3KManicRuntime
+
+// A stable, directly linked C ABI. The framework is linked by the Sideload
+// target; these declarations avoid depending on Tsubomi's internal SwiftUI
+// module name (which is deliberately kept as "Tsubomi").
+@_silgen_name("manic_vita3k_run")
+private func manic_vita3k_run() -> Int32
+@_silgen_name("manic_vita3k_request_exit")
+private func manic_vita3k_request_exit()
+@_silgen_name("manic_vita3k_is_running")
+private func manic_vita3k_is_running() -> Int32
 
 @MainActor
 final class ManicVitaBridge {
