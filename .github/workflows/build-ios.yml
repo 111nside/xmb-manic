@@ -736,7 +736,8 @@ jobs:
           set -euo pipefail
           test -f Cores/Vita3KManicRuntime.framework/Vita3KManicRuntime
           test -f Cores/Vita3KManicRuntime.framework/Headers/ManicRuntime.h
-          nm -gU Cores/Vita3KManicRuntime.framework/Vita3KManicRuntime | grep -q '_manic_vita3k_run'
+          nm -gU Cores/Vita3KManicRuntime.framework/Vita3KManicRuntime > "$RUNNER_TEMP/vita3k-validation-symbols.txt"
+          grep -Fq '_manic_vita3k_run' "$RUNNER_TEMP/vita3k-validation-symbols.txt"
           python3 Scripts/vita/patch_manic_project.py
           python3 Scripts/vita/patch_xmb_home.py
           plutil -lint ManicEmu/ManicEmu.xcodeproj/project.pbxproj

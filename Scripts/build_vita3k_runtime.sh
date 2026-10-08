@@ -77,8 +77,13 @@ test -n "$FRAMEWORK" && test -f "$FRAMEWORK/Vita3KManicRuntime" || {
 mkdir -p "$(dirname "$OUT")"
 rm -rf "$OUT"
 ditto "$FRAMEWORK" "$OUT"
-nm -gU "$OUT/Vita3KManicRuntime" | grep -q '_manic_vita3k_run'
-nm -gU "$OUT/Vita3KManicRuntime" | grep -q '_manic_vita3k_request_exit'
+# Export the symbol table once to a regular file. With pipefail enabled,
+# piping LLVM nm into grep -q closes the pipe early and makes nm fail with
+# "LLVM ERROR: IO failure on output stream: Broken pipe" even after a clean build.
+SYMBOLS="$BUILD/Vita3KManicRuntime.exports.txt"
+nm -gU "$OUT/Vita3KManicRuntime" > "$SYMBOLS"
+grep -Fq '_manic_vita3k_run' "$SYMBOLS"
+grep -Fq '_manic_vita3k_request_exit' "$SYMBOLS"
 test -f "$OUT/Headers/ManicRuntime.h"
 otool -L "$OUT/Vita3KManicRuntime"
 echo "Built and linked: $OUT"
