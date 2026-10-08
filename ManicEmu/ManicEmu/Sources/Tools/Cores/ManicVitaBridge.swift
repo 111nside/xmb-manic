@@ -73,11 +73,10 @@ final class ManicVitaBridge {
             let title = entry.perform(NSSelectorFromString("displayTitle"))?.takeUnretainedValue() as? String ?? titleID
             let icon = entry.perform(NSSelectorFromString("iconPath"))?.takeUnretainedValue() as? String
             let banner = entry.perform(NSSelectorFromString("wideArtPath"))?.takeUnretainedValue() as? String
-            let playTime = (entry.perform(NSSelectorFromString("playedTimeSeconds"))?.takeUnretainedValue() as? NSNumber)?.int64Value ?? 0
             return InstalledGame(id: titleID, name: title,
                                  iconPath: icon?.isEmpty == false ? icon : nil,
                                  bannerPath: banner?.isEmpty == false ? banner : nil,
-                                 playTimeSeconds: playTime)
+                                 playTimeSeconds: 0)
         }
     }
 
