@@ -45,16 +45,27 @@ height_insert = '''#if SIDE_LOAD
 inject(height_marker, height_insert)
 
 method = '''#if SIDE_LOAD
+    // Starting a nested SDL/UIKit run loop from inside the button's touch
+    // handler traps the original touch dispatch on the stack. Give UIKit a
+    // normal turn to finish that event before handing off to the Vita frontend.
+    private var vita3KLaunchPending = false
+
     private func openVita3KLibrary() {
-        guard !ManicVitaBridge.shared.isRunning else { return }
-        do {
-            try ManicVitaBridge.shared.openNativeLibrary()
-        } catch {
-            let alert = UIAlertController(title: "PS Vita",
-                                          message: error.localizedDescription,
-                                          preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
+        guard !vita3KLaunchPending, !ManicVitaBridge.shared.isRunning else { return }
+        vita3KLaunchPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
+            self.vita3KLaunchPending = false
+            guard !ManicVitaBridge.shared.isRunning else { return }
+            do {
+                try ManicVitaBridge.shared.openNativeLibrary()
+            } catch {
+                let alert = UIAlertController(title: "PS Vita",
+                                              message: error.localizedDescription,
+                                              preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                self.present(alert, animated: true)
+            }
         }
     }
 #endif
