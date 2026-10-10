@@ -702,12 +702,25 @@ jobs:
           key: armsx2core-v2-ios-xcode26.6-67be95a2-${{ hashFiles('Scripts/build_armsx2_core.sh', 'Scripts/patch_armsx2_embedded.py', 'Scripts/armsx2/**') }}
 
       # Vita3K is a linked, GPL-licensed native framework, not a second IPA.
+      # Its runtime sources live in a Git submodule. hashFiles() of only the
+      # bridge/CMake files missed NativeFrontend.mm and SwiftUI edits, so Actions
+      # restored the original 688929d0 framework even for newer Vita commits.
+      # Key the cache on the actual checked-out submodule commit, not a partial
+      # subset of its source files.
+      - name: Identify embedded Vita3K source revision
+        id: vita-source
+        run: |
+          set -euo pipefail
+          REVISION="$(git -C Vendor/Tsubomi rev-parse HEAD)"
+          echo "sha=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "Building embedded Vita3K revision: $REVISION"
+
       - name: Restore compiled Vita3K runtime
         id: vita-runtime-cache
         uses: actions/cache/restore@v4
         with:
           path: Cores/Vita3KManicRuntime.framework
-          key: vita3k-manic-ios26-v3-${{ hashFiles('Vendor/Tsubomi/ios/CMakeLists.txt', 'Vendor/Tsubomi/ios/src/ManicRuntime.cpp', 'Vendor/Tsubomi/ios/include/vita3k_ios/ManicRuntime.h', 'Scripts/build_vita3k_runtime.sh') }}
+          key: vita3k-manic-ios26-v4-${{ steps.vita-source.outputs.sha }}-${{ hashFiles('Scripts/build_vita3k_runtime.sh') }}
 
       - name: Restore Vita3K vcpkg package cache
         if: steps.vita-runtime-cache.outputs.cache-hit != 'true'
@@ -729,7 +742,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: Cores/Vita3KManicRuntime.framework
-          key: vita3k-manic-ios26-v3-${{ hashFiles('Vendor/Tsubomi/ios/CMakeLists.txt', 'Vendor/Tsubomi/ios/src/ManicRuntime.cpp', 'Vendor/Tsubomi/ios/include/vita3k_ios/ManicRuntime.h', 'Scripts/build_vita3k_runtime.sh') }}
+          key: vita3k-manic-ios26-v4-${{ steps.vita-source.outputs.sha }}-${{ hashFiles('Scripts/build_vita3k_runtime.sh') }}
 
       - name: Validate Vita3K framework and update Manic link settings
         run: |
