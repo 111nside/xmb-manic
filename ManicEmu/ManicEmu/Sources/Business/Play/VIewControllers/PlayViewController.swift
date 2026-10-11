@@ -516,6 +516,12 @@ class PlayViewController: GameViewController {
         loadSaveState = saveState
         modalPresentationStyle = .fullScreen
         delegate = self
+        // GameViewController resolves the bridge when the DeltaCore game is assigned.
+        // Select Citra/Azahar first, so switching cores cannot retain the previous
+        // 3DS bridge and drop on-screen controller input.
+        if game.gameType == ._3ds {
+            ThreeDS.isAzaharCore = game.isAzahar3DS
+        }
         self.game = DeltaCore.Game(fileURL: game.romUrl, type: game.gameType)
         if game.gameType == .wii {
             WiiDiagnosticLog.begin(game: game)
