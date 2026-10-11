@@ -16,7 +16,10 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26-intel
-    timeout-minutes: 150
+    # First builds of native Vita3K may spend an hour compiling the core
+    # before Xcode even begins its full Swift application build. The former
+    # 150-minute cap cancelled Xcode midway through compilation.
+    timeout-minutes: 350
 
     steps:
       - name: Checkout source (no LFS)
@@ -751,6 +754,9 @@ jobs:
           test -f Cores/Vita3KManicRuntime.framework/Headers/ManicRuntime.h
           nm -gU Cores/Vita3KManicRuntime.framework/Vita3KManicRuntime > "$RUNNER_TEMP/vita3k-validation-symbols.txt"
           grep -Fq '_manic_vita3k_run' "$RUNNER_TEMP/vita3k-validation-symbols.txt"
+          # Reject a stale or mismatched framework before compiling the app.
+          grep -Fq '_manic_vita3k_enqueue_import' "$RUNNER_TEMP/vita3k-validation-symbols.txt"
+          grep -Fq '_manic_vita3k_take_import' "$RUNNER_TEMP/vita3k-validation-symbols.txt"
           python3 Scripts/vita/patch_manic_project.py
           python3 Scripts/vita/patch_xmb_home.py
           plutil -lint ManicEmu/ManicEmu.xcodeproj/project.pbxproj
