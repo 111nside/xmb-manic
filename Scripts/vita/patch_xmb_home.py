@@ -70,7 +70,7 @@ height_insert = '''#if SIDE_LOAD
 '''
 inject(height_marker, height_insert)
 
-method = '''#if SIDE_LOAD
+method = r'''#if SIDE_LOAD
     // UIKit dialogs and Files pickers must be presented outside Vita3K's
     // synchronous SDL callback. The embedded core is only entered for a
     // one-shot install or for actual gameplay.
