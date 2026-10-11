@@ -20,7 +20,7 @@ def inject(marker: str, body: str):
 
 button = '''#if SIDE_LOAD
     private lazy var vita3KButton = makeProfileMenuButton(title: "PS Vita",
-                                                          subtitle: "Open the native Vita3K game library and firmware installer",
+                                                          subtitle: "Play installed titles and import files through XMB",
                                                           symbol: "gamecontroller.fill") { [weak self] in
         self?.openVita3KLibrary()
     }
@@ -71,28 +71,74 @@ height_insert = '''#if SIDE_LOAD
 inject(height_marker, height_insert)
 
 method = '''#if SIDE_LOAD
-    // Starting a nested SDL/UIKit run loop from inside the button's touch
-    // handler traps the original touch dispatch on the stack. Give UIKit a
-    // normal turn to finish that event before handing off to the Vita frontend.
+    // UIKit dialogs and Files pickers must be presented outside Vita3K's
+    // synchronous SDL callback. The embedded core is only entered for a
+    // one-shot install or for actual gameplay.
     private var vita3KLaunchPending = false
+
+    private func vitaMessage(_ title: String, _ message: String) {
+        guard view.window != nil else { return }
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    private func runVitaOperation(_ operation: @escaping () throws -> String) {
+        guard !vita3KLaunchPending, !ManicVitaBridge.shared.isRunning else { return }
+        vita3KLaunchPending = true
+        // The action sheet needs to finish its dismissal before SDL makes its
+        // own window key. Keep this launch off the original button callback.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            defer { self.vita3KLaunchPending = false }
+            do {
+                let message = try operation()
+                if !message.isEmpty {
+                    self.vitaMessage("PS Vita", message)
+                }
+            } catch {
+                self.vitaMessage("PS Vita", error.localizedDescription)
+            }
+        }
+    }
 
     private func openVita3KLibrary() {
         guard !vita3KLaunchPending, !ManicVitaBridge.shared.isRunning else { return }
-        vita3KLaunchPending = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self else { return }
-            self.vita3KLaunchPending = false
-            guard !ManicVitaBridge.shared.isRunning else { return }
-            do {
-                try ManicVitaBridge.shared.openNativeLibrary()
-            } catch {
-                let alert = UIAlertController(title: "PS Vita",
-                                              message: error.localizedDescription,
-                                              preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .default))
-                self.present(alert, animated: true)
-            }
+        let games = ManicVitaBridge.shared.installedTitles()
+        let pending = ManicVitaBridge.shared.pendingImportCount
+        let hint = games.isEmpty
+            ? "No Vita games installed. Import a .PUP firmware or game archive using Manic's Files picker."
+            : "Choose an installed Vita game to launch."
+        let message = pending > 0 ? hint + "\n\(pending) file(s) queued for installation." : hint
+        let menu = UIAlertController(title: "PS Vita Library", message: message,
+                                     preferredStyle: .actionSheet)
+
+        for game in games.prefix(30) {
+            menu.addAction(UIAlertAction(title: "Play \(game.name)", style: .default) { [weak self] _ in
+                self?.runVitaOperation {
+                    try ManicVitaBridge.shared.launch(titleID: game.titleID)
+                    return ""
+                }
+            })
         }
+        menu.addAction(UIAlertAction(title: "Import Vita File", style: .default) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                self?.importVitaFile()
+            }
+        })
+        if pending > 0 {
+            menu.addAction(UIAlertAction(title: "Install \(pending) Queued File(s)", style: .default) { [weak self] _ in
+                self?.runVitaOperation {
+                    try ManicVitaBridge.shared.installQueuedFiles()
+                }
+            })
+        }
+        menu.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = menu.popoverPresentationController {
+            popover.sourceView = vita3KButton
+            popover.sourceRect = vita3KButton.bounds
+        }
+        present(menu, animated: true)
     }
 #endif
 
@@ -122,7 +168,7 @@ import_method = '''#if SIDE_LOAD
                     UIView.hideLoading()
                     guard let self else { return }
                     self.vitaFileImportPending = false
-                    let message = error ?? "Vita file queued. Open PS Vita to install it."
+                    let message = error ?? "File queued. Open PS Vita, then choose Install Queued Files."
                     let alert = UIAlertController(title: error == nil ? "Vita Import Ready" : "Vita Import Failed",
                                                   message: message, preferredStyle: .alert)
                     alert.addAction(UIAlertAction(title: "OK", style: .default))
