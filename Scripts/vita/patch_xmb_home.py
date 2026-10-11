@@ -29,6 +29,17 @@ button = '''#if SIDE_LOAD
     '''
 inject("private lazy var ps2MemoryCardsButton =", button)
 
+import_button = '''#if SIDE_LOAD
+    private lazy var vitaImportButton = makeProfileMenuButton(title: "Import Vita File",
+                                                               subtitle: "Choose firmware or game archives using Manic's Files picker",
+                                                               symbol: "square.and.arrow.down") { [weak self] in
+        self?.importVitaFile()
+    }
+#endif
+
+    '''
+inject("private lazy var ps2MemoryCardsButton =", import_button)
+
 diagnostics_button = '''#if SIDE_LOAD
     private lazy var vitaDiagnosticsButton = makeProfileMenuButton(title: "Vita Diagnostics",
                                                                    subtitle: "Share the embedded Vita UI and runtime logs",
@@ -43,7 +54,8 @@ inject("private lazy var ps2MemoryCardsButton =", diagnostics_button)
 stack_marker = "        profileMenuStack.axis = .vertical\n"
 stack_insert = '''#if SIDE_LOAD
         profileMenuStack.insertArrangedSubview(vita3KButton, at: 1)
-        profileMenuStack.insertArrangedSubview(vitaDiagnosticsButton, at: 2)
+        profileMenuStack.insertArrangedSubview(vitaImportButton, at: 2)
+        profileMenuStack.insertArrangedSubview(vitaDiagnosticsButton, at: 3)
 #endif
 '''
 inject(stack_marker, stack_insert)
@@ -51,6 +63,7 @@ inject(stack_marker, stack_insert)
 height_marker = "        view.addSubview(actionContainerView)\n"
 height_insert = '''#if SIDE_LOAD
         vita3KButton.snp.makeConstraints { $0.height.equalTo(58) }
+        vitaImportButton.snp.makeConstraints { $0.height.equalTo(58) }
         vitaDiagnosticsButton.snp.makeConstraints { $0.height.equalTo(58) }
 #endif
 
@@ -85,6 +98,47 @@ method = '''#if SIDE_LOAD
 
     '''
 inject("private func openPS2MemoryCards() {", method)
+
+import_method = '''#if SIDE_LOAD
+    // Open Files from the original XMB screen before entering Vita's nested
+    // SDL event pump. UIKit cannot reliably show a new system document picker
+    // from inside the embedded Vita onboarding UI.
+    private var vitaFileImportPending = false
+
+    private func importVitaFile() {
+        guard !vitaFileImportPending, !ManicVitaBridge.shared.isRunning else { return }
+        vitaFileImportPending = true
+        FilesImporter.shared.presentImportController(
+            supportedTypes: [.data],
+            allowsMultipleSelection: false,
+            manualHandle: { [weak self] urls in
+                guard let self else { return }
+                guard let selected = urls.first else {
+                    self.vitaFileImportPending = false
+                    return
+                }
+                UIView.makeLoading()
+                ManicVitaBridge.shared.queueImport(from: selected) { [weak self] error in
+                    UIView.hideLoading()
+                    guard let self else { return }
+                    self.vitaFileImportPending = false
+                    let message = error ?? "Vita file queued. Open PS Vita to install it."
+                    let alert = UIAlertController(title: error == nil ? "Vita Import Ready" : "Vita Import Failed",
+                                                  message: message, preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self.present(alert, animated: true)
+                }
+            },
+            cancelHandle: { [weak self] in
+                self?.vitaFileImportPending = false
+            },
+            appControllerPresent: true
+        )
+    }
+#endif
+
+    '''
+inject("private func openPS2MemoryCards() {", import_method)
 
 diagnostics_method = '''#if SIDE_LOAD
     private func shareVitaDiagnostics() {
