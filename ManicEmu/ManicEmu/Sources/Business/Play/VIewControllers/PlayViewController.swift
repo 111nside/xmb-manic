@@ -3136,7 +3136,32 @@ extension PlayViewController {
     private func updateLibretroViews() {
         guard manicGame.isLibretroType else { return }
         
-        if manicGame.gameType.supportsKeyboardSkin {
+        if manicGame.isCitra3DS {
+            // Native Citra receives its touchscreen directly from the Metal view,
+            // but the on-screen 3DS buttons may not have a working DeltaCore
+            // receiver after a core switch. Route digital skin buttons to the
+            // running Citra bridge explicitly and consume them only once.
+            // Keep the menu and skin-switch buttons on Manic's normal route.
+            controllerView.allowTapThroughIfButtonNotHit = true
+            controllerView.activateButtonInputInterception = { input in
+                guard let button = ThreeDSGameInput(stringValue: input.stringValue) else { return false }
+                switch button {
+                case .menu, .home, .flex: return false
+                default:
+                    ThreeDSEmulatorBridge.shared.activateInput(button.rawValue, value: 1, playerIndex: 0)
+                    return true
+                }
+            }
+            controllerView.deactivateButtonInputInterception = { input in
+                guard let button = ThreeDSGameInput(stringValue: input.stringValue) else { return false }
+                switch button {
+                case .menu, .home, .flex: return false
+                default:
+                    ThreeDSEmulatorBridge.shared.deactivateInput(button.rawValue, playerIndex: 0)
+                    return true
+                }
+            }
+        } else if manicGame.gameType.supportsKeyboardSkin {
             controllerView.allowTapThroughIfButtonNotHit = true
             ExternalGameControllerManager.shared.isKeyboardInputEnabled = false
             if let skin = controllerView.controllerSkin,
