@@ -319,6 +319,13 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
         self.bottomRect = bottomRect
         self.gameURL = gameURL
         self.isAdvancedMode = advancedMode
+        // Skin input can arrive while the core is booting. Do not disable the
+        // entire controller for an arbitrary 3.25-second window: on some iOS
+        // builds the delayed enable leaves every virtual button unresponsive.
+        enableControl = true
+        thumbstickPosition = .zero
+        cstickPosition = .zero
+        touchPosition = .zero
         var appendConfig: [String: Any] = ["ManicEMU.audioMuted": mute, "ManicEMU.resolutionFactor": resolution.rawValue < GameOption.Resolution.one.rawValue ? 1 : resolution.rawValue]
         if jit {
             appendConfig["ManicEMU.cpuJIT"] = true
@@ -379,7 +386,6 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
                 with: UIDevice.currentOrientation,
                 metalView: metalView
             )
-            self.enableControl = true
         }
     }
     
@@ -389,6 +395,7 @@ class ThreeDSEmulatorBridge : EmulatorBridgeBase {
     }
     
     override func stop() {
+        enableControl = false
         citraCore.stop()
     }
     
