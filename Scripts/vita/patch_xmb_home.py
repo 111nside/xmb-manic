@@ -145,41 +145,85 @@ method = r'''#if SIDE_LOAD
     '''
 inject("private func openPS2MemoryCards() {", method)
 
-import_method = '''#if SIDE_LOAD
-    // Open Files from the original XMB screen before entering Vita's nested
-    // SDL event pump. UIKit cannot reliably show a new system document picker
-    // from inside the embedded Vita onboarding UI.
+picker_delegate = '''#if SIDE_LOAD
+// Keep the UIKit document-picker delegate alive for its entire presentation.
+// The former shared FilesImporter chose a different presenting controller when
+// Vita3K had previously made an SDL window key.
+private final class XMBVitaPickerDelegate: NSObject, UIDocumentPickerDelegate {
+    let onPick: ([URL]) -> Void
+    let onCancel: () -> Void
+
+    init(onPick: @escaping ([URL]) -> Void, onCancel: @escaping () -> Void) {
+        self.onPick = onPick
+        self.onCancel = onCancel
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController,
+                        didPickDocumentsAt urls: [URL]) {
+        onPick(urls)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        onCancel()
+    }
+}
+#endif
+
+'''
+inject("class HomeViewController: BaseViewController {", picker_delegate)
+
+import_method = r'''#if SIDE_LOAD
+    // Present Files from the visible Manic XMB view controller, not from a
+    // shared/root presenter that may still point at Vita3K's SDL UIWindow.
     private var vitaFileImportPending = false
+    private var vitaFilePickerDelegate: XMBVitaPickerDelegate?
 
     private func importVitaFile() {
         guard !vitaFileImportPending, !ManicVitaBridge.shared.isRunning else { return }
+        // The PS Vita Library action sheet may still be dismissing. Never
+        // attempt a second modal presentation on top of an active action sheet.
+        if let activeModal = presentedViewController {
+            activeModal.dismiss(animated: true) { [weak self] in
+                self?.importVitaFile()
+            }
+            return
+        }
+        guard viewIfLoaded?.window != nil else { return }
+
         vitaFileImportPending = true
-        FilesImporter.shared.presentImportController(
-            supportedTypes: [.data],
-            allowsMultipleSelection: false,
-            manualHandle: { [weak self] urls in
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item],
+                                                     asCopy: true)
+        picker.allowsMultipleSelection = false
+        vitaFilePickerDelegate = XMBVitaPickerDelegate(
+            onPick: { [weak self] urls in
                 guard let self else { return }
+                self.vitaFilePickerDelegate = nil
                 guard let selected = urls.first else {
                     self.vitaFileImportPending = false
                     return
                 }
                 UIView.makeLoading()
                 ManicVitaBridge.shared.queueImport(from: selected) { [weak self] error in
-                    UIView.hideLoading()
-                    guard let self else { return }
-                    self.vitaFileImportPending = false
-                    let message = error ?? "File queued. Open PS Vita, then choose Install Queued Files."
-                    let alert = UIAlertController(title: error == nil ? "Vita Import Ready" : "Vita Import Failed",
-                                                  message: message, preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    self.present(alert, animated: true)
+                    DispatchQueue.main.async {
+                        UIView.hideLoading()
+                        guard let self else { return }
+                        self.vitaFileImportPending = false
+                        let title = error == nil ? "Vita Import Ready" : "Vita Import Failed"
+                        let message = error ?? "File queued. Open PS Vita, then choose Install Queued Files."
+                        // UIKit may still be dismissing the Files sheet here.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                            self?.vitaMessage(title, message)
+                        }
+                    }
                 }
             },
-            cancelHandle: { [weak self] in
+            onCancel: { [weak self] in
+                self?.vitaFilePickerDelegate = nil
                 self?.vitaFileImportPending = false
-            },
-            appControllerPresent: true
+            }
         )
+        picker.delegate = vitaFilePickerDelegate
+        present(picker, animated: true)
     }
 #endif
 
