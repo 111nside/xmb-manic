@@ -1219,6 +1219,16 @@ class PlayViewController: GameViewController {
         }
         
         guard !isPaused || input.stringValue == "menu" else { return }
+        // Thumbstick and touchscreen axes require their fractional values;
+        // digital skin buttons are handled by button interception.
+        if manicGame.isCitra3DS,
+           (gameController as AnyObject) === controllerView,
+           let threeDSInput = ThreeDSGameInput(stringValue: input.stringValue),
+           threeDSInput.isContinuous {
+            ThreeDSEmulatorBridge.shared.activateInput(threeDSInput.rawValue,
+                                                       value: value, playerIndex: 0)
+            return
+        }
         if let directKeyboardInput = input as? AnyInput,
            directKeyboardInput.type == .controller(GameControllerInputType("directKeyboard")) {
             if manicGame.isRuffleCore,
@@ -1240,6 +1250,14 @@ class PlayViewController: GameViewController {
             DispatchQueue.main.async { [weak self] in
                 self?.gameController(gameController, didDeactivate: input)
             }
+            return
+        }
+        if manicGame.isCitra3DS,
+           (gameController as AnyObject) === controllerView,
+           let threeDSInput = ThreeDSGameInput(stringValue: input.stringValue),
+           threeDSInput.isContinuous {
+            ThreeDSEmulatorBridge.shared.deactivateInput(threeDSInput.rawValue,
+                                                         playerIndex: 0)
             return
         }
         if let directKeyboardInput = input as? AnyInput,
@@ -3087,6 +3105,11 @@ extension PlayViewController {
         guard let frames = controllerSkin.getFrames() else { return }
         guard let touchGameViewFrame = frames.touchGameViewFrame else { return }
         
+        // Citra's virtual skin inputs have their own single receiver.
+        // External controllers remain attached to emulatorCore.
+        if let emulatorCore {
+            controllerView.removeReceiver(emulatorCore)
+        }
         Log.debug("更新3DS视图 frames:\(frames)")
         if let gameMetalView {
             if gameMetalView.superview == view {
@@ -3145,8 +3168,10 @@ extension PlayViewController {
             controllerView.allowTapThroughIfButtonNotHit = true
             controllerView.activateButtonInputInterception = { input in
                 guard let button = ThreeDSGameInput(stringValue: input.stringValue) else { return false }
+                // Analog sticks and touchscreen axes need the real values.
+                guard !button.isContinuous else { return false }
                 switch button {
-                case .menu, .home, .flex: return false
+                case .menu, .home, .flex, .CirclePad, .CStick: return false
                 default:
                     ThreeDSEmulatorBridge.shared.activateInput(button.rawValue, value: 1, playerIndex: 0)
                     return true
@@ -3154,8 +3179,10 @@ extension PlayViewController {
             }
             controllerView.deactivateButtonInputInterception = { input in
                 guard let button = ThreeDSGameInput(stringValue: input.stringValue) else { return false }
+                // Analog sticks and touchscreen axes need the real values.
+                guard !button.isContinuous else { return false }
                 switch button {
-                case .menu, .home, .flex: return false
+                case .menu, .home, .flex, .CirclePad, .CStick: return false
                 default:
                     ThreeDSEmulatorBridge.shared.deactivateInput(button.rawValue, playerIndex: 0)
                     return true
